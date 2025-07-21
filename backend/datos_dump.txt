@@ -1,0 +1,83 @@
+
+==== 🔑 USUARIOS ====
+ID: 1 | Email: juana@example.com | Tipo: admin
+ID: 2 | Email: nachoAdmin@nacho.com | Tipo: admin
+ID: 3 | Email: admin@condor.com | Tipo: admin
+ID: 4 | Email: nuevo@condor.com | Tipo: jugador
+ID: 5 | Email: nacho@nacho.com | Tipo: jugador
+ID: 6 | Email: giuli@g.com | Tipo: admin
+ID: 7 | Email: luci@admin.com | Tipo: jugador
+
+==== 🎾 TURNOS ====
+ID: 1 | Fecha: 2025-07-01 14:00:00 | Usuario: None | Estado: disponible
+ID: 2 | Fecha: 2025-07-01 15:00:00 | Usuario: None | Estado: disponible
+ID: 3 | Fecha: 2025-07-01 16:00:00 | Usuario: None | Estado: disponible
+ID: 4 | Fecha: 2025-07-01 17:00:00 | Usuario: None | Estado: disponible
+ID: 5 | Fecha: 2025-07-08 14:00:00 | Usuario: None | Estado: disponible
+ID: 6 | Fecha: 2025-07-08 15:00:00 | Usuario: None | Estado: disponible
+ID: 7 | Fecha: 2025-07-08 16:00:00 | Usuario: None | Estado: disponible
+ID: 8 | Fecha: 2025-07-08 17:00:00 | Usuario: None | Estado: disponible
+ID: 9 | Fecha: 2025-07-15 14:00:00 | Usuario: None | Estado: disponible
+ID: 10 | Fecha: 2025-07-15 15:00:00 | Usuario: None | Estado: disponible
+ID: 11 | Fecha: 2025-07-15 16:00:00 | Usuario: None | Estado: disponible
+ID: 12 | Fecha: 2025-07-15 17:00:00 | Usuario: None | Estado: disponible
+ID: 13 | Fecha: 2025-07-22 14:00:00 | Usuario: None | Estado: disponible
+ID: 14 | Fecha: 2025-07-22 15:00:00 | Usuario: None | Estado: disponible
+ID: 15 | Fecha: 2025-07-22 16:00:00 | Usuario: None | Estado: disponible
+ID: 16 | Fecha: 2025-07-22 17:00:00 | Usuario: None | Estado: disponible
+ID: 17 | Fecha: 2025-07-29 14:00:00 | Usuario: None | Estado: disponible
+ID: 18 | Fecha: 2025-07-29 15:00:00 | Usuario: None | Estado: disponible
+ID: 19 | Fecha: 2025-07-29 16:00:00 | Usuario: None | Estado: disponible
+ID: 20 | Fecha: 2025-07-29 17:00:00 | Usuario: None | Estado: disponible
+ID: 21 | Fecha: 2025-07-04 10:00:00 | Usuario: None | Estado: disponible
+ID: 22 | Fecha: 2025-07-04 11:00:00 | Usuario: None | Estado: disponible
+ID: 23 | Fecha: 2025-07-04 12:00:00 | Usuario: None | Estado: disponible
+ID: 24 | Fecha: 2025-07-11 10:00:00 | Usuario: None | Estado: disponible
+ID: 25 | Fecha: 2025-07-11 11:00:00 | Usuario: None | Estado: disponible
+ID: 26 | Fecha: 2025-07-11 12:00:00 | Usuario: None | Estado: disponible
+ID: 27 | Fecha: 2025-07-18 10:00:00 | Usuario: None | Estado: disponible
+ID: 28 | Fecha: 2025-07-18 11:00:00 | Usuario: None | Estado: disponible
+ID: 29 | Fecha: 2025-07-18 12:00:00 | Usuario: None | Estado: disponible
+ID: 30 | Fecha: 2025-07-25 10:00:00 | Usuario: None | Estado: disponible
+ID: 31 | Fecha: 2025-07-25 11:00:00 | Usuario: None | Estado: disponible
+ID: 32 | Fecha: 2025-07-25 12:00:00 | Usuario: None | Estado: disponible
+ID: 33 | Fecha: 2025-07-02 16:00:00 | Usuario: None | Estado: disponible
+ID: 34 | Fecha: 2025-07-02 17:00:00 | Usuario: None | Estado: disponible
+ID: 35 | Fecha: 2025-07-02 18:00:00 | Usuario: None | Estado: disponible
+ID: 36 | Fecha: 2025-07-02 19:00:00 | Usuario: None | Estado: disponible
+ID: 37 | Fecha: 2025-07-09 16:00:00 | Usuario: None | Estado: disponible
+ID: 38 | Fecha: 2025-07-09 17:00:00 | Usuario: None | Estado: disponible
+ID: 39 | Fecha: 2025-07-09 18:00:00 | Usuario: None | Estado: disponible
+ID: 40 | Fecha: 2025-07-09 19:00:00 | Usuario: None | Estado: disponible
+ID: 41 | Fecha: 2025-07-16 16:00:00 | Usuario: None | Estado: disponible
+ID: 42 | Fecha: 2025-07-16 17:00:00 | Usuario: None | Estado: disponible
+ID: 43 | Fecha: 2025-07-16 18:00:00 | Usuario: None | Estado: disponible
+ID: 44 | Fecha: 2025-07-16 19:00:00 | Usuario: None | Estado: disponible
+ID: 45 | Fecha: 2025-07-23 16:00:00 | Usuario: None | Estado: disponible
+ID: 46 | Fecha: 2025-07-23 17:00:00 | Usuario: None | Estado: disponible
+ID: 47 | Fecha: 2025-07-23 18:00:00 | Usuario: None | Estado: disponible
+ID: 48 | Fecha: 2025-07-23 19:00:00 | Usuario: None | Estado: disponible
+ID: 49 | Fecha: 2025-07-30 16:00:00 | Usuario: None | Estado: disponible
+ID: 50 | Fecha: 2025-07-30 17:00:00 | Usuario: None | Estado: disponible
+ID: 51 | Fecha: 2025-07-30 18:00:00 | Usuario: None | Estado: disponible
+ID: 52 | Fecha: 2025-07-30 19:00:00 | Usuario: None | Estado: disponible
+ID: 53 | Fecha: 2025-07-05 09:00:00 | Usuario: None | Estado: disponible
+ID: 54 | Fecha: 2025-07-05 10:00:00 | Usuario: None | Estado: disponible
+ID: 55 | Fecha: 2025-07-05 11:00:00 | Usuario: None | Estado: disponible
+ID: 56 | Fecha: 2025-07-12 09:00:00 | Usuario: None | Estado: disponible
+ID: 57 | Fecha: 2025-07-12 10:00:00 | Usuario: None | Estado: disponible
+ID: 58 | Fecha: 2025-07-12 11:00:00 | Usuario: None | Estado: disponible
+ID: 59 | Fecha: 2025-07-19 09:00:00 | Usuario: None | Estado: disponible
+ID: 60 | Fecha: 2025-07-19 10:00:00 | Usuario: None | Estado: disponible
+ID: 61 | Fecha: 2025-07-19 11:00:00 | Usuario: None | Estado: disponible
+ID: 62 | Fecha: 2025-07-26 09:00:00 | Usuario: None | Estado: disponible
+ID: 63 | Fecha: 2025-07-26 10:00:00 | Usuario: None | Estado: disponible
+ID: 64 | Fecha: 2025-07-26 11:00:00 | Usuario: None | Estado: disponible
+
+==== 📍 LUGARES ====
+ID: 1 | Nombre: Sede Palermo | Dirección: Av. Córdoba 1234
+ID: 2 | Nombre: Sede Belgrano | Dirección: Juramento 4567
+
+==== 📄 COMPROBANTES ====
+
+==== ⚙️ CONFIGURACION DE PAGO ====

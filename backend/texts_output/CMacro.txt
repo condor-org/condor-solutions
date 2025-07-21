@@ -1,0 +1,28 @@
+Transferencia a terceros Otro Banco
+CBU/CVU destino
+BancoNúmero de Operación
+Fecha y hora
+Datos de la Operación
+Cuenta origen
+Importe02:33 PM 04/07/2025206939382
+$ 2,420,000.00CC $ 351409420892947
+CUIT / CUILTitular de la cuenta
+27262942428PANDOLFI ROSARIO
+Tipo de cuenta Es otra cuenta no propia
+Ejecución Inmediata
+Concepto Varios
+Referencia xx072072020658800003734537267668790 Nro. de Referencia
+Banco Macro S.A.
+Av. Eduardo Madero 1182 - C1106ACY - Ciudad Autónoma de
+Buenos Aires
+IVA RI: CUIT N° 30-50001008-4 - IIBB: 901-865.589-2
+Ordenante
+NB AGRO SRL
+INTE TARIGO 1655 CP:7245 ROQUE PEREZ
+INSC - RESPONSABLE INSCRIPTOCUIT/CUIL 30717369080
+IMPORTE A TRANSFERIR $ 2,420,000.00
+COMISION $ 100.00
+I.V.A. DEBITO FISCAL $ 21.00
+ S.E.U.OImporte total $ 2,420,121.00
+La transferencia se envió correctamente y se encuentra en proceso del Banco de destino.
+Podrás verificar el estado final de la misma en el plazo de 1 hora.

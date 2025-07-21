@@ -1,0 +1,16 @@
+Comprobante de transferencia
+Miércoles, 18 de junio de 2025 a las 20:29 hs
+$ 14.000
+Motivo: Varios
+De
+Ignacio Javier Luque
+CUIT/CUIL: 20-36357044-6
+Mercado Pago
+CVU: 0000003100072077739741
+Para
+Rolando Forastiero
+CUIT/CUIL: 20-38232113-9
+Mercado Pago
+CVU: 0000003100007805853446
+Número de operación de Mercado Pago
+115608721914

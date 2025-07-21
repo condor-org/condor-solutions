@@ -1,0 +1,41 @@
+# backend/requirements.txt (actualizado)
+
+# Core Django
+Django>=4.0,<5.0
+djangorestframework
+django-filter
+
+
+
+# Autenticación
+djangorestframework-simplejwt
+
+# Procesamiento de imágenes / PDFs
+pillow
+pytesseract
+PyPDF2>=3.0.0
+
+# Servidor WSGI
+gunicorn
+
+# Herramientas adicionales
+django-cors-headers
+dj-database-url
+python-decouple
+drf-yasg
+drf-spectacular
+drf-nested-routers
+
+
+
+
+# PostgreSQL
+psycopg2-binary
+
+# Tareas asíncronas (colas)
+celery
+
+# Testing
+pytest
+pytest-django
+

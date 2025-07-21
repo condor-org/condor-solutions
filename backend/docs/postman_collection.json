@@ -1,0 +1,121 @@
+{
+  "info": {
+    "name": "Condor API – Administración",
+    "_postman_id": "f3e30e00-condor-full",
+    "description": "Colección para probar los endpoints de turnos, disponibilidades y comprobantes del sistema Cóndor.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Generar Turnos del Mes",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"anio\": 2025,\n  \"mes\": 7,\n  \"duracion_minutos\": 60,\n  \"profesor_id\": 3\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/turnos/generar/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "turnos", "generar"]
+        }
+      }
+    },
+    {
+      "name": "Consultar Disponibilidades por Profesor",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/profesores/3/disponibilidades/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "profesores", "3", "disponibilidades"]
+        }
+      }
+    },
+    {
+      "name": "Reservar Turno con Comprobante",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "turno_id",
+              "value": "45",
+              "type": "text"
+            },
+            {
+              "key": "archivo",
+              "type": "file",
+              "src": ""
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/api/turnos/reservar/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "turnos", "reservar"]
+        }
+      }
+    },
+    {
+      "name": "Descargar Comprobante",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/comprobantes/12/descargar/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "comprobantes", "12", "descargar"]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "token",
+      "value": "coloca_tu_token_aquí"
+    }
+  ]
+}
