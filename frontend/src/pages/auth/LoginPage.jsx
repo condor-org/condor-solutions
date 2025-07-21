@@ -1,15 +1,15 @@
 // src/pages/auth/LoginPage.jsx
 
-import React, { useContext, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../../auth/AuthContext";
 import { toast } from "react-toastify";
-import { Box, Heading, Text, useColorModeValue, Link } from "@chakra-ui/react";
+import { Box, Heading, Text, useColorModeValue } from "@chakra-ui/react";
 import Button from "../../components/ui/Button";
 import Input from "../../components/ui/Input";
 
 const LoginPage = () => {
-  const { login } = useContext(AuthContext);
+  const { login, user } = useContext(AuthContext);
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
@@ -23,15 +23,19 @@ const LoginPage = () => {
     try {
       await login(email, password);
       toast.success("Inicio de sesión exitoso");
-
-      const tipo = JSON.parse(localStorage.getItem("user")).tipo_usuario;
-      navigate(tipo === "admin" ? "/admin" : "/jugador");
-
+      // Redirección gestionada por useEffect
     } catch {
       toast.error("Credenciales inválidas");
       setError("Credenciales inválidas");
     }
   };
+
+  useEffect(() => {
+    if (user?.tipo_usuario) {
+      const destino = user.tipo_usuario === "admin" ? "/admin" : "/jugador";
+      navigate(destino);
+    }
+  }, [user, navigate]);
 
   const formBg = useColorModeValue("white", "gray.900");
   const textColor = useColorModeValue("gray.800", "white");

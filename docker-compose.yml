@@ -26,10 +26,12 @@ services:
     build:
       context: ./frontend
       dockerfile: docker/Dockerfile
+      args:
+        REACT_APP_API_BASE_URL: ${REACT_APP_API_BASE_URL}   # 🔥 Usa variable del .env root
     container_name: frontend_condor
     restart: always
-    environment:
-      - NODE_ENV=development
+    env_file:
+      - .env
     ports:
       - "80:80"
 
@@ -38,9 +40,9 @@ services:
     container_name: postgres_condor
     restart: always
     environment:
-      POSTGRES_DB: condor_db
-      POSTGRES_USER: condor_user
-      POSTGRES_PASSWORD: condor_password
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -52,7 +54,12 @@ services:
     restart: always
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
 
 volumes:
   postgres_data:
     name: condor_postgres_data
+
+  redis_data:
+    name: condor_redis_data

@@ -67,6 +67,7 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
   const isAuthenticated = !!accessToken;
 
   const logout = useCallback(() => {
+    console.log("[AUTH] Logout ejecutado.");
     setAccessToken(null);
     setUser(null);
     localStorage.clear();
@@ -75,14 +76,18 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
   }, [onLogoutNavigate]);
 
   const login = async (email, password) => {
+    console.log("[LOGIN] Intentando login con email:", email);
+
     try {
       const res = await axios.post(`${API_BASE_URL}/api/token/`, {
         email,
         password,
       });
+      console.log("[LOGIN] Token recibido:", res.data);
 
       const { access, refresh } = res.data;
       const decoded = jwtDecode(access);
+
       localStorage.setItem("access_exp", decoded.exp);
       localStorage.setItem("access", access);
       localStorage.setItem("refresh", refresh);
@@ -90,12 +95,17 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
       setAccessToken(access);
       axios.defaults.headers.common["Authorization"] = `Bearer ${access}`;
 
+      console.log("[LOGIN] Token guardado en localStorage y headers axios seteados.");
+
       const perfilRes = await axios.get(`${API_BASE_URL}/api/auth/yo/`);
       const userData = perfilRes.data;
       setUser(userData);
       localStorage.setItem("user", JSON.stringify(userData));
+
+      console.log("[LOGIN] Usuario seteado:", userData);
+
     } catch (err) {
-      console.error("Login failed:", err.response?.data || err.message);
+      console.error("[LOGIN ERROR]", err.response?.data || err.message);
       throw err;
     }
   };

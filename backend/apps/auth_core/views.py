@@ -1,3 +1,5 @@
+# apps/auth_core/views.py
+
 from rest_framework.generics import CreateAPIView
 from .serializers import RegistroSerializer, CustomTokenObtainPairSerializer, UsuarioSerializer
 from django.contrib.auth import get_user_model
@@ -8,6 +10,10 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from rest_framework import viewsets, permissions, filters
 from .models import Usuario
+
+import logging
+logger = logging.getLogger(__name__)
+
 
 User = get_user_model()
 
@@ -32,6 +38,9 @@ class MiPerfilView(APIView):
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+    def post(self, request, *args, **kwargs):
+        logger.debug(f"[TOKEN REQUEST] Datos recibidos: {request.data}")
+        return super().post(request, *args, **kwargs)
 
 class UsuarioViewSet(viewsets.ModelViewSet):
     queryset = Usuario.objects.all().order_by("id")

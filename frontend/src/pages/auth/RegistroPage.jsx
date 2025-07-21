@@ -1,3 +1,5 @@
+// src/pages/auth/RegistroPage.jsx
+
 import React, { useState } from "react";
 import { Box, Heading, Text, useColorModeValue } from "@chakra-ui/react";
 import { useNavigate } from "react-router-dom";
@@ -22,6 +24,11 @@ const RegistroPage = () => {
     e.preventDefault();
     setError("");
 
+    if (password.length < 8) {
+      toast.error("La contraseña debe tener al menos 8 caracteres.");
+      return;
+    }
+
     try {
       const res = await fetch("http://localhost:8000/api/auth/registro/", {
         method: "POST",
@@ -36,13 +43,21 @@ const RegistroPage = () => {
         }),
       });
 
+      const data = await res.json();
+
       if (!res.ok) {
-        throw new Error("Error en el registro");
+        console.error("Error en el registro:", data);
+        const errorMessage =
+          typeof data === "string"
+            ? data
+            : Object.values(data).flat().join(" | ") || "Error en el registro";
+        toast.error(errorMessage);
+        setError(errorMessage);
+        return;
       }
 
       toast.success("Registro exitoso");
       navigate("/login");
-
     } catch (err) {
       toast.error("No se pudo registrar el usuario");
       setError("No se pudo registrar el usuario");

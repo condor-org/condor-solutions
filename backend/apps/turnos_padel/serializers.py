@@ -1,6 +1,6 @@
 # apps/turnos_padel_core/serializers.py
 from rest_framework import serializers
-from apps.turnos_padel_core.models import Disponibilidad, Lugar, Profesor
+from apps.turnos_padel.models import Disponibilidad, Lugar, Profesor
 from apps.turnos_core.models import Turno
 
 

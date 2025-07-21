@@ -99,10 +99,12 @@ const UsuariosPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+  
     if (!nombre.trim()) {
       toast.error("El nombre es obligatorio");
       return;
     }
+  
     if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       toast.error("Ingresá un email válido.");
       return;
@@ -118,7 +120,15 @@ const UsuariosPage = () => {
       is_active: activo,
     };
   
-    if (!editingId && password) {
+    if (editingId) {
+      if (password.trim()) {
+        data.password = password;
+      }
+    } else {
+      if (!password.trim()) {
+        toast.error("La contraseña es obligatoria para crear un usuario.");
+        return;
+      }
       data.password = password;
     }
   
@@ -127,21 +137,27 @@ const UsuariosPage = () => {
         await api.put(`auth/usuarios/${editingId}/`, data);
         toast.success("Usuario actualizado");
       } else {
-        if (!password) {
-          toast.error("La contraseña es obligatoria para crear un usuario.");
-          return;
-        }
         await api.post("auth/usuarios/", data);
         toast.success("Usuario creado");
       }
+  
       onClose();
       resetForm();
       reloadUsuarios();
+  
     } catch (err) {
-      console.error("Detalle del error:", err.response?.data || err.message);  // <-- Agregado
-      toast.error("Error al guardar usuario");
+      console.error("Detalle del error:", err.response?.data || err.message);
+  
+      const errorResponse = err.response?.data;
+      const errorMessage =
+        typeof errorResponse === "string"
+          ? errorResponse
+          : Object.values(errorResponse).flat().join(" | ") || "Error al guardar usuario";
+  
+      toast.error(errorMessage);
     }
   };
+  
   
   const handleDelete = async (id, email) => {
     if (!window.confirm(`¿Eliminar el usuario "${email}"?`)) return;

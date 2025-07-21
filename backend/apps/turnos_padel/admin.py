@@ -3,7 +3,7 @@ from django.contrib import admin, messages
 from django.utils.html import format_html
 from django.utils.timezone import now
 from .models import Profesor, Disponibilidad
-from apps.turnos_padel_core.services.generador import generar_turnos_del_mes
+from apps.turnos_padel.services.generador import generar_turnos_del_mes
 
 
 @admin.register(Profesor)

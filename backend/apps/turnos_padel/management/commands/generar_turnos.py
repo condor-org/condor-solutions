@@ -1,7 +1,7 @@
 # apps/turnos_padel_core/management/commands/generar_turnos.py
 from django.core.management.base import BaseCommand
 from datetime import datetime
-from apps.turnos_padel_core.services.generador import generar_turnos_del_mes
+from apps.turnos_padel.services.generador import generar_turnos_del_mes
 
 
 class Command(BaseCommand):

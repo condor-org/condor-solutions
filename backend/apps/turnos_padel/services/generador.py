@@ -4,7 +4,7 @@ from calendar import monthrange
 from django.contrib.contenttypes.models import ContentType
 
 from apps.turnos_core.models import Turno
-from apps.turnos_padel_core.models import Disponibilidad, Profesor
+from apps.turnos_padel.models import Disponibilidad, Profesor
 from apps.turnos_core.utils import esta_bloqueado  # Importa la función util
 
 def generar_turnos_del_mes(anio, mes, duracion_minutos=60, profesor_id=None):

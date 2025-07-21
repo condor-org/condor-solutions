@@ -285,7 +285,7 @@ estas son las especificaciones del backend
 
 ---
 
-## 🧑‍🏫 Turnos Padel (apps.turnos_padel_core)
+## 🧑‍🏫 Turnos Padel (apps.turnos_padel)
 
 | Método | Endpoint                                                       | Descripción                                           |
 |--------|----------------------------------------------------------------|-------------------------------------------------------|
