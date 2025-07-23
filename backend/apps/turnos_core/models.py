@@ -1,3 +1,5 @@
+# apps/turnos_core/models.py
+
 from django.db import models
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
@@ -21,6 +23,7 @@ class Servicio(models.Model):
 
     def __str__(self):
         return f"{self.nombre} ({self.lugar})" if self.lugar else self.nombre
+
 
 class Turno(models.Model):
     ESTADOS = [
@@ -59,6 +62,7 @@ class Turno(models.Model):
             return f"{base} - {self.servicio}"
         return f"{base} en {self.recurso}"
 
+
 class Lugar(models.Model):
     nombre = models.CharField(max_length=100)
     direccion = models.TextField(blank=True, null=True)
@@ -67,6 +71,7 @@ class Lugar(models.Model):
 
     def __str__(self):
         return self.nombre
+
 
 class BloqueoTurnos(models.Model):
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
@@ -92,3 +97,44 @@ class BloqueoTurnos(models.Model):
     def __str__(self):
         lugar_str = self.lugar.nombre if self.lugar else "Todas las sedes"
         return f"Bloqueo para {self.recurso} en {lugar_str} del {self.fecha_inicio} al {self.fecha_fin}"
+
+
+class Prestador(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    cliente = models.ForeignKey("clientes_core.Cliente", on_delete=models.CASCADE, related_name="prestadores")
+    nombre_publico = models.CharField(max_length=150)
+    especialidad = models.CharField(max_length=100, blank=True, null=True)
+    foto = models.ImageField(upload_to="prestadores/fotos/", blank=True, null=True)
+    activo = models.BooleanField(default=True)
+
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.nombre_publico
+
+
+class Disponibilidad(models.Model):
+    prestador = models.ForeignKey("Prestador", on_delete=models.CASCADE, related_name="disponibilidades")
+    lugar = models.ForeignKey("Lugar", on_delete=models.CASCADE, related_name="disponibilidades_core")
+    dia_semana = models.IntegerField(choices=[
+        (0, "Lunes"),
+        (1, "Martes"),
+        (2, "Miércoles"),
+        (3, "Jueves"),
+        (4, "Viernes"),
+        (5, "Sábado"),
+        (6, "Domingo")
+    ])
+    hora_inicio = models.TimeField()
+    hora_fin = models.TimeField()
+    activo = models.BooleanField(default=True)
+
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("prestador", "lugar", "dia_semana", "hora_inicio", "hora_fin")
+
+    def __str__(self):
+        return f"{self.prestador} en {self.lugar} los {self.get_dia_semana_display()} de {self.hora_inicio} a {self.hora_fin}"

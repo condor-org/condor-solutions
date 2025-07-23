@@ -1,28 +1,43 @@
 # apps/turnos_core/views.py
+
 from rest_framework.generics import ListAPIView, CreateAPIView, ListCreateAPIView
-from rest_framework.permissions import IsAuthenticated, IsAdminUser, SAFE_METHODS
+from rest_framework.permissions import IsAuthenticated, SAFE_METHODS, BasePermission
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 from django.utils.dateparse import parse_date
 from django.contrib.contenttypes.models import ContentType
-from apps.turnos_core.models import Lugar
-from apps.turnos_core.serializers import LugarSerializer
-from drf_spectacular.utils import extend_schema, OpenApiParameter
-from rest_framework import viewsets, permissions
-from .models import BloqueoTurnos
-from .serializers import BloqueoTurnosSerializer
 from django.utils.timezone import now
 from django.db import models
+from rest_framework import viewsets, permissions
+from rest_framework.views import APIView
+from apps.turnos_core.services.turnos import generar_turnos_para_prestador
+from datetime import datetime
 
-from apps.turnos_core.models import Turno
+from drf_spectacular.utils import extend_schema, OpenApiParameter
+
+from apps.turnos_core.models import (
+    Lugar, BloqueoTurnos, Turno, Prestador, Disponibilidad
+)
 from apps.turnos_core.serializers import (
+    LugarSerializer,
+    BloqueoTurnosSerializer,
     TurnoSerializer,
     TurnoReservaSerializer,
     TurnoDisponibleSerializer,
+    PrestadorSerializer,
+    DisponibilidadSerializer
+)
+
+from apps.common.permissions import (
+    EsSuperAdmin,
+    EsAdminDeSuCliente,
+    EsPrestador,
+    EsDelMismoCliente,
 )
 
 
+# --- EXISTENTES ---
 class TurnoListView(ListAPIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -34,15 +49,16 @@ class TurnoListView(ListAPIView):
         if usuario.is_superuser:
             return Turno.objects.all().select_related("usuario", "servicio", "lugar")
 
-        if hasattr(usuario, "tipo_usuario") and usuario.tipo_usuario == "profesor":
+        if hasattr(usuario, "tipo_usuario") and usuario.tipo_usuario == "empleado_cliente":
             return Turno.objects.filter(
-                servicio__responsable=usuario
+                content_type=ContentType.objects.get_for_model(Prestador),
+                object_id__in=Prestador.objects.filter(user=usuario).values_list("id", flat=True)
             ).select_related("usuario", "servicio", "lugar")
 
-        # Si es jugador → devuelve solo sus turnos reservados
         return Turno.objects.filter(
             usuario=usuario
         ).select_related("usuario", "servicio", "lugar")
+
 
 class TurnoReservaView(CreateAPIView):
     authentication_classes = [JWTAuthentication]
@@ -91,7 +107,6 @@ class TurnosDisponiblesView(ListAPIView):
 
         qs = Turno.objects.filter(**filtros)
 
-        # 🔥 FILTRADO de turnos pasados y actuales
         ahora = now()
         fecha_actual = ahora.date()
         hora_actual = ahora.time()
@@ -103,22 +118,95 @@ class TurnosDisponiblesView(ListAPIView):
 
         return qs.order_by("fecha", "hora")
 
+
 # --- PERMISOS: GET cualquiera autenticado, el resto solo admin ---
-class SoloAdminEditar(IsAdminUser):
+class SoloAdminEditar(BasePermission):
     def has_permission(self, request, view):
         if request.method in SAFE_METHODS:
-            return request.user and request.user.is_authenticated
-        return super().has_permission(request, view)
+            return request.user.is_authenticated
+        return request.user.is_authenticated and (
+            request.user.tipo_usuario in {"super_admin", "admin_cliente"}
+        )
 
 
 class LugarViewSet(viewsets.ModelViewSet):
     queryset = Lugar.objects.all()
     serializer_class = LugarSerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [SoloAdminEditar]  # Cambiado acá
+    permission_classes = [SoloAdminEditar]
 
 
 class BloqueoTurnosViewSet(viewsets.ModelViewSet):
     queryset = BloqueoTurnos.objects.all()
     serializer_class = BloqueoTurnosSerializer
-    permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
+    permission_classes = [IsAuthenticated, EsSuperAdmin | EsAdminDeSuCliente]
+
+
+# --- NUEVAS VISTAS ---
+
+class PrestadorViewSet(viewsets.ModelViewSet):
+    serializer_class = PrestadorSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente | EsPrestador)]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.tipo_usuario == "super_admin":
+            return Prestador.objects.all()
+
+        if user.tipo_usuario == "admin_cliente":
+            return Prestador.objects.filter(cliente=user.cliente)
+
+        if user.tipo_usuario == "empleado_cliente":
+            return Prestador.objects.filter(user=user)
+
+        return Prestador.objects.none()
+
+
+class DisponibilidadViewSet(viewsets.ModelViewSet):
+    serializer_class = DisponibilidadSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente | EsPrestador)]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.tipo_usuario == "super_admin":
+            return Disponibilidad.objects.all()
+
+        if user.tipo_usuario == "admin_cliente":
+            return Disponibilidad.objects.filter(prestador__cliente=user.cliente)
+
+        if user.tipo_usuario == "empleado_cliente":
+            return Disponibilidad.objects.filter(prestador__user=user)
+
+        return Disponibilidad.objects.none()
+
+
+class GenerarTurnosView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente)]
+
+    def post(self, request):
+        data = request.data
+        prestador_id = data.get("prestador_id")
+        fecha_inicio = data.get("fecha_inicio")
+        fecha_fin = data.get("fecha_fin")
+
+        if not prestador_id or not fecha_inicio or not fecha_fin:
+            return Response({"error": "Faltan parámetros requeridos."}, status=400)
+
+        try:
+            fecha_inicio = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
+            fecha_fin = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
+        except ValueError:
+            return Response({"error": "Formato de fecha inválido (usar YYYY-MM-DD)."}, status=400)
+
+        total = generar_turnos_para_prestador(
+            prestador_id=prestador_id,
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin
+        )
+
+        return Response({"message": f"{total} turnos generados."})

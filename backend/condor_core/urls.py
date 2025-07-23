@@ -36,6 +36,6 @@ urlpatterns = [
     # 📦 Apps
     path('api/pagos/', include('apps.pagos_core.urls')),
     path('api/turnos/', include('apps.turnos_core.urls')),
-    path('api/padel/', include('apps.turnos_padel.urls')),
     path('api/auth/', include('apps.auth_core.urls')),
+    path('api/', include('apps.clientes_core.urls')),
 ]

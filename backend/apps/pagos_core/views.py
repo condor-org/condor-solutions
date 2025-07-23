@@ -3,7 +3,7 @@
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAuthenticated, BasePermission, SAFE_METHODS
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.response import Response
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateAPIView
@@ -19,6 +19,8 @@ from apps.pagos_core.serializers import ComprobantePagoSerializer, ComprobanteUp
 from apps.pagos_core.filters import ComprobantePagoFilter
 from .models import ConfiguracionPago
 from .serializers import ConfiguracionPagoSerializer
+
+from apps.common.permissions import EsAdminDeSuCliente, EsSuperAdmin
 
 
 class ComprobanteView(ListCreateAPIView):
@@ -39,8 +41,17 @@ class ComprobanteView(ListCreateAPIView):
 
     def get_queryset(self):
         usuario = self.request.user
-        if usuario.is_staff:
+
+        if usuario.tipo_usuario == "super_admin":
             return ComprobantePago.objects.all()
+
+        if usuario.tipo_usuario == "admin_cliente" and usuario.cliente_id:
+            return ComprobantePago.objects.filter(turno__usuario__cliente_id=usuario.cliente_id)
+
+        if usuario.tipo_usuario == "empleado_cliente":
+            return ComprobantePago.objects.filter(turno__prestador=usuario)
+
+        # usuario_final
         return ComprobantePago.objects.filter(turno__usuario=usuario)
 
     def post(self, request, *args, **kwargs):
@@ -78,8 +89,8 @@ class ComprobanteDownloadView(APIView):
 
 
 class ComprobanteAprobarRechazarView(APIView):
-    permission_classes = [IsAdminUser]
     authentication_classes = [JWTAuthentication]
+    permission_classes = [EsAdminDeSuCliente | EsSuperAdmin]
 
     def patch(self, request, pk, action):
         try:
@@ -109,17 +120,14 @@ class ComprobanteAprobarRechazarView(APIView):
             return Response({"error": "Acción no válida. Usa 'aprobar' o 'rechazar'."}, status=400)
 
 
-# --- CAMBIO ACÁ ---
-from rest_framework.permissions import BasePermission, SAFE_METHODS
-
 class ConfiguracionPagoPermission(BasePermission):
     """
-    Permitir GET a cualquier autenticado, pero solo admin puede PUT/PATCH.
+    Permitir GET a cualquier autenticado, pero solo admin_cliente o super_admin puede PUT/PATCH.
     """
     def has_permission(self, request, view):
         if request.method in SAFE_METHODS:
             return request.user and request.user.is_authenticated
-        return request.user and request.user.is_staff
+        return request.user and request.user.tipo_usuario in {"admin_cliente", "super_admin"}
 
 
 class ConfiguracionPagoView(RetrieveUpdateAPIView):
@@ -143,8 +151,8 @@ class ConfiguracionPagoView(RetrieveUpdateAPIView):
 
 
 class PagosPendientesCountView(APIView):
-    permission_classes = [IsAdminUser]
     authentication_classes = [JWTAuthentication]
+    permission_classes = [EsAdminDeSuCliente | EsSuperAdmin]
 
     def get(self, request):
         count = ComprobantePago.objects.filter(valido=False).count()

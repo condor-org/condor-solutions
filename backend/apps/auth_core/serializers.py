@@ -7,16 +7,11 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 import logging
 
 logger = logging.getLogger(__name__)
-
 User = get_user_model()
 
 
 class RegistroSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, validators=[validate_password])
-    username = serializers.CharField(required=False, allow_blank=True)
-    telefono = serializers.CharField(required=False, allow_blank=True)
-    nombre = serializers.CharField(required=True)
-    apellido = serializers.CharField(required=True)
 
     class Meta:
         model = User
@@ -29,11 +24,16 @@ class RegistroSerializer(serializers.ModelSerializer):
             "apellido",
             "telefono",
             "tipo_usuario",
+            "cliente",
         )
+        read_only_fields = ["id"]
 
     def create(self, validated_data):
         password = validated_data.pop("password")
-        validated_data["tipo_usuario"] = "jugador"
+
+        # 🚫 Forzar siempre a usuario_final y eliminar cliente
+        validated_data["tipo_usuario"] = "usuario_final"
+        validated_data.pop("cliente", None)
 
         if not validated_data.get("username"):
             base_username = validated_data["email"].split("@")[0]
@@ -44,16 +44,11 @@ class RegistroSerializer(serializers.ModelSerializer):
         user.save()
 
         logger.info(f"[USUARIO REGISTRADO] ID={user.id} Email={user.email}")
-
         return user
 
 
 class UsuarioSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(
-        write_only=True,
-        required=False,
-        validators=[validate_password]  # 🔒 Validación agregada
-    )
+    password = serializers.CharField(write_only=True, required=False, validators=[validate_password])
 
     class Meta:
         model = User
@@ -67,11 +62,20 @@ class UsuarioSerializer(serializers.ModelSerializer):
             "is_active",
             "is_staff",
             "tipo_usuario",
+            "cliente",
             "password",
         )
         read_only_fields = ["id", "username"]
 
     def create(self, validated_data):
+        request = self.context.get('request')
+        if request and hasattr(request, 'user'):
+            user_request = request.user
+
+            # 🔒 Seguridad: si es admin_cliente, forzamos su propio cliente
+            if user_request.tipo_usuario == 'admin_cliente':
+                validated_data['cliente'] = user_request.cliente
+
         password = validated_data.pop("password", None)
         instance = User(**validated_data)
         if password:
@@ -79,9 +83,6 @@ class UsuarioSerializer(serializers.ModelSerializer):
         else:
             instance.set_unusable_password()
         instance.save()
-
-        logger.info(f"[USUARIO CREADO ADMIN] ID={instance.id} Email={instance.email}")
-
         return instance
 
     def update(self, instance, validated_data):
@@ -91,9 +92,6 @@ class UsuarioSerializer(serializers.ModelSerializer):
         if password:
             instance.set_password(password)
         instance.save()
-
-        logger.info(f"[USUARIO ACTUALIZADO] ID={instance.id} Email={instance.email}")
-
         return instance
 
 
@@ -105,27 +103,20 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token["username"] = user.username
         token["tipo_usuario"] = user.tipo_usuario
         token["email"] = user.email
+        token["cliente_id"] = str(user.cliente_id) if user.cliente_id else None
         return token
 
     def validate(self, attrs):
         email = attrs.get("email") or attrs.get("username")
         logger.debug(f"[LOGIN ATTEMPT] Intento login con email={email}")
 
-        try:
-            data = super().validate(attrs)
-            logger.info(f"[LOGIN SUCCESS] Usuario ID={self.user.id} email={self.user.email}")
-
-        except Exception as e:
-            logger.warning(f"[LOGIN FAILED] Email={email} — Exception en super().validate(): {str(e)}", exc_info=True)
-            raise e
-
-        logger.debug(f"[TOKEN PAYLOAD] {data}")
-
+        data = super().validate(attrs)
         data["user"] = {
             "id": self.user.id,
             "username": self.user.username,
             "email": self.user.email,
             "telefono": self.user.telefono,
             "tipo_usuario": self.user.tipo_usuario,
+            "cliente_id": self.user.cliente_id,
         }
         return data
