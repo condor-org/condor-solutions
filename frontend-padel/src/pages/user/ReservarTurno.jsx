@@ -50,7 +50,7 @@ const ReservarTurno = () => {
   useEffect(() => {
     if (!sedeId || !accessToken) return;
     const api = axiosAuth(accessToken);
-    api.get(`turnos/profesores-disponibles/?lugar_id=${sedeId}`)
+    api.get(`turnos/prestadores-disponibles/?lugar_id=${sedeId}`)
       .then(res => setProfesores(res.data))
       .catch(() => setProfesores([]));
   }, [sedeId, accessToken]);
@@ -61,9 +61,10 @@ const ReservarTurno = () => {
       return;
     }
     const api = axiosAuth(accessToken);
-    api.get(`turnos/prestadores/${profesorId}/turnos/?lugar_id=${sedeId}`)
+    api.get(`turnos/disponibles/?prestador_id=${profesorId}&lugar_id=${sedeId}`)
       .then(res => {
-        const eventos = (res.data || []).map(t => {
+        const turnosData = res.data.results || res.data || [];
+        const eventos = turnosData.map(t => {
           const [h, m] = t.hora.split(":");
           const hFin = ("0" + (parseInt(h) + 1)).slice(-2);
           const isRes = t.estado === "reservado";
@@ -83,6 +84,7 @@ const ReservarTurno = () => {
         setTurnos(eventos);
       })
       .catch(() => setTurnos([]));
+
   }, [sedeId, profesorId, accessToken]);
 
   const handleEventClick = (info) => {

@@ -78,6 +78,10 @@ const ProfesoresPage = () => {
   const [telefono, setTelefono] = useState("");
   const [especialidad, setEspecialidad] = useState("");
   const [disponibilidades, setDisponibilidades] = useState([]);
+  const [apellido, setApellido] = useState("");
+  const [nombrePublico, setNombrePublico] = useState("");
+  const [password, setPassword] = useState("");
+  const [clienteId, setClienteId] = useState("");
 
 
 
@@ -137,10 +141,17 @@ const ProfesoresPage = () => {
 
   const openForEdit = (profesor) => {
     setEditingId(profesor.id);
-    setNombre(profesor.nombre || "");
-    setEmail(profesor.email || "");
-    setTelefono(profesor.telefono || "");
+  
+    // Campos provenientes del user asociado (vienen embebidos)
+    setEmail(profesor.user_email || "");
+    setNombrePublico(profesor.nombre_publico || "");
     setEspecialidad(profesor.especialidad || "");
+    setTelefono(profesor.telefono || "");
+  
+    // 👇 Si más adelante querés incluir `nombre` y `apellido` del user:
+    setNombre(profesor.user_nombre || "");
+    setApellido(profesor.user_apellido || "");
+  
     setDisponibilidades(
       profesor.disponibilidades?.map(d => ({
         sede: d.lugar,
@@ -149,9 +160,11 @@ const ProfesoresPage = () => {
         hora_fin: d.hora_fin
       })) || []
     );
+  
     fetchBloqueos(profesor.id);
     onOpen();
   };
+  
 
   // ---------- Bloqueos: Backend integration ----------
   const fetchBloqueos = async (profesorId) => {
@@ -312,55 +325,55 @@ const ProfesoresPage = () => {
   // ---------- Submit ----------
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!nombre.trim()) {
-      toast.error("El nombre es obligatorio");
-      return;
-    }
-    // Validación de email elegante
-    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      toast.error("Ingresá un email válido.");
-      return;
-    }
-    // Validación de disponibilidades: todas deben tener sede
-    if (disponibilidades.some(d => !d.sede)) {
-      toast.error("Completá la sede en cada disponibilidad.");
-      return;
-    }
-    if (user.tipo_usuario === "super_admin") {
-      data.cliente = prompt("ID del cliente a asignar al profesor:");
-    }
-
-    const apiInstance = axiosAuth(accessToken);
+  
+    if (!nombre.trim()) return toast.error("El nombre es obligatorio.");
+    if (!apellido.trim()) return toast.error("El apellido es obligatorio.");
+    if (!nombrePublico.trim()) return toast.error("El nombre público es obligatorio.");
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast.error("Ingresá un email válido.");
+    if (!editingId && password.length < 6) return toast.error("La contraseña debe tener al menos 6 caracteres.");
+    if (disponibilidades.some(d => !d.sede)) return toast.error("Completá la sede en cada disponibilidad.");
+    if (user.tipo_usuario === "super_admin" && (!clienteId || isNaN(clienteId))) return toast.error("ID de cliente inválido.");
+  
     const data = {
       nombre,
+      apellido,
       email,
       telefono,
       especialidad,
+      nombre_publico: nombrePublico,
       activo: true,
+      ...(password && { password }),
+      ...(user.tipo_usuario === "super_admin" && { cliente: parseInt(clienteId) }),
       disponibilidades: disponibilidades.map(d => ({
         lugar: d.sede,
         dia_semana: d.dia,
         hora_inicio: d.hora_inicio,
         hora_fin: d.hora_fin
-      })),
+      }))
     };
-
+  
+    const api = axiosAuth(accessToken);
+  
     try {
       if (editingId) {
-        await apiInstance.put(`turnos/prestadores/${editingId}/`, data);
-        toast.success("Profesor actualizado");
+        await api.put(`turnos/prestadores/${editingId}/`, data);
+        toast.success("Prestador actualizado");
       } else {
-        await apiInstance.post("turnos/prestadores/", data);
-        toast.success("Profesor creado");
+        await api.post("turnos/prestadores/", data);
+        toast.success("Prestador creado");
       }
+  
       onClose();
       resetForm();
-      apiInstance.get("turnos/prestadores/")
-        .then(res => setProfesores(res.data.results || res.data));
-    } catch {
-      toast.error("Error al guardar profesor");
+      const res = await api.get("turnos/prestadores/");
+      setProfesores(res.data.results || res.data);
+    } catch (err) {
+      console.error(err);
+      toast.error("Error al guardar el prestador");
     }
   };
+  
+  
 
   const handleDelete = async (id, nombre) => {
     if (!window.confirm(`¿Eliminar al profesor "${nombre}"?`)) return;
@@ -422,10 +435,10 @@ const ProfesoresPage = () => {
                   direction={isMobile ? "column" : "row"}
                 >
                   <Box>
-                    <Text fontWeight="bold">{p.nombre}</Text>
-                    <Text fontSize="sm" color={mutedText}>
-                      {p.email || "Sin email"}
-                    </Text>
+                  <Text fontWeight="bold">{p.nombre_publico || "Sin nombre público"}</Text>
+                  <Text fontSize="sm" color={mutedText}>
+                    {p.user_email || "Sin email"}
+                  </Text>
                   </Box>
                   <Flex gap={2} mt={isMobile ? 2 : 0}>
                     <IconButton
@@ -470,9 +483,26 @@ const ProfesoresPage = () => {
                 <form id="prof-form" onSubmit={handleSubmit}>
                   <VStack spacing={4} align="stretch">
                     <Input label="Nombre" value={nombre} onChange={e => setNombre(e.target.value)} />
+                    <Input label="Apellido" value={apellido} onChange={e => setApellido(e.target.value)} />
                     <Input label="Email" value={email} onChange={e => setEmail(e.target.value)} type="email" />
                     <Input label="Teléfono" value={telefono} onChange={e => setTelefono(e.target.value)} />
                     <Input label="Especialidad" value={especialidad} onChange={e => setEspecialidad(e.target.value)} />
+                    <Input label="Nombre Público" value={nombrePublico} onChange={e => setNombrePublico(e.target.value)} />
+
+                    <Input
+                      label="Contraseña"
+                      type="password"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                    />
+                    {user.tipo_usuario === "super_admin" && (
+                      <Input
+                        label="ID del Cliente"
+                        value={clienteId}
+                        onChange={e => setClienteId(e.target.value)}
+                      />
+                    )}
+
                   </VStack>
                   <Heading size="xs" mt={6} mb={3}>Disponibilidades</Heading>
                   <Box bg={card.bg} color={card.color} p={[2, 4]} rounded="md">

@@ -13,6 +13,11 @@ from rest_framework import viewsets, permissions
 from rest_framework.views import APIView
 from apps.turnos_core.services.turnos import generar_turnos_para_prestador
 from datetime import datetime
+from rest_framework.decorators import api_view, permission_classes
+from apps.turnos_core.models import Prestador, Disponibilidad
+from apps.turnos_core.serializers import PrestadorSerializer
+from apps.turnos_core.serializers import PrestadorDisponibleSerializer
+
 
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 
@@ -25,9 +30,11 @@ from apps.turnos_core.serializers import (
     TurnoSerializer,
     TurnoReservaSerializer,
     TurnoDisponibleSerializer,
-    PrestadorSerializer,
+    PrestadorSerializer, 
+    PrestadorConUsuarioSerializer,
     DisponibilidadSerializer
 )
+from django.db.models import Q
 
 from apps.common.permissions import (
     EsSuperAdmin,
@@ -73,50 +80,49 @@ class TurnoReservaView(CreateAPIView):
 
 
 @extend_schema(
-    description="Devuelve turnos libres para un profesor en una sede específica y fecha opcional.",
+    description="Devuelve turnos libres para un prestador en una sede específica y fecha opcional.",
     parameters=[
-        OpenApiParameter("profesor_id", int, OpenApiParameter.QUERY, description="ID del profesor"),
+        OpenApiParameter("prestador_id", int, OpenApiParameter.QUERY, description="ID del prestador"),
         OpenApiParameter("lugar_id", int, OpenApiParameter.QUERY, description="ID de la sede"),
         OpenApiParameter("fecha", str, OpenApiParameter.QUERY, description="Fecha (YYYY-MM-DD)")
     ]
 )
-class TurnosDisponiblesView(ListAPIView):
-    serializer_class = TurnoDisponibleSerializer
+class TurnosDisponiblesView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
-    def get_queryset(self):
+    def get(self, request, *args, **kwargs):
         query_params = self.request.query_params
-
-        profesor_id = query_params.get("profesor_id")
+        prestador_id = self.kwargs.get("prestador_id") or query_params.get("prestador_id")
         lugar_id = query_params.get("lugar_id")
-        fecha_str = query_params.get("fecha")  # opcional
+        fecha_str = query_params.get("fecha")
 
-        if not profesor_id or not lugar_id:
-            raise ValidationError("profesor_id y lugar_id son obligatorios.")
+        if not prestador_id or not lugar_id:
+            return Response({"error": "prestador_id y lugar_id son obligatorios."}, status=400)
 
         filtros = {
             "usuario__isnull": True,
-            "object_id": profesor_id,
+            "object_id": prestador_id,
             "lugar_id": lugar_id,
         }
 
         if fecha_str:
             fecha = parse_date(fecha_str)
             if not fecha:
-                raise ValidationError("Formato de fecha inválido (usar YYYY-MM-DD).")
+                return Response({"error": "Formato de fecha inválido (usar YYYY-MM-DD)."}, status=400)
             filtros["fecha"] = fecha
-
-        qs = Turno.objects.filter(**filtros)
 
         ahora = now()
         fecha_actual = ahora.date()
         hora_actual = ahora.time()
 
-        qs = qs.filter(
-            models.Q(fecha__gt=fecha_actual) |
-            models.Q(fecha=fecha_actual, hora__gt=hora_actual)
-        )
+        turnos = Turno.objects.filter(**filtros).filter(
+            Q(fecha__gt=fecha_actual) |
+            Q(fecha=fecha_actual, hora__gt=hora_actual)
+        ).order_by("fecha", "hora")
 
-        return qs.order_by("fecha", "hora")
+        return Response(TurnoSerializer(turnos, many=True).data)
+
 
 
 # --- PERMISOS: GET cualquiera autenticado, el resto solo admin ---
@@ -145,7 +151,6 @@ class BloqueoTurnosViewSet(viewsets.ModelViewSet):
 # --- NUEVAS VISTAS ---
 
 class PrestadorViewSet(viewsets.ModelViewSet):
-    serializer_class = PrestadorSerializer
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente | EsPrestador)]
 
@@ -156,12 +161,25 @@ class PrestadorViewSet(viewsets.ModelViewSet):
             return Prestador.objects.all()
 
         if user.tipo_usuario == "admin_cliente":
-            return Prestador.objects.filter(cliente=user.cliente)
+            return Prestador.objects.filter(user__cliente=user.cliente)
 
         if user.tipo_usuario == "empleado_cliente":
             return Prestador.objects.filter(user=user)
 
         return Prestador.objects.none()
+    def get_serializer(self, *args, **kwargs):
+        kwargs.setdefault("context", {})["request"] = self.request
+        return super().get_serializer(*args, **kwargs)
+
+    def get_serializer_class(self):
+        if self.request.method in ["POST", "PUT", "PATCH"]:
+            return PrestadorConUsuarioSerializer
+        return PrestadorSerializer
+
+    def perform_destroy(self, instance):
+        usuario = instance.user
+        instance.delete()
+        usuario.delete()
 
 
 class DisponibilidadViewSet(viewsets.ModelViewSet):
@@ -210,3 +228,18 @@ class GenerarTurnosView(APIView):
         )
 
         return Response({"message": f"{total} turnos generados."})
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def prestadores_disponibles(request):
+    lugar_id = request.query_params.get("lugar_id")
+    if not lugar_id:
+        return Response([], status=200)
+
+    prestadores = Prestador.objects.filter(
+        activo=True,
+        disponibilidades__lugar_id=lugar_id,
+    ).distinct()
+
+    serializer = PrestadorDisponibleSerializer(prestadores, many=True, context={"request": request})
+    return Response(serializer.data)

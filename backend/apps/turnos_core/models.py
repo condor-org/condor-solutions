@@ -102,16 +102,16 @@ class BloqueoTurnos(models.Model):
 class Prestador(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     cliente = models.ForeignKey("clientes_core.Cliente", on_delete=models.CASCADE, related_name="prestadores")
-    nombre_publico = models.CharField(max_length=150)
     especialidad = models.CharField(max_length=100, blank=True, null=True)
     foto = models.ImageField(upload_to="prestadores/fotos/", blank=True, null=True)
     activo = models.BooleanField(default=True)
-
+    nombre_publico = models.CharField(max_length=255) 
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return self.nombre_publico
+        return str(self.user)
+
 
 
 class Disponibilidad(models.Model):

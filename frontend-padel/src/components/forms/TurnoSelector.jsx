@@ -62,7 +62,7 @@ const TurnoSelector = ({
         >
           {profesores.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.nombre}
+              {p.nombre_publico}
             </option>
           ))}
         </Select>
