@@ -1,47 +1,62 @@
 # apps/turnos_core/views.py
 
-from rest_framework.generics import ListAPIView, CreateAPIView, ListCreateAPIView
-from rest_framework.permissions import IsAuthenticated, SAFE_METHODS, BasePermission
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
-from django.utils.dateparse import parse_date
-from django.contrib.contenttypes.models import ContentType
-from django.utils.timezone import now
-from django.db import models
-from rest_framework import viewsets, permissions
-from rest_framework.views import APIView
-from apps.turnos_core.services.turnos import generar_turnos_para_prestador
+# Built-in
 from datetime import datetime
+
+# Django
+from django.contrib.contenttypes.models import ContentType
+from django.db import models
+from django.db.models import Q
+from django.utils.dateparse import parse_date
+from django.utils.timezone import now
+
+# Django REST Framework
+from rest_framework import permissions, viewsets
 from rest_framework.decorators import api_view, permission_classes
-from apps.turnos_core.models import Prestador, Disponibilidad
-from apps.turnos_core.serializers import PrestadorSerializer
-from apps.turnos_core.serializers import PrestadorDisponibleSerializer
+from rest_framework.exceptions import ValidationError
+from rest_framework.generics import CreateAPIView, ListAPIView
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
+# drf-spectacular
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 
-from drf_spectacular.utils import extend_schema, OpenApiParameter
-
+# App imports
+from apps.common.permissions import (
+    EsAdminDeSuCliente,
+    EsDelMismoCliente,
+    EsPrestador,
+    EsSuperAdmin,
+    SoloLecturaUsuariosFinalesYEmpleados,
+)
 from apps.turnos_core.models import (
-    Lugar, BloqueoTurnos, Turno, Prestador, Disponibilidad
+    BloqueoTurnos,
+    Disponibilidad,
+    Lugar,
+    Prestador,
+    Turno,
 )
 from apps.turnos_core.serializers import (
-    LugarSerializer,
     BloqueoTurnosSerializer,
-    TurnoSerializer,
-    TurnoReservaSerializer,
-    TurnoDisponibleSerializer,
-    PrestadorSerializer, 
+    DisponibilidadSerializer,
+    LugarSerializer,
     PrestadorConUsuarioSerializer,
-    DisponibilidadSerializer
+    PrestadorDetailSerializer,
+    PrestadorSerializer,
+    TurnoDisponibleSerializer,
+    TurnoReservaSerializer,
+    TurnoSerializer,
 )
-from django.db.models import Q
+from apps.turnos_core.services.turnos import generar_turnos_para_prestador
 
-from apps.common.permissions import (
-    EsSuperAdmin,
-    EsAdminDeSuCliente,
-    EsPrestador,
-    EsDelMismoCliente,
-)
+from django.contrib.contenttypes.models import ContentType
+from rest_framework.decorators import action
+from rest_framework import status
+
+from apps.turnos_core.models import Turno, BloqueoTurnos
+from apps.turnos_core.serializers import BloqueoTurnosSerializer, TurnoSerializer
 
 
 # --- EXISTENTES ---
@@ -80,7 +95,7 @@ class TurnoReservaView(CreateAPIView):
 
 
 @extend_schema(
-    description="Devuelve turnos libres para un prestador en una sede específica y fecha opcional.",
+    description="Devuelve turnos para un prestador en una sede específica y fecha opcional.",
     parameters=[
         OpenApiParameter("prestador_id", int, OpenApiParameter.QUERY, description="ID del prestador"),
         OpenApiParameter("lugar_id", int, OpenApiParameter.QUERY, description="ID de la sede"),
@@ -101,7 +116,6 @@ class TurnosDisponiblesView(APIView):
             return Response({"error": "prestador_id y lugar_id son obligatorios."}, status=400)
 
         filtros = {
-            "usuario__isnull": True,
             "object_id": prestador_id,
             "lugar_id": lugar_id,
         }
@@ -117,13 +131,19 @@ class TurnosDisponiblesView(APIView):
         hora_actual = ahora.time()
 
         turnos = Turno.objects.filter(**filtros).filter(
-            Q(fecha__gt=fecha_actual) |
-            Q(fecha=fecha_actual, hora__gt=hora_actual)
-        ).order_by("fecha", "hora")
+            estado__in=["disponible", "reservado"],
+            fecha__gt=fecha_actual
+        ) | Turno.objects.filter(
+            **filtros,
+            estado__in=["disponible", "reservado"],
+            fecha=fecha_actual,
+            hora__gt=hora_actual
+        )
+
+        turnos = turnos.order_by("fecha", "hora")
+
 
         return Response(TurnoSerializer(turnos, many=True).data)
-
-
 
 # --- PERMISOS: GET cualquiera autenticado, el resto solo admin ---
 class SoloAdminEditar(BasePermission):
@@ -134,53 +154,179 @@ class SoloAdminEditar(BasePermission):
             request.user.tipo_usuario in {"super_admin", "admin_cliente"}
         )
 
-
 class LugarViewSet(viewsets.ModelViewSet):
     queryset = Lugar.objects.all()
     serializer_class = LugarSerializer
     authentication_classes = [JWTAuthentication]
     permission_classes = [SoloAdminEditar]
 
-
 class BloqueoTurnosViewSet(viewsets.ModelViewSet):
     queryset = BloqueoTurnos.objects.all()
     serializer_class = BloqueoTurnosSerializer
     permission_classes = [IsAuthenticated, EsSuperAdmin | EsAdminDeSuCliente]
 
-
-# --- NUEVAS VISTAS ---
-
 class PrestadorViewSet(viewsets.ModelViewSet):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente | EsPrestador)]
+    permission_classes = [IsAuthenticated & SoloLecturaUsuariosFinalesYEmpleados]
 
     def get_queryset(self):
         user = self.request.user
+        lugar_id = self.request.query_params.get("lugar_id")
 
-        if user.tipo_usuario == "super_admin":
-            return Prestador.objects.all()
+        # Base: todos los prestadores del mismo cliente
+        qs = Prestador.objects.filter(cliente=user.cliente, activo=True)
 
-        if user.tipo_usuario == "admin_cliente":
-            return Prestador.objects.filter(user__cliente=user.cliente)
+        # Si filtra por sede
+        if lugar_id:
+            qs = qs.filter(disponibilidades__lugar_id=lugar_id).distinct()
 
-        if user.tipo_usuario == "empleado_cliente":
-            return Prestador.objects.filter(user=user)
+        return qs
 
-        return Prestador.objects.none()
     def get_serializer(self, *args, **kwargs):
         kwargs.setdefault("context", {})["request"] = self.request
         return super().get_serializer(*args, **kwargs)
 
     def get_serializer_class(self):
-        if self.request.method in ["POST", "PUT", "PATCH"]:
+        if self.action in ["create", "update", "partial_update"]:
             return PrestadorConUsuarioSerializer
-        return PrestadorSerializer
+        elif self.action == "retrieve":
+            return PrestadorDetailSerializer
+        return PrestadorDetailSerializer  
 
     def perform_destroy(self, instance):
         usuario = instance.user
         instance.delete()
         usuario.delete()
 
+    @action(detail=True, methods=["get", "post", "delete"], url_path="bloqueos")
+    def bloqueos(self, request, pk=None):
+        """
+        GET: Lista bloqueos de un prestador.
+        POST: Crea un nuevo bloqueo. Si `lugar` es null, el bloqueo se aplica a todas las sedes del prestador.
+              Devuelve los turnos afectados con estado "reservado".
+        DELETE: Elimina un bloqueo existente (requiere `id` en body).
+        """
+        prestador = self.get_object()
+        content_type = ContentType.objects.get_for_model(Prestador)
+
+        if request.method == "GET":
+            bloqueos = BloqueoTurnos.objects.filter(
+                object_id=prestador.id,
+                content_type=content_type
+            )
+            serializer = BloqueoTurnosSerializer(bloqueos, many=True)
+            return Response(serializer.data)
+
+        elif request.method == "POST":
+            data = request.data.copy()
+            data["object_id"] = prestador.id
+            data["content_type"] = content_type.id
+            serializer = BloqueoTurnosSerializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            bloqueo = serializer.save()
+
+            # Turnos afectados con estado reservado
+            turnos_afectados = Turno.objects.filter(
+                content_type=content_type,
+                object_id=prestador.id,
+                fecha__range=[bloqueo.fecha_inicio, bloqueo.fecha_fin],
+                estado="reservado",
+            )
+
+            # Si el bloqueo es para una sede específica
+            if bloqueo.lugar is not None:
+                turnos_afectados = turnos_afectados.filter(lugar=bloqueo.lugar)
+
+            serializer_turnos = TurnoSerializer(turnos_afectados, many=True)
+
+            return Response({
+                "id": bloqueo.id,
+                "turnos_reservados_afectados": serializer_turnos.data
+            }, status=status.HTTP_201_CREATED)
+
+        elif request.method == "DELETE":
+            bloqueo_id = request.data.get("id")
+            if not bloqueo_id:
+                return Response({"error": "Debe proveer el ID del bloqueo"}, status=400)
+            try:
+                bloqueo = BloqueoTurnos.objects.get(
+                    id=bloqueo_id,
+                    object_id=prestador.id,
+                    content_type=content_type
+                )
+
+                # Restaurar turnos que fueron cancelados por este bloqueo y tienen usuario asignado
+                turnos_afectados = Turno.objects.filter(
+                    content_type=content_type,
+                    object_id=prestador.id,
+                    estado="cancelado",
+                    fecha__range=[bloqueo.fecha_inicio, bloqueo.fecha_fin],
+                )
+
+                if bloqueo.lugar:
+                    turnos_afectados = turnos_afectados.filter(lugar=bloqueo.lugar)
+
+                # Solo restaurar los que tenían usuario asignado
+                restaurados = turnos_afectados.filter(usuario__isnull=False)
+                restaurados.update(estado="reservado")
+
+                bloqueo.delete()
+
+                return Response({
+                    "message": "Bloqueo eliminado",
+                    "turnos_restaurados": restaurados.count()
+                }, status=200)
+
+            except BloqueoTurnos.DoesNotExist:
+                return Response({"error": "Bloqueo no encontrado"}, status=404)
+
+    @action(detail=True, methods=["post"], url_path="forzar_cancelacion_reservados")
+    def forzar_cancelacion_reservados(self, request, pk=None):
+        """
+        Permite cancelar todos los turnos 'reservados' que se solapen
+        con un bloqueo asociado a un prestador.
+
+        Requiere que en el body se envíe:
+            {
+                "bloqueo_id": <ID del bloqueo>
+            }
+
+        Si el lugar del bloqueo es null, aplica a *todas* las sedes del prestador.
+        """
+
+        bloqueo_id = request.data.get("bloqueo_id")
+        if not bloqueo_id:
+            return Response({"error": "bloqueo_id es requerido."}, status=400)
+
+        content_type = ContentType.objects.get_for_model(Prestador)
+
+        try:
+            bloqueo = BloqueoTurnos.objects.get(
+                id=bloqueo_id,
+                object_id=pk,
+                content_type=content_type
+            )
+        except BloqueoTurnos.DoesNotExist:
+            return Response({"error": "Bloqueo no encontrado para el prestador."}, status=404)
+
+        filtros = {
+            "object_id": pk,
+            "content_type": content_type,
+            "fecha__range": [bloqueo.fecha_inicio, bloqueo.fecha_fin],
+            "estado": "reservado"
+        }
+
+        # Si tiene lugar específico, lo filtramos también
+        if bloqueo.lugar_id:
+            filtros["lugar_id"] = bloqueo.lugar_id
+
+        turnos_afectados = Turno.objects.filter(**filtros)
+
+        turnos_afectados.update(estado="cancelado")
+
+        return Response({
+            "message": f"{turnos_afectados.count()} turnos cancelados."
+        }, status=200)
 
 class DisponibilidadViewSet(viewsets.ModelViewSet):
     serializer_class = DisponibilidadSerializer
@@ -200,7 +346,6 @@ class DisponibilidadViewSet(viewsets.ModelViewSet):
             return Disponibilidad.objects.filter(prestador__user=user)
 
         return Disponibilidad.objects.none()
-
 
 class GenerarTurnosView(APIView):
     authentication_classes = [JWTAuthentication]

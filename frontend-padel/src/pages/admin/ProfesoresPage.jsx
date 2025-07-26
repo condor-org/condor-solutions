@@ -99,6 +99,7 @@ const ProfesoresPage = () => {
 
   // ---------- Bloqueos ----------
   const [bloqueos, setBloqueos] = useState([]);
+  const [bloqueosPendientes, setBloqueosPendientes] = useState([]);
   const [nuevoBloqueo, setNuevoBloqueo] = useState({
     lugar: "",
     fecha_inicio: "",
@@ -106,6 +107,7 @@ const ProfesoresPage = () => {
     motivo: ""
   });
   const [turnosReservadosAfectados, setTurnosReservadosAfectados] = useState([]);
+  const [prestadorIdActivo, setPrestadorIdActivo] = useState(null);
   const [bloqueoIdActual, setBloqueoIdActual] = useState(null);
   const {
     isOpen: isModalReservadosOpen,
@@ -132,6 +134,7 @@ const ProfesoresPage = () => {
       fecha_fin: "",
       motivo: ""
     });
+    setBloqueosPendientes([]);
   };
 
   const openForCreate = () => {
@@ -143,14 +146,14 @@ const ProfesoresPage = () => {
     setEditingId(profesor.id);
   
     // Campos provenientes del user asociado (vienen embebidos)
-    setEmail(profesor.user_email || "");
+    setEmail(profesor.email || "");
     setNombrePublico(profesor.nombre_publico || "");
     setEspecialidad(profesor.especialidad || "");
     setTelefono(profesor.telefono || "");
   
     // 👇 Si más adelante querés incluir `nombre` y `apellido` del user:
-    setNombre(profesor.user_nombre || "");
-    setApellido(profesor.user_apellido || "");
+    setNombre(profesor.nombre || "");
+    setApellido(profesor.apellido || "");
   
     setDisponibilidades(
       profesor.disponibilidades?.map(d => ({
@@ -212,20 +215,28 @@ const ProfesoresPage = () => {
   const handleForzarCancelacionReservados = async () => {
     const apiInstance = axiosAuth(accessToken);
     try {
+
+      if (!prestadorIdActivo) {
+        toast.error("No se pudo determinar el profesor.");
+        return;
+      }
+      
       await apiInstance.post(
-        `turnos/prestadores/${editingId}/forzar_cancelacion_reservados/`,
+        `turnos/prestadores/${prestadorIdActivo}/forzar_cancelacion_reservados/`,
         { bloqueo_id: bloqueoIdActual }
       );
       toast.success("Turnos reservados cancelados.");
       closeModalReservados();
-      fetchBloqueos(editingId);
+      fetchBloqueos(prestadorIdActivo);
+      setPrestadorIdActivo(null);
+
     } catch {
       toast.error("Error al cancelar turnos reservados");
     }
   };
   
-  const handleAgregarBloqueo = async () => {
-    if (!editingId || !nuevoBloqueo.fecha_inicio || !nuevoBloqueo.fecha_fin) {
+  const handleAgregarBloqueo = () => {
+    if (!nuevoBloqueo.fecha_inicio || !nuevoBloqueo.fecha_fin) {
       toast.error("Completá todas las fechas");
       return;
     }
@@ -234,42 +245,11 @@ const ProfesoresPage = () => {
       return;
     }
   
-    const apiInstance = axiosAuth(accessToken);
-    try {
-      const body = {
-        lugar: nuevoBloqueo.lugar || null,
-        fecha_inicio: nuevoBloqueo.fecha_inicio,
-        fecha_fin: nuevoBloqueo.fecha_fin,
-        motivo: nuevoBloqueo.motivo,
-        activo: true,
-      };
-      const res = await apiInstance.post(
-        `turnos/prestadores/${editingId}/bloqueos/`,
-        body
-      );
-      console.log("handleAgregarBloqueo ► res.data:", res.data);
-  
-      const { turnos_reservados_afectados = [], id: bloqueoId } = res.data;
-      setBloqueoIdActual(bloqueoId);
-      setTurnosReservadosAfectados(turnos_reservados_afectados);
-  
-      if (turnos_reservados_afectados.length > 0) {
-        toast.warning(
-          `Bloqueo creado. ${turnos_reservados_afectados.length} turnos reservados requieren tu decisión.`,
-          { autoClose: false }
-        );
-        openModalReservados();
-      } else {
-        toast.success("Bloqueo creado con éxito. No hay turnos reservados afectados.");
-      }
-  
-      setNuevoBloqueo({ lugar: "", fecha_inicio: "", fecha_fin: "", motivo: "" });
-      fetchBloqueos(editingId);
-    } catch (err) {
-      console.error(err);
-      toast.error("Error al crear bloqueo");
-    }
+    setBloqueosPendientes(prev => [...prev, { ...nuevoBloqueo, activo: true }]);
+    setNuevoBloqueo({ lugar: "", fecha_inicio: "", fecha_fin: "", motivo: "" });
+    toast.info("Bloqueo agregado (pendiente de guardar)");
   };
+  
   const handleEliminarBloqueo = async (bloqueoId) => {
     if (!editingId) return;
     const api = axiosAuth(accessToken);
@@ -355,16 +335,42 @@ const ProfesoresPage = () => {
     const api = axiosAuth(accessToken);
   
     try {
+      let prestadorId = null;
+        
       if (editingId) {
+        console.log("📤 Payload PUT profesor:", data);
         await api.put(`turnos/prestadores/${editingId}/`, data);
-        toast.success("Prestador actualizado");
+        toast.success("Profesor actualizado");
+        prestadorId = editingId;
       } else {
-        await api.post("turnos/prestadores/", data);
-        toast.success("Prestador creado");
+        const res = await api.post("turnos/prestadores/", data);
+        toast.success("Profesor creado");
+        prestadorId = res.data.id;
+      }
+
+      setPrestadorIdActivo(prestadorId);
+  
+      // Guardar bloqueos pendientes
+      for (const bloqueo of bloqueosPendientes) {
+        const body = {
+          ...bloqueo,
+          activo: true,
+          lugar: bloqueo.lugar || null
+        };
+        const resBloqueo = await api.post(`turnos/prestadores/${prestadorId}/bloqueos/`, body);
+        const { id, turnos_reservados_afectados = [] } = resBloqueo.data;
+  
+        if (turnos_reservados_afectados.length > 0) {
+          setBloqueoIdActual(id);
+          setTurnosReservadosAfectados(turnos_reservados_afectados);
+          openModalReservados();
+        }
       }
   
+      setBloqueosPendientes([]);
       onClose();
       resetForm();
+  
       const res = await api.get("turnos/prestadores/");
       setProfesores(res.data.results || res.data);
     } catch (err) {
@@ -373,8 +379,6 @@ const ProfesoresPage = () => {
     }
   };
   
-  
-
   const handleDelete = async (id, nombre) => {
     if (!window.confirm(`¿Eliminar al profesor "${nombre}"?`)) return;
     const apiInstance = axiosAuth(accessToken);
@@ -437,7 +441,7 @@ const ProfesoresPage = () => {
                   <Box>
                   <Text fontWeight="bold">{p.nombre_publico || "Sin nombre público"}</Text>
                   <Text fontSize="sm" color={mutedText}>
-                    {p.user_email || "Sin email"}
+                    {p.email || "Sin email"}
                   </Text>
                   </Box>
                   <Flex gap={2} mt={isMobile ? 2 : 0}>
@@ -490,11 +494,12 @@ const ProfesoresPage = () => {
                     <Input label="Nombre Público" value={nombrePublico} onChange={e => setNombrePublico(e.target.value)} />
 
                     <Input
-                      label="Contraseña"
+                      label="Contraseña (dejar vacío para no cambiar)"
                       type="password"
                       value={password}
                       onChange={e => setPassword(e.target.value)}
                     />
+
                     {user.tipo_usuario === "super_admin" && (
                       <Input
                         label="ID del Cliente"
@@ -683,7 +688,7 @@ const ProfesoresPage = () => {
                                     No hay bloqueos para este profesor.
                                   </Text>
                                 )}
-                                {bloqueos.map((b) => (
+                                {[...bloqueos, ...bloqueosPendientes.map((b, i) => ({ ...b, id: `pendiente-${i}`, pendiente: true }))].map((b) => (
                                   <Flex
                                     key={b.id}
                                     align="center"
@@ -699,8 +704,9 @@ const ProfesoresPage = () => {
                                   >
                                     <Box>
                                       <Text fontSize="sm" color={card.color}>
-                                        <b>{b.lugar_nombre || "Todas las sedes"}</b> - {b.fecha_inicio} a {b.fecha_fin}
-                                        {b.motivo && <span style={{ color: "#aaa" }}> — {b.motivo}</span>}
+                                      <b>{b.lugar_nombre || "Todas las sedes"}</b> - {b.fecha_inicio} a {b.fecha_fin}
+                                          {b.motivo && <span style={{ color: "#aaa" }}> — {b.motivo}</span>}
+                                          {b.pendiente && <span style={{ color: "#f0a" }}> (pendiente)</span>}
                                       </Text>
                                     </Box>
                                     <IconButton
@@ -709,7 +715,13 @@ const ProfesoresPage = () => {
                                       colorScheme="red"
                                       variant="ghost"
                                       size="sm"
-                                      onClick={() => handleEliminarBloqueo(b.id)}
+                                      onClick={() => {
+                                        if (b.pendiente) {
+                                          setBloqueosPendientes(prev => prev.filter((_, idx) => `pendiente-${idx}` !== b.id));
+                                        } else {
+                                          handleEliminarBloqueo(b.id);
+                                        }
+                                      }}                                      
                                     />
                                   </Flex>
                                 ))}

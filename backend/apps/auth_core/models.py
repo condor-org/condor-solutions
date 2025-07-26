@@ -35,6 +35,11 @@ class Usuario(AbstractUser):
     def save(self, *args, **kwargs):
         if not self.username:
             self.username = self.email
+
+        # ✅ Validación de integridad: todos menos super_admin deben tener cliente
+        if self.tipo_usuario != "super_admin" and not self.cliente:
+            raise ValueError("Usuarios que no son super_admin deben tener un cliente asignado.")
+
         super().save(*args, **kwargs)
 
     def __str__(self):

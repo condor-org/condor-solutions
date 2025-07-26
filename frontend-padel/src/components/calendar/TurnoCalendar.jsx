@@ -51,7 +51,7 @@ const TurnoCalendar = ({
           minute: '2-digit',
           hour12: false,
         }}
-        dayHeaderFormat={{ weekday: 'short' }}
+        dayHeaderFormat={{ weekday: "short", day: "2-digit", month: "2-digit" }}
         contentHeight="auto"
       />
     </Box>

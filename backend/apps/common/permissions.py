@@ -36,3 +36,20 @@ class EsDelMismoCliente(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         cliente_obj = getattr(obj, 'cliente', None)
         return request.user.is_authenticated and cliente_obj == request.user.cliente
+
+
+
+class SoloLecturaUsuariosFinalesYEmpleados(permissions.BasePermission):
+    """
+    - Permite acceso GET a cualquier usuario autenticado (incluso usuario_final o prestador).
+    - Solo permite escribir si el usuario es super_admin o admin_cliente.
+    """
+
+    def has_permission(self, request, view):
+        if request.method in permissions.SAFE_METHODS:
+            return request.user.is_authenticated
+
+        # Solo super_admin y admin_cliente pueden escribir
+        return request.user.is_authenticated and (
+            request.user.tipo_usuario in {"super_admin", "admin_cliente"}
+        )

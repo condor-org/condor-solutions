@@ -1,21 +1,16 @@
 # condor/apps/turnos_core/admin.py
 
 from django.contrib import admin
-from apps.turnos_core.models import Turno, Servicio, Lugar
+from apps.turnos_core.models import Turno, Lugar
 
 
 @admin.register(Turno)
 class TurnoAdmin(admin.ModelAdmin):
-    list_display = ("id", "usuario", "fecha", "servicio", "estado")
-    list_filter  = ("usuario", "fecha", "estado", "servicio")
-    search_fields = ("usuario__username", "servicio__nombre")
+    list_display = ("id", "usuario", "fecha", "estado")
+    list_filter  = ("usuario", "fecha", "estado")
+    search_fields = ("usuario__username",)
     ordering = ("-fecha",)
 
-
-@admin.register(Servicio)
-class ServicioAdmin(admin.ModelAdmin):
-    list_display = ("nombre", "responsable", "lugar")
-    search_fields = ("nombre", "responsable__username")
 
 @admin.register(Lugar)
 class LugarAdmin(admin.ModelAdmin):

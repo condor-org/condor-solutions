@@ -4,25 +4,7 @@ from django.db import models
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.conf import settings  
-
-
-class Servicio(models.Model):
-    nombre = models.CharField(max_length=100)
-    descripcion = models.TextField(blank=True, null=True)
-    responsable = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="servicios"
-    )
-    lugar = models.ForeignKey("Lugar", on_delete=models.SET_NULL, null=True, blank=True)
-
-    creado_en = models.DateTimeField(auto_now_add=True)
-    actualizado_en = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return f"{self.nombre} ({self.lugar})" if self.lugar else self.nombre
+from apps.clientes_core.models import Cliente 
 
 
 class Turno(models.Model):
@@ -34,9 +16,7 @@ class Turno(models.Model):
 
     fecha = models.DateField()
     hora = models.TimeField()
-    estado = models.CharField(max_length=20, choices=ESTADOS, default="pendiente")
-
-    servicio = models.ForeignKey(Servicio, on_delete=models.SET_NULL, null=True, blank=True, related_name="turnos")
+    estado = models.CharField(max_length=20, choices=ESTADOS, default="disponible")
 
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.PositiveIntegerField()
@@ -58,12 +38,11 @@ class Turno(models.Model):
 
     def __str__(self):
         base = f"{self.fecha} {self.hora} reservado por {self.usuario}"
-        if self.servicio:
-            return f"{base} - {self.servicio}"
         return f"{base} en {self.recurso}"
 
 
 class Lugar(models.Model):
+    cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="lugares", null=False)
     nombre = models.CharField(max_length=100)
     direccion = models.TextField(blank=True, null=True)
     referente = models.CharField(max_length=100, blank=True, null=True)
@@ -71,6 +50,7 @@ class Lugar(models.Model):
 
     def __str__(self):
         return self.nombre
+
 
 
 class BloqueoTurnos(models.Model):

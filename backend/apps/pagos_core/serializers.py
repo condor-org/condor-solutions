@@ -50,6 +50,7 @@ class ComprobanteUploadSerializer(serializers.Serializer):
         usuario = self.context["request"].user
 
         try:
+            validated_data["cliente"] = self.context["request"].user.cliente
             comprobante = ComprobanteService.upload_comprobante(
                 turno_id=turno_id,
                 file_obj=archivo,

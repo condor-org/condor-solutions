@@ -50,8 +50,8 @@ const ReservarTurno = () => {
   useEffect(() => {
     if (!sedeId || !accessToken) return;
     const api = axiosAuth(accessToken);
-    api.get(`turnos/prestadores-disponibles/?lugar_id=${sedeId}`)
-      .then(res => setProfesores(res.data))
+    api.get(`turnos/prestadores/?lugar_id=${sedeId}`)
+      .then(res => setProfesores(res.data.results || res.data || []))
       .catch(() => setProfesores([]));
   }, [sedeId, accessToken]);
 

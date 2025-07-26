@@ -8,6 +8,8 @@ from apps.turnos_core.models import Lugar, BloqueoTurnos, Turno, Prestador, Disp
 
 from django.contrib.auth import get_user_model
 from apps.turnos_core.models import Prestador
+from apps.pagos_core.models import PagoIntento
+from django.utils import timezone
 
 Usuario = get_user_model()
 
@@ -67,7 +69,21 @@ class TurnoReservaSerializer(serializers.Serializer):
         except Exception as e:
             raise DRFValidationError({"error": f"Error inesperado al validar comprobante: {str(e)}"})
 
+        # Creamos el intento de pago asociado al comprobante y turno
         turno = comprobante.turno
+        pago_intento = PagoIntento.objects.create(
+            cliente=user.cliente,
+            usuario=user,
+            estado="pre_aprobado",
+            monto_esperado=comprobante.datos_extraidos.get("monto", 0),
+            moneda="ARS",
+            alias_destino=comprobante.datos_extraidos.get("alias", ""),
+            cbu_destino=comprobante.datos_extraidos.get("cbu_destino", ""),
+            content_type=ContentType.objects.get_for_model(comprobante),
+            object_id=comprobante.id,
+            tiempo_expiracion=timezone.now() + timezone.timedelta(minutes=60),
+        )
+
         turno.usuario = user
         turno.estado = "reservado"
         turno.save(update_fields=["usuario", "estado"])
@@ -80,86 +96,15 @@ class TurnoDisponibleSerializer(serializers.ModelSerializer):
         model = Turno
         fields = ["id", "fecha", "hora", "estado"]
 
-
 class LugarSerializer(serializers.ModelSerializer):
     class Meta:
         model = Lugar
         fields = ["id", "nombre", "direccion"]
 
-
 class BloqueoTurnosSerializer(serializers.ModelSerializer):
     class Meta:
         model = BloqueoTurnos
         fields = "__all__"
-
-
-# ✅ NUEVOS SERIALIZERS
-
-# apps/turnos_core/serializers.py
-
-from rest_framework import serializers
-from apps.turnos_core.models import Prestador
-
-class PrestadorSerializer(serializers.ModelSerializer):
-    nombre_publico = serializers.CharField()
-    especialidad = serializers.CharField()
-    foto = serializers.ImageField(required=False)
-    activo = serializers.BooleanField()
-
-    nombre = serializers.SerializerMethodField()
-    apellido = serializers.SerializerMethodField()
-    email = serializers.SerializerMethodField()
-    telefono = serializers.SerializerMethodField()
-    tipo_usuario = serializers.SerializerMethodField()
-    cliente_nombre = serializers.CharField(source="cliente.nombre", read_only=True)
-
-    class Meta:
-        model = Prestador
-        fields = [
-            "id",
-            "nombre_publico",
-            "especialidad",
-            "foto",
-            "activo",
-            "nombre",
-            "apellido",
-            "email",
-            "telefono",
-            "tipo_usuario",
-            "cliente_nombre",
-        ]
-
-    def get_nombre(self, obj):
-        user = self.context["request"].user
-        if user.tipo_usuario == "admin_cliente" and obj.user:
-            return obj.user.nombre
-        return None
-
-    def get_apellido(self, obj):
-        user = self.context["request"].user
-        if user.tipo_usuario == "admin_cliente" and obj.user:
-            return obj.user.apellido
-        return None
-
-    def get_email(self, obj):
-        user = self.context["request"].user
-        if user.tipo_usuario == "admin_cliente" and obj.user:
-            return obj.user.email
-        return None
-
-    def get_telefono(self, obj):
-        user = self.context["request"].user
-        if user.tipo_usuario == "admin_cliente" and obj.user:
-            return obj.user.telefono
-        return None
-
-    def get_tipo_usuario(self, obj):
-        user = self.context["request"].user
-        if user.tipo_usuario == "admin_cliente" and obj.user:
-            return obj.user.tipo_usuario
-        return None
-
-
 
 class DisponibilidadSerializer(serializers.ModelSerializer):
     lugar_nombre = serializers.CharField(source="lugar.nombre", read_only=True)
@@ -186,13 +131,48 @@ class DisponibilidadSerializer(serializers.ModelSerializer):
             raise DRFValidationError("Ya existe una disponibilidad con los mismos datos.")
         return attrs
 
+class PrestadorSerializer(serializers.ModelSerializer):
+    cliente_nombre = serializers.CharField(source="cliente.nombre", read_only=True)
 
+    class Meta:
+        model = Prestador
+        fields = [
+            "id",
+            "nombre_publico",
+            "especialidad",
+            "foto",
+            "activo",
+            "cliente_nombre",
+        ]
 
+class PrestadorDetailSerializer(serializers.ModelSerializer):
+    # Datos del usuario embebidos solo lectura
+    nombre = serializers.CharField(source="user.nombre", read_only=True)
+    apellido = serializers.CharField(source="user.apellido", read_only=True)
+    email = serializers.EmailField(source="user.email", read_only=True)
+    telefono = serializers.CharField(source="user.telefono", read_only=True)
+    tipo_usuario = serializers.CharField(source="user.tipo_usuario", read_only=True)
+
+    disponibilidades = DisponibilidadSerializer(many=True, read_only=True)
+    cliente_nombre = serializers.CharField(source="cliente.nombre", read_only=True)
+
+    class Meta:
+        model = Prestador
+        fields = [
+            "id",
+            "nombre_publico",
+            "especialidad",
+            "foto",
+            "activo",
+            "cliente_nombre",
+            "nombre", "apellido", "email", "telefono", "tipo_usuario",
+            "disponibilidades"
+        ]
 
 class PrestadorConUsuarioSerializer(serializers.ModelSerializer):
     # Campos del usuario embebidos
     email = serializers.EmailField(write_only=True)
-    password = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     nombre = serializers.CharField(write_only=True)
     apellido = serializers.CharField(write_only=True, required=False, allow_blank=True)
     telefono = serializers.CharField(write_only=True, required=False, allow_blank=True)
@@ -252,39 +232,53 @@ class PrestadorConUsuarioSerializer(serializers.ModelSerializer):
 
 
     def update(self, instance, validated_data):
-        # Separar datos del usuario
+        request = self.context["request"]
+        usuario = instance.user
+
+        # --- Actualizar campos del Usuario ---
         usuario_data = {
             "nombre": validated_data.pop("nombre", None),
             "apellido": validated_data.pop("apellido", None),
             "telefono": validated_data.pop("telefono", None),
+            "password": validated_data.pop("password", None),
         }
 
-        usuario = instance.user
         for attr, value in usuario_data.items():
-            if value is not None:
-                setattr(usuario, attr, value)
+            if value:
+                if attr == "password":
+                    usuario.set_password(value)
+                else:
+                    setattr(usuario, attr, value)
         usuario.save()
 
-        return super().update(instance, validated_data)
 
+        # --- Actualizar Prestador ---
+        instance.especialidad = validated_data.get("especialidad", instance.especialidad)
+        instance.nombre_publico = validated_data.get("nombre_publico", instance.nombre_publico)
+        instance.activo = validated_data.get("activo", instance.activo)
+        if "foto" in validated_data:
+            instance.foto = validated_data["foto"]
+        instance.save()
 
-class PrestadorDisponibleSerializer(serializers.ModelSerializer):
-    nombre = serializers.SerializerMethodField()
-    apellido = serializers.SerializerMethodField()
-    email = serializers.SerializerMethodField()
+        # --- Actualizar Disponibilidades ---
+        disponibilidades_data = self.initial_data.get("disponibilidades", [])
 
-    class Meta:
-        model = Prestador
-        fields = [
-            "id", "nombre_publico", "especialidad", "foto", "disponibilidades",
-            "nombre", "apellido", "email"
-        ]
+        if disponibilidades_data:
+            # Limpiar anteriores (puede cambiarse por lógica más compleja si querés mergear)
+            instance.disponibilidades.all().delete()
 
-    def get_nombre(self, obj):
-        return obj.user.first_name or ""
+            from apps.turnos_core.models import Disponibilidad  # importar inline si es necesario
 
-    def get_apellido(self, obj):
-        return obj.user.last_name or ""
+            nuevas = []
+            for d in disponibilidades_data:
+                nuevas.append(Disponibilidad(
+                    prestador=instance,
+                    lugar_id=d["lugar"],
+                    dia_semana=d["dia_semana"],
+                    hora_inicio=d["hora_inicio"],
+                    hora_fin=d["hora_fin"],
+                    activo=True
+                ))
+            Disponibilidad.objects.bulk_create(nuevas)
 
-    def get_email(self, obj):
-        return obj.user.email or ""
+        return instance

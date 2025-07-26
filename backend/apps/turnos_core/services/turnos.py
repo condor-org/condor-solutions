@@ -56,7 +56,6 @@ def generar_turnos_para_prestador(prestador_id, fecha_inicio, fecha_fin, duracio
     print(f"✅ Turnos generados: {total_generados}")
     return total_generados
 
-
 def _dias_para(disponibilidad, desde, hasta):
     """
     Devuelve una lista de fechas entre `desde` y `hasta` que coinciden con el día de semana de la disponibilidad.
