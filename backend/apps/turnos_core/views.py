@@ -155,10 +155,28 @@ class SoloAdminEditar(BasePermission):
         )
 
 class LugarViewSet(viewsets.ModelViewSet):
-    queryset = Lugar.objects.all()
     serializer_class = LugarSerializer
     authentication_classes = [JWTAuthentication]
     permission_classes = [SoloAdminEditar]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.is_superuser:
+            return Lugar.objects.all()
+
+        if hasattr(user, "cliente"):
+            return Lugar.objects.filter(cliente=user.cliente)
+
+        return Lugar.objects.none()
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        if hasattr(user, "cliente"):
+            serializer.save(cliente=user.cliente)
+        else:
+            raise DRFPermissionDenied("No tenés cliente asociado.")
+
 
 class BloqueoTurnosViewSet(viewsets.ModelViewSet):
     queryset = BloqueoTurnos.objects.all()
@@ -352,13 +370,15 @@ class GenerarTurnosView(APIView):
     permission_classes = [IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente)]
 
     def post(self, request):
+        user = request.user
         data = request.data
         prestador_id = data.get("prestador_id")
         fecha_inicio = data.get("fecha_inicio")
         fecha_fin = data.get("fecha_fin")
+        duracion_minutos = data.get("duracion_minutos", 60)
 
-        if not prestador_id or not fecha_inicio or not fecha_fin:
-            return Response({"error": "Faltan parámetros requeridos."}, status=400)
+        if not fecha_inicio or not fecha_fin:
+            return Response({"error": "Faltan parámetros requeridos: fecha_inicio y fecha_fin."}, status=400)
 
         try:
             fecha_inicio = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
@@ -366,13 +386,43 @@ class GenerarTurnosView(APIView):
         except ValueError:
             return Response({"error": "Formato de fecha inválido (usar YYYY-MM-DD)."}, status=400)
 
-        total = generar_turnos_para_prestador(
-            prestador_id=prestador_id,
-            fecha_inicio=fecha_inicio,
-            fecha_fin=fecha_fin
-        )
+        try:
+            duracion_minutos = int(duracion_minutos)
+            if duracion_minutos <= 0:
+                raise ValueError()
+        except ValueError:
+            return Response({"error": "duracion_minutos debe ser un número positivo."}, status=400)
 
-        return Response({"message": f"{total} turnos generados."})
+        # Determinar lista de prestadores a procesar
+        if prestador_id:
+            prestadores = Prestador.objects.filter(id=prestador_id, cliente=user.cliente)
+        else:
+            prestadores = Prestador.objects.filter(cliente=user.cliente, activo=True)
+
+        total = 0
+        detalle = []
+
+        for prestador in prestadores:
+            cantidad = generar_turnos_para_prestador(
+                prestador_id=prestador.id,
+                fecha_inicio=fecha_inicio,
+                fecha_fin=fecha_fin,
+                duracion_minutos=duracion_minutos
+            )
+            total += cantidad
+            detalle.append({
+                "profesor_id": prestador.id,
+                "nombre": prestador.nombre_publico,
+                "turnos": cantidad
+            })
+
+        return Response({
+            "turnos_generados": total,
+            "profesores_afectados": len(detalle),
+            "detalle": detalle
+        })
+
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])

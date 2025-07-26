@@ -94,21 +94,22 @@ const DashboardPage = () => {
     const api = axiosAuth(accessToken);
     try {
       const body = {
-        anio: Number(anio),
-        mes: Number(mes),
+        fecha_inicio: `${anio}-${mes.toString().padStart(2, "0")}-01`,
+        fecha_fin: `${anio}-${mes.toString().padStart(2, "0")}-31`, // simple y seguro para producción
         duracion_minutos: Number(duracion),
       };
-      if (profesorId) body.profesor_id = Number(profesorId);
-
+      if (profesorId) body.prestador_id = Number(profesorId);
+  
       const res = await api.post("turnos/generar/", body);
       setResultado(res.data);
       toast.success(`¡Turnos generados! Total: ${res.data.turnos_generados}`);
-    } catch {
+    } catch (err) {
       toast.error("Error al generar turnos");
     } finally {
       setGenerando(false);
     }
   };
+  
 
   return (
     <>

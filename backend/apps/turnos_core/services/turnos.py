@@ -44,7 +44,6 @@ def generar_turnos_para_prestador(prestador_id, fecha_inicio, fecha_fin, duracio
                         fecha=hora_actual.date(),
                         hora=hora_actual.time(),
                         lugar=disp.lugar,
-                        servicio=None,
                         content_type=content_type,
                         object_id=prestador_id,
                         estado="disponible"
