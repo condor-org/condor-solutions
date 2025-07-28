@@ -7,11 +7,14 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 from apps.turnos_core.models import Turno
-from apps.pagos_core.models import ComprobantePago, ConfiguracionPago
 from PyPDF2 import PdfReader
 from io import BytesIO
 from PIL import Image
 import pytesseract
+from apps.common.permissions import EsSuperAdmin, EsAdminDeSuCliente
+from apps.pagos_core.models import ComprobantePago, ConfiguracionPago, PagoIntento
+
+
 
 try:
     import dateutil.parser
@@ -29,14 +32,20 @@ class ComprobanteService:
         except ComprobantePago.DoesNotExist:
             raise PermissionDenied("Comprobante no encontrado.")
 
-        if not usuario.is_staff:
-            if comprobante.turno and comprobante.turno.usuario != usuario:
-                raise PermissionDenied("No tenés permiso para ver este comprobante.")
-
         if not comprobante.archivo:
             raise PermissionDenied("El comprobante no tiene archivo asociado.")
 
-        return comprobante
+        if usuario.is_authenticated and usuario.tipo_usuario == "super_admin":
+            return comprobante
+
+        if usuario.is_authenticated and usuario.tipo_usuario == "admin_cliente":
+            if comprobante.cliente == usuario.cliente:
+                return comprobante
+
+        if comprobante.turno and comprobante.turno.usuario == usuario:
+            return comprobante
+
+        raise PermissionDenied("No tenés permiso para ver este comprobante.")
 
     @staticmethod
     def _generate_hash(file_obj) -> str:
@@ -46,11 +55,12 @@ class ComprobanteService:
         return hasher.hexdigest()
 
     @staticmethod
-    def _get_configuracion() -> ConfiguracionPago:
+    def _get_configuracion(cliente) -> ConfiguracionPago:
         try:
-            return ConfiguracionPago.objects.get()
+            return ConfiguracionPago.objects.get(cliente=cliente)
         except ConfiguracionPago.DoesNotExist:
-            raise ValidationError("No hay ConfiguracionPago definida.")
+            raise ValidationError("No hay ConfiguracionPago definida para este cliente.")
+
 
     @staticmethod
     def _extract_text(file_obj) -> str:
@@ -349,9 +359,11 @@ class ComprobanteService:
         }
 
 
+
+
     @classmethod
     @transaction.atomic
-    def upload_comprobante(cls, turno_id: int, file_obj, usuario) -> ComprobantePago:
+    def upload_comprobante(cls, turno_id: int, file_obj, usuario, cliente=None, ip_cliente=None, user_agent=None) -> ComprobantePago:
         max_mb = 200
         if file_obj.size > max_mb * 1024 * 1024:
             raise ValidationError(f"El archivo supera el tamaño máximo de {max_mb} MB")
@@ -365,28 +377,58 @@ class ComprobanteService:
             )
 
         try:
-            turno = Turno.objects.get(pk=turno_id)
+            turno = Turno.objects.select_related("prestador").get(pk=turno_id)
+            if turno.prestador.cliente_id != (cliente or usuario.cliente).id:
+                raise PermissionDenied("No tenés acceso a este turno.")
         except Turno.DoesNotExist:
             raise ValidationError("Turno no existe.")
 
-        # --- FIX: Permitir reservar turno si no tiene usuario ---
-        # Si el turno YA tiene usuario, solo ese usuario o admin puede subir comprobante
-        if turno.usuario is not None and turno.usuario != usuario and not usuario.is_staff:
-            raise PermissionDenied("No tiene permiso sobre este turno.")
+        # 🔒 Permisos sobre el turno
+        if turno.usuario is not None and turno.usuario != usuario:
+            raise PermissionDenied("El turno ya está reservado por otro usuario.")
 
+        if EsSuperAdmin().has_permission(usuario, None):
+            pass
+        elif EsAdminDeSuCliente().has_permission(usuario, None):
+            if turno.prestador.cliente_id != usuario.cliente.id:
+                raise PermissionDenied("No tenés permiso para operar sobre este turno.")
+        elif turno.usuario is not None:
+            raise PermissionDenied("No tenés permiso para modificar este turno.")
+
+        # 🔄 Verificar comprobante duplicado
         checksum = cls._generate_hash(file_obj)
         if ComprobantePago.objects.filter(hash_archivo=checksum).exists():
             raise ValidationError("Comprobante duplicado.")
 
-        config = cls._get_configuracion()
+        # ✅ Validar comprobante con configuración del cliente
+        config = cls._get_configuracion(cliente or usuario.cliente)
         print(f"[DEBUG] Configuración esperada: CBU={config.cbu}, Alias={config.alias}, Monto={config.monto_esperado}")
-
         datos = cls._parse_and_validate(file_obj, config)
+
+        # 🧾 Crear comprobante y asociar al turno
+        turno.usuario = usuario
+        turno.estado = "reservado"
+        turno.save(update_fields=["usuario", "estado"])
 
         comprobante = ComprobantePago.objects.create(
             turno=turno,
             archivo=file_obj,
             hash_archivo=checksum,
-            datos_extraidos=datos
+            datos_extraidos=datos,
+            cliente=cliente or usuario.cliente
         )
+
+        # 💰 Crear intento de pago asociado
+        PagoIntento.objects.create(
+            cliente=comprobante.cliente,
+            usuario=usuario,
+            estado="pre_aprobado",
+            monto_esperado=datos.get("monto", config.monto_esperado),
+            moneda="ARS",
+            alias_destino=datos.get("alias", config.alias),
+            cbu_destino=datos.get("cbu_destino", config.cbu),
+            origen=comprobante,
+            tiempo_expiracion=timezone.now() + timezone.timedelta(minutes=config.tiempo_maximo_minutos),
+        )
+
         return comprobante

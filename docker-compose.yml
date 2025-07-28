@@ -1,5 +1,3 @@
-# /docker-compose.yml
-
 version: '3.9'
 
 services:
@@ -11,7 +9,7 @@ services:
     container_name: backend_condor
     restart: always
     env_file:
-      - .env
+      - ./backend/.env
     environment:
       - DJANGO_SETTINGS_MODULE=condor_core.settings.dev
     volumes:
@@ -24,23 +22,22 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: ./frontend-padel
       dockerfile: docker/Dockerfile
     container_name: frontend_condor
     restart: always
-    environment:
-      - NODE_ENV=development
     ports:
       - "80:80"
+
 
   db:
     image: postgres:14
     container_name: postgres_condor
     restart: always
     environment:
-      POSTGRES_DB: condor_db
-      POSTGRES_USER: condor_user
-      POSTGRES_PASSWORD: condor_password
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -52,7 +49,12 @@ services:
     restart: always
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
 
 volumes:
   postgres_data:
     name: condor_postgres_data
+
+  redis_data:
+    name: condor_redis_data

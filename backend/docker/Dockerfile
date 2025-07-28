@@ -5,7 +5,6 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-# Instalar dependencias del sistema (incluyendo tesseract)
 RUN apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
@@ -15,11 +14,11 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY ../requirements.txt .
+COPY requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 
-COPY .. .
+COPY . .
 
 EXPOSE 8000
 

@@ -7,7 +7,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "condor_core.settings.base")
 django.setup()
 
 # ——— Imports de tus modelos ———
-from apps.turnos_padel_core.models import Profesor
+from apps.turnos_padel.models import Profesor
 from apps.turnos_core.models   import Turno
 from django.contrib.contenttypes.models import ContentType
 

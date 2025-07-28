@@ -3,7 +3,7 @@
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAuthenticated, BasePermission, SAFE_METHODS
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.response import Response
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateAPIView
@@ -19,6 +19,9 @@ from apps.pagos_core.serializers import ComprobantePagoSerializer, ComprobanteUp
 from apps.pagos_core.filters import ComprobantePagoFilter
 from .models import ConfiguracionPago
 from .serializers import ConfiguracionPagoSerializer
+
+from apps.common.permissions import EsAdminDeSuCliente, EsSuperAdmin
+from apps.pagos_core.models import PagoIntento 
 
 
 class ComprobanteView(ListCreateAPIView):
@@ -39,8 +42,17 @@ class ComprobanteView(ListCreateAPIView):
 
     def get_queryset(self):
         usuario = self.request.user
-        if usuario.is_staff:
+
+        if usuario.tipo_usuario == "super_admin":
             return ComprobantePago.objects.all()
+
+        if usuario.tipo_usuario == "admin_cliente" and usuario.cliente_id:
+            return ComprobantePago.objects.filter(cliente=usuario.cliente)
+
+        if usuario.tipo_usuario == "empleado_cliente":
+            return ComprobantePago.objects.filter(turno__prestador=usuario)
+
+        # usuario_final
         return ComprobantePago.objects.filter(turno__usuario=usuario)
 
     def post(self, request, *args, **kwargs):
@@ -55,31 +67,46 @@ class ComprobanteView(ListCreateAPIView):
         }, status=status.HTTP_201_CREATED)
 
 
+# apps/pagos_core/views.py
+
 class ComprobanteDownloadView(APIView):
     queryset = ComprobantePago.objects.none()
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk, *args, **kwargs):
+        print(f"[DEBUG] Intentando descargar comprobante ID={pk} por usuario={request.user} ({request.user.tipo_usuario})")
+
         try:
             comprobante = ComprobanteService.download_comprobante(
                 comprobante_id=int(pk),
                 usuario=request.user
             )
+            print(f"[DEBUG] Comprobante encontrado: {comprobante.id}, archivo: {comprobante.archivo}")
+
+            if not comprobante.archivo or not comprobante.archivo.storage.exists(comprobante.archivo.name):
+                print(f"[ERROR] Archivo no encontrado en storage: {comprobante.archivo.name}")
+                return Response({"error": "Archivo no encontrado en disco"}, status=404)
+
             return FileResponse(
                 comprobante.archivo.open("rb"),
                 as_attachment=True,
-                filename=comprobante.archivo.name
+                filename=comprobante.archivo.name.split("/")[-1]
             )
+
         except PermissionDenied as e:
+            print(f"[DEBUG] PermissionDenied: {e}")
             return Response({"error": str(e)}, status=status.HTTP_403_FORBIDDEN)
-        except Exception:
+
+        except Exception as e:
+            print(f"[DEBUG] Error inesperado: {e}")
             return Response({"error": "No encontrado"}, status=status.HTTP_404_NOT_FOUND)
 
 
+
 class ComprobanteAprobarRechazarView(APIView):
-    permission_classes = [IsAdminUser]
     authentication_classes = [JWTAuthentication]
+    permission_classes = [EsAdminDeSuCliente | EsSuperAdmin]
 
     def patch(self, request, pk, action):
         try:
@@ -89,14 +116,29 @@ class ComprobanteAprobarRechazarView(APIView):
 
         turno = comprobante.turno
 
+        # Buscar PagoIntento asociado por GenericRelation
+        intento = PagoIntento.objects.filter(
+            content_type__model="comprobantepago",
+            object_id=comprobante.id
+        ).first()
+
         if action == 'aprobar':
             comprobante.valido = True
             comprobante.save(update_fields=["valido"])
+
+            if intento:
+                intento.estado = "confirmado"
+                intento.save(update_fields=["estado"])
+
             return Response({"mensaje": "✅ Comprobante aprobado"})
 
         elif action == 'rechazar':
             comprobante.valido = False
             comprobante.save(update_fields=["valido"])
+
+            if intento:
+                intento.estado = "rechazado"
+                intento.save(update_fields=["estado"])
 
             if turno:
                 turno.usuario = None
@@ -105,21 +147,17 @@ class ComprobanteAprobarRechazarView(APIView):
 
             return Response({"mensaje": "❌ Comprobante rechazado y turno liberado"})
 
-        else:
-            return Response({"error": "Acción no válida. Usa 'aprobar' o 'rechazar'."}, status=400)
+        return Response({"error": "Acción no válida. Usa 'aprobar' o 'rechazar'."}, status=400)
 
-
-# --- CAMBIO ACÁ ---
-from rest_framework.permissions import BasePermission, SAFE_METHODS
 
 class ConfiguracionPagoPermission(BasePermission):
     """
-    Permitir GET a cualquier autenticado, pero solo admin puede PUT/PATCH.
+    Permitir GET a cualquier autenticado, pero solo admin_cliente o super_admin puede PUT/PATCH.
     """
     def has_permission(self, request, view):
         if request.method in SAFE_METHODS:
             return request.user and request.user.is_authenticated
-        return request.user and request.user.is_staff
+        return request.user and request.user.tipo_usuario in {"admin_cliente", "super_admin"}
 
 
 class ConfiguracionPagoView(RetrieveUpdateAPIView):
@@ -129,12 +167,13 @@ class ConfiguracionPagoView(RetrieveUpdateAPIView):
     authentication_classes = [JWTAuthentication]
 
     def get_object(self):
+        cliente = self.request.user.cliente
         obj, created = ConfiguracionPago.objects.get_or_create(
-            id=1,
+            cliente=cliente,
             defaults={
-                'destinatario': 'Padel Club SRL',
+                'destinatario': 'NOMBRE DESTINATARIO',
                 'cbu': '0000000000000000000000',
-                'alias': '',
+                'alias': 'ALIAS_DESTINATARIO',
                 'monto_esperado': 0,
                 'tiempo_maximo_minutos': 60,
             }
@@ -142,10 +181,11 @@ class ConfiguracionPagoView(RetrieveUpdateAPIView):
         return obj
 
 
+
 class PagosPendientesCountView(APIView):
-    permission_classes = [IsAdminUser]
     authentication_classes = [JWTAuthentication]
+    permission_classes = [EsAdminDeSuCliente | EsSuperAdmin]
 
     def get(self, request):
-        count = ComprobantePago.objects.filter(valido=False).count()
+        count = ComprobantePago.objects.filter(cliente=request.user.cliente, valido=False).count()
         return Response({"count": count})

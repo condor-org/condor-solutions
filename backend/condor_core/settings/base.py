@@ -44,9 +44,9 @@ THIRD_PARTY_APPS = [
 
 PROJECT_APPS = [
     'apps.turnos_core',
-    'apps.turnos_padel_core',
     'apps.pagos_core',
     'apps.auth_core',
+    'apps.clientes_core',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + PROJECT_APPS
@@ -186,7 +186,29 @@ CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://redis:6379/0')
 
 CELERY_BEAT_SCHEDULE = {
     'generar-turnos-mensual': {
-        'task': 'apps.turnos_padel_core.tasks.generar_turnos_mensual',
+        'task': 'apps.turnos_core.tasks.generar_turnos_mensual',
         'schedule': crontab(hour=0, minute=0, day_of_month=1),
+    },
+}
+
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "[{levelname}] {asctime} {name} {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "DEBUG",
     },
 }
