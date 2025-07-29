@@ -1,3 +1,5 @@
+// src/components/modals/ReservaPagoModal.jsx
+
 import React from "react";
 import {
   Box,
@@ -23,6 +25,7 @@ const ReservaPagoModal = ({
   onClose,
   turno,
   configPago,
+  tipoClase,   // 🔹 Nuevo: datos del tipo de clase seleccionado
   archivo,
   onArchivoChange,
   onRemoveArchivo,
@@ -87,18 +90,18 @@ const ReservaPagoModal = ({
             </Box>
           )}
 
-          <Box mb={6}>
-            <Text><b>CBU:</b> {configPago?.cbu || <i>-</i>}</Text>
-            <Text><b>Alias:</b> {configPago?.alias || <i>-</i>}</Text>
-            <Text><b>Monto:</b> ${configPago?.monto_esperado || <i>-</i>}</Text>
-          </Box>
+          {/* 🔹 Información de tipo de clase y pago */}
+          {tipoClase && (
+            <Box mb={6}>
+              <Text><b>Tipo de clase:</b> {tipoClase.nombre}</Text>
+              <Text><b>Monto:</b> ${tipoClase.precio}</Text>
+              <Text><b>CBU:</b> {configPago?.cbu || <i>-</i>}</Text>
+              <Text><b>Alias:</b> {configPago?.alias || <i>-</i>}</Text>
+            </Box>
+          )}
 
           <CountdownClock
-            segundosTotales={
-              Number(configPago?.tiempo_maximo_minutos) > 0
-                ? Number(configPago.tiempo_maximo_minutos) * 60
-                : 180
-            }
+            segundosTotales={tiempoRestante}
             size="md"
             showLabel={true}
             colorScheme="green"
@@ -107,7 +110,6 @@ const ReservaPagoModal = ({
               alert("⏱ El tiempo para confirmar la reserva ha finalizado.");
             }}
           />
-
 
           <Box
             as="label"

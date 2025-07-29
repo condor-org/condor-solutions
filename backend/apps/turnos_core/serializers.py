@@ -10,6 +10,7 @@ from django.contrib.auth import get_user_model
 from apps.turnos_core.models import Prestador
 from apps.pagos_core.models import PagoIntento
 from django.utils import timezone
+from django.contrib.contenttypes.models import ContentType
 
 Usuario = get_user_model()
 
@@ -34,32 +35,48 @@ class TurnoSerializer(serializers.ModelSerializer):
 
 class TurnoReservaSerializer(serializers.Serializer):
     turno_id = serializers.IntegerField()
+    tipo_clase_id = serializers.IntegerField()  # 🔹 Necesitamos esto
     archivo = serializers.FileField()
 
     def validate(self, attrs):
         turno_id = attrs["turno_id"]
+        tipo_clase_id = attrs["tipo_clase_id"]
         user = self.context["request"].user
 
+        # 🔍 Validar turno
         try:
             turno = Turno.objects.get(pk=turno_id)
         except Turno.DoesNotExist:
             raise DRFValidationError({"turno_id": "El turno no existe."})
-
         if turno.usuario is not None:
             raise DRFValidationError({"turno_id": "Ese turno ya está reservado."})
 
+        # 🔍 Validar tipo de clase
+        from apps.turnos_padel.models import TipoClasePadel
+        try:
+            tipo_clase = TipoClasePadel.objects.select_related("configuracion_sede").get(pk=tipo_clase_id)
+        except TipoClasePadel.DoesNotExist:
+            raise DRFValidationError({"tipo_clase_id": "El tipo de clase no existe."})
+
+        attrs["turno"] = turno
+        attrs["tipo_clase"] = tipo_clase
         return attrs
 
     def create(self, validated_data):
         user = self.context["request"].user
-        turno_id = validated_data["turno_id"]
+        turno = validated_data["turno"]
+        tipo_clase = validated_data["tipo_clase"]
         archivo = validated_data["archivo"]
 
         try:
             comprobante = ComprobanteService.upload_comprobante(
-                turno_id=turno_id,
+                turno_id=turno.id,
                 file_obj=archivo,
-                usuario=user
+                usuario=user,
+                cliente=user.cliente,
+                cbu_cvu=tipo_clase.configuracion_sede.cbu_cvu,
+                alias=tipo_clase.configuracion_sede.alias,
+                monto=tipo_clase.precio
             )
         except DjangoValidationError as e:
             mensaje = e.messages[0] if hasattr(e, "messages") and e.messages else str(e)
@@ -69,16 +86,15 @@ class TurnoReservaSerializer(serializers.Serializer):
         except Exception as e:
             raise DRFValidationError({"error": f"Error inesperado al validar comprobante: {str(e)}"})
 
-        # Creamos el intento de pago asociado al comprobante y turno
-        turno = comprobante.turno
-        pago_intento = PagoIntento.objects.create(
+        # Crear intento de pago
+        PagoIntento.objects.create(
             cliente=user.cliente,
             usuario=user,
             estado="pre_aprobado",
-            monto_esperado=comprobante.datos_extraidos.get("monto", 0),
+            monto_esperado=tipo_clase.precio,
             moneda="ARS",
-            alias_destino=comprobante.datos_extraidos.get("alias", ""),
-            cbu_destino=comprobante.datos_extraidos.get("cbu_destino", ""),
+            alias_destino=tipo_clase.configuracion_sede.alias,
+            cbu_destino=tipo_clase.configuracion_sede.cbu_cvu,
             content_type=ContentType.objects.get_for_model(comprobante),
             object_id=comprobante.id,
             tiempo_expiracion=timezone.now() + timezone.timedelta(minutes=60),

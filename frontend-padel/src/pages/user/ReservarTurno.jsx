@@ -32,6 +32,9 @@ const ReservarTurno = () => {
   const [loading, setLoading] = useState(false);
   const [turnoSeleccionado, setTurnoSeleccionado] = useState(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
+  const [tiposClase, setTiposClase] = useState([]);
+  const [tipoClaseId, setTipoClaseId] = useState("");
+
 
   const card = useCardColors();
   const input = useInputColors();
@@ -42,13 +45,36 @@ const ReservarTurno = () => {
     api.get("turnos/sedes/")
       .then(res => setSedes(res.data.results || res.data || []))
       .catch(() => setSedes([]));
-    api.get("pagos/configuracion/")
-      .then(res => setConfigPago(res.data))
-      .catch(() => setConfigPago({}));
+    if (sedeId) {
+      api.get(`padel/sedes/${sedeId}/`)
+        .then(res => {
+          const conf = res.data.configuracion_padel || {};
+          setConfigPago({
+            alias: conf.alias || "",
+            cbu_cvu: conf.cbu_cvu || "",
+            tiempo_maximo_minutos: conf.tiempo_maximo_minutos || 15
+          });
+        })
+        .catch(() => setConfigPago({}));
+    }
+      
   }, [accessToken]);
 
+  // 🔹 Cargar tipos de clase
   useEffect(() => {
     if (!sedeId || !accessToken) return;
+    const api = axiosAuth(accessToken);
+    api.get(`padel/tipos-clase/?sede_id=${sedeId}`)
+      .then(res => setTiposClase(res.data.results || res.data || []))
+      .catch(() => setTiposClase([]));
+  }, [sedeId, accessToken]);
+
+  // 🔹 Cargar profesores
+  useEffect(() => {
+    if (!sedeId || !accessToken) {
+      setProfesores([]);
+      return;
+    }
     const api = axiosAuth(accessToken);
     api.get(`turnos/prestadores/?lugar_id=${sedeId}`)
       .then(res => setProfesores(res.data.results || res.data || []))
@@ -88,16 +114,40 @@ const ReservarTurno = () => {
   }, [sedeId, profesorId, accessToken]);
 
   const handleEventClick = (info) => {
+    const isReservado = info.event.extendedProps.estado === "reservado";
+  
+    if (isReservado) {
+      toast({
+        title: "Turno ya reservado",
+        description: "Este turno no puede seleccionarse.",
+        status: "warning",
+        duration: 2000
+      });
+      return;
+    }
+  
+    if (!tipoClaseId) {
+      toast({
+        title: "Seleccioná un tipo de clase",
+        description: "Debés elegir un tipo de clase antes de reservar.",
+        status: "warning",
+        duration: 4000
+      });
+      return;
+    }
+  
     setTurnoSeleccionado(info.event);
     setArchivo(null);
     onOpen();
   };
+  
+  
 
   const handleReserva = async () => {
-    if (!turnoSeleccionado || !archivo) {
+    if (!turnoSeleccionado || !archivo || !tipoClaseId) {
       toast({
         title: "Faltan datos.",
-        description: "Seleccioná un turno y subí el comprobante.",
+        description: "Seleccioná un turno, tipo de clase y subí el comprobante.",
         status: "warning", duration: 10000
       });
       return;
@@ -106,8 +156,9 @@ const ReservarTurno = () => {
     try {
       const formData = new FormData();
       formData.append("turno_id", turnoSeleccionado.id);
+      formData.append("tipo_clase_id", tipoClaseId);
       formData.append("archivo", archivo);
-
+  
       const api = axiosAuth(accessToken);
       await api.post("turnos/reservar/", formData, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -126,7 +177,7 @@ const ReservarTurno = () => {
       setLoading(false);
     }
   };
-
+  
   const renderEventContent = (eventInfo) => {
     const bg = eventInfo.event.backgroundColor;
     const isReservado = eventInfo.event.extendedProps.estado === "reservado";
@@ -173,16 +224,23 @@ const ReservarTurno = () => {
       <TurnoSelector
         sedes={sedes}
         profesores={profesores}
+        tiposClase={tiposClase}
         sedeId={sedeId}
         profesorId={profesorId}
+        tipoClaseId={tipoClaseId}
         onSedeChange={(id) => {
           setSedeId(id);
           setProfesorId("");
+          setTipoClaseId("");
+          setTiposClase([]);
           setTurnos([]);
+          setConfigPago({});
         }}
         onProfesorChange={setProfesorId}
+        onTipoClaseChange={setTipoClaseId}
         disabled={false}
       />
+
 
       <Box
         bg={card.bg}
@@ -207,6 +265,7 @@ const ReservarTurno = () => {
         onClose={onClose}
         turno={turnoSeleccionado}
         configPago={configPago}
+        tipoClase={tiposClase.find(tc => String(tc.id) === String(tipoClaseId))} // 🔹 Agregar esto
         archivo={archivo}
         onArchivoChange={(file) => setArchivo(file)}
         onRemoveArchivo={() => setArchivo(null)}
@@ -214,6 +273,7 @@ const ReservarTurno = () => {
         loading={loading}
         tiempoRestante={configPago?.tiempo_maximo_minutos ? configPago.tiempo_maximo_minutos * 60 : undefined}
       />
+
     </Box>
   );
 };

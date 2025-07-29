@@ -14,13 +14,16 @@ import pytesseract
 from apps.common.permissions import EsSuperAdmin, EsAdminDeSuCliente
 from apps.pagos_core.models import ComprobantePago, ConfiguracionPago, PagoIntento
 
-
+from django.contrib.contenttypes.models import ContentType
+from apps.turnos_core.models import Prestador
 
 try:
     import dateutil.parser
     HAS_DATEUTIL = True
 except ImportError:
     HAS_DATEUTIL = False
+
+ANTIGUEDAD_MAXIMA_DE_COMPROBANTE_EN_MINUTOS = 150000
 
 
 class ComprobanteService:
@@ -299,55 +302,62 @@ class ComprobanteService:
 
 
     @staticmethod
-    def _parse_and_validate(file_obj, config: ConfiguracionPago) -> dict:
+    def _parse_and_validate(file_obj, config) -> dict:
+        """
+        Valida comprobante usando datos de ConfiguracionPago o dict recibido
+        desde otra app (ej: turnos_padel).
+        """
         texto = ComprobanteService._extract_text(file_obj)
 
-        monto_esperado = None
-        try:
-            monto_esperado = float(config.monto_esperado)
-        except Exception:
-            pass
+        # 📌 Obtener valores de config (acepta modelo o dict)
+        cbu = getattr(config, "cbu", config.get("cbu"))
+        alias = getattr(config, "alias", config.get("alias"))
+        monto_esperado = getattr(config, "monto_esperado", config.get("monto_esperado"))
+        tiempo_max = getattr(config, "tiempo_maximo_minutos", config.get("tiempo_maximo_minutos"))
 
+        try:
+            monto_esperado = float(monto_esperado)
+        except Exception:
+            raise ValidationError("Monto esperado inválido en configuración.")
+
+        # 📌 Extraer monto del comprobante
         monto = ComprobanteService._extract_monto(texto, monto_esperado)
         if monto is None:
             raise ValidationError("No se pudo extraer el monto del comprobante.")
 
+        # 📌 Extraer fecha
         fecha_dt = ComprobanteService._extract_fecha(texto)
         if fecha_dt is None:
             raise ValidationError("No se pudo extraer la fecha del comprobante.")
 
-        # Usamos la nueva versión que recibe cbu y alias esperados
+        # 📌 Validar CBU / Alias
         cbu_dest, alias_dest = ComprobanteService._extract_cbu_alias_destinatario(
             texto,
-            cbu_esperado=config.cbu,
-            alias_esperado=config.alias
+            cbu_esperado=cbu,
+            alias_esperado=alias
         )
         if cbu_dest is None and alias_dest is None:
             raise ValidationError("No se pudo extraer CBU o alias del destinatario.")
 
-        # Validar monto exacto
-        if monto < float(config.monto_esperado):
-            raise ValidationError(
-                f"Monto {monto} menor al esperado {config.monto_esperado}."
-            )
+        # 📌 Validar monto
+        if monto < monto_esperado:
+            raise ValidationError(f"Monto {monto} menor al esperado {monto_esperado}.")
 
+        # 📌 Validar fecha vencida
         fecha_dt = timezone.make_aware(fecha_dt)
         minutos_transcurridos = (timezone.now() - fecha_dt).total_seconds() / 60
-        if minutos_transcurridos > config.tiempo_maximo_minutos:
+        if minutos_transcurridos > tiempo_max:
             raise ValidationError(
                 f"El comprobante tiene fecha vencida: {fecha_dt}. "
-                f"Máximo permitido: {config.tiempo_maximo_minutos} min."
+                f"Máximo permitido: {tiempo_max} min."
             )
 
-        if config.cbu and cbu_dest != config.cbu:
-            if not (config.alias and alias_dest == config.alias):
-                raise ValidationError(
-                    f"CBU {cbu_dest} no coincide con el configurado {config.cbu}."
-                )
-        elif config.alias and alias_dest != config.alias and cbu_dest != config.cbu:
-            raise ValidationError(
-                f"Alias {alias_dest} no coincide con el configurado {config.alias}."
-            )
+        # 📌 Validar coincidencia CBU/Alias
+        if cbu and cbu_dest != cbu:
+            if not (alias and alias_dest == alias):
+                raise ValidationError(f"CBU {cbu_dest} no coincide con el configurado {cbu}.")
+        elif alias and alias_dest != alias and cbu_dest != cbu:
+            raise ValidationError(f"Alias {alias_dest} no coincide con el configurado {alias}.")
 
         return {
             "fecha_detectada": fecha_dt.isoformat(),
@@ -359,11 +369,21 @@ class ComprobanteService:
         }
 
 
-
-
     @classmethod
     @transaction.atomic
-    def upload_comprobante(cls, turno_id: int, file_obj, usuario, cliente=None, ip_cliente=None, user_agent=None) -> ComprobantePago:
+    def upload_comprobante(
+        cls,
+        turno_id: int,
+        file_obj,
+        usuario,
+        cliente=None,
+        ip_cliente=None,
+        user_agent=None,
+        cbu_cvu=None,
+        alias=None,
+        monto=None
+    ) -> ComprobantePago:
+
         max_mb = 200
         if file_obj.size > max_mb * 1024 * 1024:
             raise ValidationError(f"El archivo supera el tamaño máximo de {max_mb} MB")
@@ -376,36 +396,60 @@ class ComprobanteService:
                 f"Extensión no permitida: «{ext}». Solo se permiten: {allowed}"
             )
 
+        # 🔍 Obtener turno
         try:
-            turno = Turno.objects.select_related("prestador").get(pk=turno_id)
-            if turno.prestador.cliente_id != (cliente or usuario.cliente).id:
-                raise PermissionDenied("No tenés acceso a este turno.")
+            turno = Turno.objects.select_related("usuario", "lugar").get(pk=turno_id)
         except Turno.DoesNotExist:
             raise ValidationError("Turno no existe.")
 
-        # 🔒 Permisos sobre el turno
-        if turno.usuario is not None and turno.usuario != usuario:
-            raise PermissionDenied("El turno ya está reservado por otro usuario.")
+        if turno.content_type != ContentType.objects.get_for_model(Prestador):
+            raise ValidationError("El turno no está asociado a un prestador válido.")
 
-        if EsSuperAdmin().has_permission(usuario, None):
+        prestador = turno.recurso
+        if prestador.cliente_id != (cliente or usuario.cliente).id:
+            raise PermissionDenied("No tenés acceso a este turno.")
+
+        # 🔒 Permisos
+        tipo_usuario = getattr(usuario, "tipo_usuario", None)
+        if tipo_usuario == "super_admin":
             pass
-        elif EsAdminDeSuCliente().has_permission(usuario, None):
-            if turno.prestador.cliente_id != usuario.cliente.id:
+        elif tipo_usuario == "admin_cliente":
+            if prestador.cliente_id != usuario.cliente.id:
                 raise PermissionDenied("No tenés permiso para operar sobre este turno.")
-        elif turno.usuario is not None:
-            raise PermissionDenied("No tenés permiso para modificar este turno.")
+        else:
+            if turno.usuario is not None and turno.usuario != usuario:
+                raise PermissionDenied("No tenés permiso para modificar este turno.")
 
         # 🔄 Verificar comprobante duplicado
         checksum = cls._generate_hash(file_obj)
         if ComprobantePago.objects.filter(hash_archivo=checksum).exists():
             raise ValidationError("Comprobante duplicado.")
 
-        # ✅ Validar comprobante con configuración del cliente
-        config = cls._get_configuracion(cliente or usuario.cliente)
-        print(f"[DEBUG] Configuración esperada: CBU={config.cbu}, Alias={config.alias}, Monto={config.monto_esperado}")
-        datos = cls._parse_and_validate(file_obj, config)
+        # ✅ Configuración
+        if all([cbu_cvu, alias, monto]):
+            print(f"[DEBUG upload_comprobante] Datos recibidos directamente → CBU: {cbu_cvu}, Alias: {alias}, Monto: {monto}")
+            config_data = {
+                "cbu": cbu_cvu,
+                "alias": alias,
+                "monto_esperado": monto,
+                "tiempo_maximo_minutos": ANTIGUEDAD_MAXIMA_DE_COMPROBANTE_EN_MINUTOS
+            }
+        else:
+            config = cls._get_configuracion(cliente or usuario.cliente)
+            print(f"[DEBUG upload_comprobante] Configuración de la sede → CBU: {config.cbu}, Alias: {config.alias}, Monto: {config.monto_esperado}")
+            config_data = {
+                "cbu": config.cbu,
+                "alias": config.alias,
+                "monto_esperado": config.monto_esperado,
+                "tiempo_maximo_minutos": config.tiempo_maximo_minutos
+            }
 
-        # 🧾 Crear comprobante y asociar al turno
+        # 🔍 Antes de validar
+        print(f"[DEBUG upload_comprobante] Monto que se pasa a _parse_and_validate: {config_data['monto_esperado']}")
+
+        datos = cls._parse_and_validate(file_obj, config_data)
+
+        # 🧾 Asociar comprobante
         turno.usuario = usuario
         turno.estado = "reservado"
         turno.save(update_fields=["usuario", "estado"])
@@ -418,17 +462,28 @@ class ComprobanteService:
             cliente=cliente or usuario.cliente
         )
 
-        # 💰 Crear intento de pago asociado
+        alias_dest = datos.get("alias")
+        cbu_dest = datos.get("cbu_destino")
+
+        # Si falta alias pero tenemos CBU
+        if not alias_dest and cbu_dest:
+            alias_dest = f"Usando CBU/CVU {cbu_dest}"
+
+        # Si falta CBU pero tenemos alias
+        if not cbu_dest and alias_dest:
+            cbu_dest = f"Usando alias {alias_dest}"
+
+        # 💰 Intento de pago
         PagoIntento.objects.create(
             cliente=comprobante.cliente,
             usuario=usuario,
             estado="pre_aprobado",
-            monto_esperado=datos.get("monto", config.monto_esperado),
+            monto_esperado=datos.get("monto", config_data["monto_esperado"]),
             moneda="ARS",
-            alias_destino=datos.get("alias", config.alias),
-            cbu_destino=datos.get("cbu_destino", config.cbu),
+            alias_destino=alias_dest,
+            cbu_destino=cbu_dest,
             origen=comprobante,
-            tiempo_expiracion=timezone.now() + timezone.timedelta(minutes=config.tiempo_maximo_minutos),
+            tiempo_expiracion=timezone.now() + timezone.timedelta(minutes=config_data["tiempo_maximo_minutos"]),
         )
 
         return comprobante
