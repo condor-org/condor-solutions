@@ -101,6 +101,12 @@ Fallback: `NotFoundPage`
 * Clic en turno libre → selecciona → muestra input de archivo.
 * POST `/api/turnos/turnos/reservar/` con comprobante.
 
+### 🔹 TurnosReservados.jsx
+
+* Vista para profesores.
+* Lista los turnos cuyo `estado` es "reservado".
+* Muestra tabla con fecha, hora, sede y usuario.
+
 ---
 
 ## ✅ 📂 Estilos

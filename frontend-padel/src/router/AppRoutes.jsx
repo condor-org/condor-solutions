@@ -19,6 +19,7 @@ import PagosPreaprobadosPage from "../pages/admin/PagosPreaprobadosPage";
 import JugadorDashboard from "../pages/user/JugadorDashboard";
 import PerfilPage from "../pages/user/PerfilPage";
 import ReservarTurno from "../pages/user/ReservarTurno";
+import TurnosReservados from "../pages/profesor/TurnosReservados";
 
 import NotFoundPage from "../pages/NotFoundPage";
 import MainLayout from "../components/layout/MainLayout";
@@ -143,6 +144,16 @@ const AppRoutes = () => {
             <ProtectedRoute allowedRoles={["usuario_final", "super_admin", "admin_cliente"]}>
               <MainLayout>
                 <PerfilPage />
+              </MainLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profesor/turnos"
+          element={
+            <ProtectedRoute allowedRoles={["empleado_cliente"]}>
+              <MainLayout>
+                <TurnosReservados />
               </MainLayout>
             </ProtectedRoute>
           }
