@@ -41,6 +41,8 @@ Fallback: `NotFoundPage`
 
 * Configura `axios` con `Authorization: Bearer <token>`.
 * Base URL: `process.env.REACT_APP_API_BASE_URL`.
+* Si `REACT_APP_DEBUG_LOG_REQUESTS` está en `true` se registran en consola las
+  peticiones y respuestas de la API.
 
 ---
 
