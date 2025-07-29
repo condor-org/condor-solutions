@@ -1,6 +1,7 @@
 # apps/pagos_core/serializers.py
 
 from rest_framework import serializers
+from apps.common.logging import LoggedModelSerializer
 from django.core.exceptions import ValidationError as DjangoValidationError
 from apps.turnos_core.models import Turno
 from apps.pagos_core.models import ComprobantePago
@@ -62,7 +63,7 @@ class ComprobanteUploadSerializer(serializers.Serializer):
             raise serializers.ValidationError({"error": e.messages})
 
 
-class ComprobantePagoSerializer(serializers.ModelSerializer):
+class ComprobantePagoSerializer(LoggedModelSerializer):
     usuario_nombre = serializers.SerializerMethodField()
     usuario_email = serializers.SerializerMethodField()
     turno_hora = serializers.SerializerMethodField()
@@ -176,7 +177,7 @@ class TurnoReservaSerializer(serializers.Serializer):
 
 
 
-class ConfiguracionPagoSerializer(serializers.ModelSerializer):
+class ConfiguracionPagoSerializer(LoggedModelSerializer):
     class Meta:
         model = ConfiguracionPago
         fields = "__all__"

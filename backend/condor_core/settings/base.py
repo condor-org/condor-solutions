@@ -61,6 +61,7 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'condor_core.middleware.LoggingMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -193,6 +194,9 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 
+LOG_LEVEL = os.environ.get("DJANGO_LOG_LEVEL", "INFO")
+LOGGING_ENABLED = os.environ.get("DJANGO_LOGGING", "True") == "True"
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -210,6 +214,6 @@ LOGGING = {
     },
     "root": {
         "handlers": ["console"],
-        "level": "DEBUG",
+        "level": LOG_LEVEL if LOGGING_ENABLED else "CRITICAL",
     },
 }

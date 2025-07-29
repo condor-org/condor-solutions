@@ -12,6 +12,7 @@ from rest_framework.filters import OrderingFilter
 from django.http import FileResponse
 from django_filters.rest_framework import DjangoFilterBackend
 from django.core.exceptions import PermissionDenied
+import logging
 
 from apps.pagos_core.services.comprobantes import ComprobanteService
 from apps.pagos_core.models import ComprobantePago
@@ -75,17 +76,18 @@ class ComprobanteDownloadView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk, *args, **kwargs):
-        print(f"[DEBUG] Intentando descargar comprobante ID={pk} por usuario={request.user} ({request.user.tipo_usuario})")
+        logger = logging.getLogger(__name__)
+        logger.debug("Descarga de comprobante %s solicitada por %s (%s)", pk, request.user, getattr(request.user, "tipo_usuario", ""))
 
         try:
             comprobante = ComprobanteService.download_comprobante(
                 comprobante_id=int(pk),
                 usuario=request.user
             )
-            print(f"[DEBUG] Comprobante encontrado: {comprobante.id}, archivo: {comprobante.archivo}")
+            logger.debug("Comprobante encontrado: %s archivo=%s", comprobante.id, comprobante.archivo)
 
             if not comprobante.archivo or not comprobante.archivo.storage.exists(comprobante.archivo.name):
-                print(f"[ERROR] Archivo no encontrado en storage: {comprobante.archivo.name}")
+                logger.error("Archivo no encontrado en storage: %s", comprobante.archivo.name)
                 return Response({"error": "Archivo no encontrado en disco"}, status=404)
 
             return FileResponse(
@@ -95,11 +97,11 @@ class ComprobanteDownloadView(APIView):
             )
 
         except PermissionDenied as e:
-            print(f"[DEBUG] PermissionDenied: {e}")
+            logger.debug("PermissionDenied: %s", e)
             return Response({"error": str(e)}, status=status.HTTP_403_FORBIDDEN)
 
         except Exception as e:
-            print(f"[DEBUG] Error inesperado: {e}")
+            logger.debug("Error inesperado: %s", e)
             return Response({"error": "No encontrado"}, status=status.HTTP_404_NOT_FOUND)
 
 
@@ -141,15 +143,18 @@ class ComprobanteAprobarRechazarView(APIView):
                 intento.save(update_fields=["estado"])
 
             if turno:
-                from django.utils import timezone
-                import logging
                 logger = logging.getLogger(__name__)
-                logger.debug(f"[RECHAZAR] Liberando turno {turno.id}: estado actual={turno.estado}, usuario actual={turno.usuario_id}")
-                
+                logger.debug(
+                    "[RECHAZAR] Liberando turno %s: estado actual=%s, usuario actual=%s",
+                    turno.id,
+                    turno.estado,
+                    turno.usuario_id,
+                )
+
                 turno.usuario = None
                 turno.estado = 'disponible'  # 🔄 Ajuste: usar el estado correcto
                 turno.save()
-                logger.debug(f"[RECHAZAR] Turno {turno.id} liberado correctamente")
+                logger.debug("[RECHAZAR] Turno %s liberado correctamente", turno.id)
 
             return Response({"mensaje": "❌ Comprobante rechazado y turno liberado"})
 

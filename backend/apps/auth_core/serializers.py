@@ -1,6 +1,7 @@
 # apps/auth_core/serializers.py
 
 from rest_framework import serializers
+from apps.common.logging import LoggedModelSerializer
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -10,7 +11,7 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
-class RegistroSerializer(serializers.ModelSerializer):
+class RegistroSerializer(LoggedModelSerializer):
     password = serializers.CharField(write_only=True, validators=[validate_password])
 
     class Meta:
@@ -47,7 +48,7 @@ class RegistroSerializer(serializers.ModelSerializer):
         return user
 
 
-class UsuarioSerializer(serializers.ModelSerializer):
+class UsuarioSerializer(LoggedModelSerializer):
     password = serializers.CharField(write_only=True, required=False, validators=[validate_password])
 
     class Meta:
