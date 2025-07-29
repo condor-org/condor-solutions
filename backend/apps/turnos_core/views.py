@@ -69,17 +69,17 @@ class TurnoListView(ListAPIView):
         usuario = self.request.user
 
         if usuario.is_superuser:
-            return Turno.objects.all().select_related("usuario", "servicio", "lugar")
+            return Turno.objects.all().select_related("usuario", "lugar")
 
         if hasattr(usuario, "tipo_usuario") and usuario.tipo_usuario == "empleado_cliente":
             return Turno.objects.filter(
                 content_type=ContentType.objects.get_for_model(Prestador),
                 object_id__in=Prestador.objects.filter(user=usuario).values_list("id", flat=True)
-            ).select_related("usuario", "servicio", "lugar")
+            ).select_related("usuario", "lugar")
 
         return Turno.objects.filter(
             usuario=usuario
-        ).select_related("usuario", "servicio", "lugar")
+        ).select_related("usuario", "lugar")
 
 
 class TurnoReservaView(CreateAPIView):

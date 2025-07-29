@@ -299,55 +299,62 @@ class ComprobanteService:
 
 
     @staticmethod
-    def _parse_and_validate(file_obj, config: ConfiguracionPago) -> dict:
+    def _parse_and_validate(file_obj, config) -> dict:
+        """
+        Valida comprobante usando datos de ConfiguracionPago o dict recibido
+        desde otra app (ej: turnos_padel).
+        """
         texto = ComprobanteService._extract_text(file_obj)
 
-        monto_esperado = None
-        try:
-            monto_esperado = float(config.monto_esperado)
-        except Exception:
-            pass
+        # 📌 Obtener valores de config (acepta modelo o dict)
+        cbu = getattr(config, "cbu", config.get("cbu"))
+        alias = getattr(config, "alias", config.get("alias"))
+        monto_esperado = getattr(config, "monto_esperado", config.get("monto_esperado"))
+        tiempo_max = getattr(config, "tiempo_maximo_minutos", config.get("tiempo_maximo_minutos"))
 
+        try:
+            monto_esperado = float(monto_esperado)
+        except Exception:
+            raise ValidationError("Monto esperado inválido en configuración.")
+
+        # 📌 Extraer monto del comprobante
         monto = ComprobanteService._extract_monto(texto, monto_esperado)
         if monto is None:
             raise ValidationError("No se pudo extraer el monto del comprobante.")
 
+        # 📌 Extraer fecha
         fecha_dt = ComprobanteService._extract_fecha(texto)
         if fecha_dt is None:
             raise ValidationError("No se pudo extraer la fecha del comprobante.")
 
-        # Usamos la nueva versión que recibe cbu y alias esperados
+        # 📌 Validar CBU / Alias
         cbu_dest, alias_dest = ComprobanteService._extract_cbu_alias_destinatario(
             texto,
-            cbu_esperado=config.cbu,
-            alias_esperado=config.alias
+            cbu_esperado=cbu,
+            alias_esperado=alias
         )
         if cbu_dest is None and alias_dest is None:
             raise ValidationError("No se pudo extraer CBU o alias del destinatario.")
 
-        # Validar monto exacto
-        if monto < float(config.monto_esperado):
-            raise ValidationError(
-                f"Monto {monto} menor al esperado {config.monto_esperado}."
-            )
+        # 📌 Validar monto
+        if monto < monto_esperado:
+            raise ValidationError(f"Monto {monto} menor al esperado {monto_esperado}.")
 
+        # 📌 Validar fecha vencida
         fecha_dt = timezone.make_aware(fecha_dt)
         minutos_transcurridos = (timezone.now() - fecha_dt).total_seconds() / 60
-        if minutos_transcurridos > config.tiempo_maximo_minutos:
+        if minutos_transcurridos > tiempo_max:
             raise ValidationError(
                 f"El comprobante tiene fecha vencida: {fecha_dt}. "
-                f"Máximo permitido: {config.tiempo_maximo_minutos} min."
+                f"Máximo permitido: {tiempo_max} min."
             )
 
-        if config.cbu and cbu_dest != config.cbu:
-            if not (config.alias and alias_dest == config.alias):
-                raise ValidationError(
-                    f"CBU {cbu_dest} no coincide con el configurado {config.cbu}."
-                )
-        elif config.alias and alias_dest != config.alias and cbu_dest != config.cbu:
-            raise ValidationError(
-                f"Alias {alias_dest} no coincide con el configurado {config.alias}."
-            )
+        # 📌 Validar coincidencia CBU/Alias
+        if cbu and cbu_dest != cbu:
+            if not (alias and alias_dest == alias):
+                raise ValidationError(f"CBU {cbu_dest} no coincide con el configurado {cbu}.")
+        elif alias and alias_dest != alias and cbu_dest != cbu:
+            raise ValidationError(f"Alias {alias_dest} no coincide con el configurado {alias}.")
 
         return {
             "fecha_detectada": fecha_dt.isoformat(),
@@ -361,9 +368,22 @@ class ComprobanteService:
 
 
 
+
     @classmethod
     @transaction.atomic
-    def upload_comprobante(cls, turno_id: int, file_obj, usuario, cliente=None, ip_cliente=None, user_agent=None) -> ComprobantePago:
+    def upload_comprobante(
+        cls,
+        turno_id: int,
+        file_obj,
+        usuario,
+        cliente=None,
+        ip_cliente=None,
+        user_agent=None,
+        cbu_cvu=None,
+        alias=None,
+        monto=None
+    ) -> ComprobantePago:
+
         max_mb = 200
         if file_obj.size > max_mb * 1024 * 1024:
             raise ValidationError(f"El archivo supera el tamaño máximo de {max_mb} MB")
@@ -400,10 +420,26 @@ class ComprobanteService:
         if ComprobantePago.objects.filter(hash_archivo=checksum).exists():
             raise ValidationError("Comprobante duplicado.")
 
-        # ✅ Validar comprobante con configuración del cliente
-        config = cls._get_configuracion(cliente or usuario.cliente)
-        print(f"[DEBUG] Configuración esperada: CBU={config.cbu}, Alias={config.alias}, Monto={config.monto_esperado}")
-        datos = cls._parse_and_validate(file_obj, config)
+
+        # ✅ Validar comprobante con configuración dinámica
+        if all([cbu_cvu, alias, monto]):
+            print(f"[DEBUG] Usando datos proporcionados: CBU/CVU={cbu_cvu}, Alias={alias}, Monto={monto}")
+            config_data = {
+                "cbu": cbu_cvu,
+                "alias": alias,
+                "monto_esperado": monto,
+                "tiempo_maximo_minutos": 15  # Podríamos parametrizar esto después
+            }
+        else:
+            config = cls._get_configuracion(cliente or usuario.cliente)
+            config_data = {
+                "cbu": config.cbu,
+                "alias": config.alias,
+                "monto_esperado": config.monto_esperado,
+                "tiempo_maximo_minutos": config.tiempo_maximo_minutos
+            }
+            print(f"[DEBUG] Usando configuración de ConfiguracionPago: {config_data}")
+
 
         # 🧾 Crear comprobante y asociar al turno
         turno.usuario = usuario
