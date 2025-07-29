@@ -11,11 +11,14 @@ from PyPDF2 import PdfReader
 from io import BytesIO
 from PIL import Image
 import pytesseract
+import logging
 from apps.common.permissions import EsSuperAdmin, EsAdminDeSuCliente
 from apps.pagos_core.models import ComprobantePago, ConfiguracionPago, PagoIntento
 
 from django.contrib.contenttypes.models import ContentType
 from apps.turnos_core.models import Prestador
+
+logger = logging.getLogger(__name__)
 
 try:
     import dateutil.parser
@@ -77,14 +80,14 @@ class ComprobanteService:
                 if page_text:
                     texto += page_text + "\n"
             file_obj.seek(0)
-            print(f"[DEBUG] Texto extraído (PDF):\n{texto}\n{'-'*40}")
+            logger.debug("Texto extraído (PDF):\n%s\n%s", texto, '-'*40)
             return texto
         elif ext in {"png", "jpg", "jpeg", "bmp", "webp"}:
             file_obj.seek(0)
             img = Image.open(file_obj)
             texto = pytesseract.image_to_string(img)
             file_obj.seek(0)
-            print(f"[DEBUG] Texto extraído (Imagen):\n{texto}\n{'-'*40}")
+            logger.debug("Texto extraído (Imagen):\n%s\n%s", texto, '-'*40)
             return texto
         else:
             raise ValidationError(f"Extensión no soportada para extracción de texto: {ext}")
@@ -126,15 +129,15 @@ class ComprobanteService:
                         match = regex_monto.search(lineas[idx])
                         if match:
                             monto_str = match.group(1)
-                            print(f"Encontrado monto_str: '{monto_str}' en línea: '{lineas[idx]}'")
+                            logger.debug("Encontrado monto_str: '%s' en línea: '%s'", monto_str, lineas[idx])
                             monto_str = normalizar_monto(monto_str)
-                            print(f"Normalizado a: '{monto_str}'")
+                            logger.debug("Normalizado a: '%s'", monto_str)
                             try:
                                 valor = float(monto_str)
-                                print(f"Monto convertido a float: {valor}")
+                                logger.debug("Monto convertido a float: %s", valor)
                                 return valor
                             except ValueError:
-                                print(f"Error al convertir monto '{monto_str}'")
+                                logger.debug("Error al convertir monto '%s'", monto_str)
                                 continue
 
         # Fallback: buscar números sin signo $ pero con formato de monto (números con puntos y comas)
@@ -144,13 +147,13 @@ class ComprobanteService:
             for m in regex_num_sin_signo.findall(linea):
                 candidatos.append(m)
 
-        print(f"[DEBUG] Candidatos a montos sin signo $ encontrados: {candidatos}")
+        logger.debug("Candidatos a montos sin signo $ encontrados: %s", candidatos)
 
         for candidato in candidatos:
             monto_str = normalizar_monto(candidato)
             try:
                 valor = float(monto_str)
-                print(f"[DEBUG] Monto válido encontrado en fallback: {valor}")
+                logger.debug("Monto válido encontrado en fallback: %s", valor)
                 # Si monto_esperado está definido, validar que coincida exactamente
                 if monto_esperado is not None:
                     if abs(valor - monto_esperado) < 0.001:  # tolerancia muy pequeña para float
@@ -158,27 +161,27 @@ class ComprobanteService:
                 else:
                     return valor
             except ValueError:
-                print(f"[DEBUG] Error al convertir monto en fallback '{monto_str}'")
+                logger.debug("Error al convertir monto en fallback '%s'", monto_str)
                 continue
 
-        print("[DEBUG] No se encontró monto válido.")
+        logger.debug("No se encontró monto válido.")
         return None
 
     @staticmethod
     def _extract_fecha(texto: str):
         import re
-        print("[DEBUG] Iniciando extracción de fecha")
+        logger.debug("Iniciando extracción de fecha")
 
         # 1. Regex para formato numérico clásico dd/mm/yyyy o dd-mm-yyyy o yyyy-mm-dd
         regex_fecha = re.compile(r"(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})")
         match = regex_fecha.search(texto)
         if match:
             fecha_str = match.group(1)
-            print(f"[DEBUG] Fecha encontrada con regex numérico: '{fecha_str}'")
+            logger.debug("Fecha encontrada con regex numérico: '%s'", fecha_str)
             for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d"):
                 try:
                     fecha = datetime.strptime(fecha_str, fmt)
-                    print(f"[DEBUG] Fecha parseada con formato '{fmt}': {fecha}")
+                    logger.debug("Fecha parseada con formato '%s': %s", fmt, fecha)
                     return fecha
                 except ValueError:
                     continue
@@ -188,13 +191,13 @@ class ComprobanteService:
         match = regex_fecha_letras.search(texto)
         if match:
             fecha_str = match.group(1)
-            print(f"[DEBUG] Fecha encontrada con regex mes letras: '{fecha_str}'")
+            logger.debug("Fecha encontrada con regex mes letras: '%s'", fecha_str)
             try:
                 fecha = datetime.strptime(fecha_str, "%d/%b/%Y")
-                print(f"[DEBUG] Fecha parseada con mes abreviado: {fecha}")
+                logger.debug("Fecha parseada con mes abreviado: %s", fecha)
                 return fecha
             except ValueError as e:
-                print(f"[DEBUG] Error parseando fecha mes letras: {e}")
+                logger.debug("Error parseando fecha mes letras: %s", e)
 
         # 3. Regex para fechas tipo "18 de junio de 2025"
         regex_fecha_palabras = re.compile(
@@ -212,7 +215,7 @@ class ComprobanteService:
             if mes:
                 try:
                     fecha = datetime(int(anio), mes, int(dia))
-                    print(f"[DEBUG] Fecha parseada con mes en palabras: {fecha}")
+                    logger.debug("Fecha parseada con mes en palabras: %s", fecha)
                     return fecha
                 except ValueError:
                     pass
@@ -224,21 +227,21 @@ class ComprobanteService:
             fecha_str = match_iso.group(1)
             try:
                 fecha = datetime.strptime(fecha_str, "%Y-%m-%d %H:%M:%S")
-                print(f"[DEBUG] Fecha parseada con formato ISO y hora: {fecha}")
+                logger.debug("Fecha parseada con formato ISO y hora: %s", fecha)
                 return fecha
             except ValueError as e:
-                print(f"[DEBUG] Error parseando fecha ISO con hora: {e}")
+                logger.debug("Error parseando fecha ISO con hora: %s", e)
 
         # 5. Intentar dateutil parser con fuzzy=True si está disponible
         if HAS_DATEUTIL:
             try:
                 fecha = dateutil.parser.parse(texto, fuzzy=True)
-                print(f"[DEBUG] Fecha parseada con dateutil parser: {fecha}")
+                logger.debug("Fecha parseada con dateutil parser: %s", fecha)
                 return fecha
             except (ValueError, OverflowError) as e:
-                print(f"[DEBUG] dateutil.parser falló: {e}")
+                logger.debug("dateutil.parser falló: %s", e)
 
-        print("[DEBUG] No se pudo extraer fecha válida")
+        logger.debug("No se pudo extraer fecha válida")
         return None
 
     @staticmethod
@@ -249,25 +252,25 @@ class ComprobanteService:
         )
         lineas = texto.split('\n')
 
-        print("[DEBUG] Iniciando extracción de CBU/Alias")
+        logger.debug("Iniciando extracción de CBU/Alias")
 
         # Buscar cbu_esperado en líneas
         if cbu_esperado:
-            print(f"[DEBUG] Buscando línea por línea CBU esperado: {cbu_esperado}")
+            logger.debug("Buscando línea por línea CBU esperado: %s", cbu_esperado)
             for i, linea in enumerate(lineas):
                 if cbu_esperado in linea:
-                    print(f"[DEBUG] CBU esperado encontrado en línea {i}: '{linea.strip()}'")
+                    logger.debug("CBU esperado encontrado en línea %s: '%s'", i, linea.strip())
                     return cbu_esperado, None
-            print("[DEBUG] CBU esperado NO encontrado en ninguna línea")
+            logger.debug("CBU esperado NO encontrado en ninguna línea")
 
         # Buscar alias_esperado en líneas
         if alias_esperado:
-            print(f"[DEBUG] Buscando línea por línea Alias esperado: {alias_esperado}")
+            logger.debug("Buscando línea por línea Alias esperado: %s", alias_esperado)
             for i, linea in enumerate(lineas):
                 if alias_esperado in linea:
-                    print(f"[DEBUG] Alias esperado encontrado en línea {i}: '{linea.strip()}'")
+                    logger.debug("Alias esperado encontrado en línea %s: '%s'", i, linea.strip())
                     return None, alias_esperado
-            print("[DEBUG] Alias esperado NO encontrado en ninguna línea")
+            logger.debug("Alias esperado NO encontrado en ninguna línea")
 
         # Si no se encontró cbu_esperado ni alias_esperado, continuar con búsqueda general (lógica previa)
         alias_dest = None
@@ -291,13 +294,13 @@ class ComprobanteService:
                     break
 
         if alias_dest:
-            print(f"[DEBUG] Alias final: {alias_dest}")
+            logger.debug("Alias final: %s", alias_dest)
             return None, alias_dest
         if cbu_dest:
-            print(f"[DEBUG] CBU final: {cbu_dest}")
+            logger.debug("CBU final: %s", cbu_dest)
             return cbu_dest, None
 
-        print("[DEBUG] No se encontró CBU ni alias")
+        logger.debug("No se encontró CBU ni alias")
         return None, None
 
 
@@ -427,7 +430,12 @@ class ComprobanteService:
 
         # ✅ Configuración
         if all([cbu_cvu, alias, monto]):
-            print(f"[DEBUG upload_comprobante] Datos recibidos directamente → CBU: {cbu_cvu}, Alias: {alias}, Monto: {monto}")
+            logger.debug(
+                "[upload_comprobante] Datos recibidos directamente → CBU: %s, Alias: %s, Monto: %s",
+                cbu_cvu,
+                alias,
+                monto,
+            )
             config_data = {
                 "cbu": cbu_cvu,
                 "alias": alias,
@@ -436,7 +444,12 @@ class ComprobanteService:
             }
         else:
             config = cls._get_configuracion(cliente or usuario.cliente)
-            print(f"[DEBUG upload_comprobante] Configuración de la sede → CBU: {config.cbu}, Alias: {config.alias}, Monto: {config.monto_esperado}")
+            logger.debug(
+                "[upload_comprobante] Configuración de la sede → CBU: %s, Alias: %s, Monto: %s",
+                config.cbu,
+                config.alias,
+                config.monto_esperado,
+            )
             config_data = {
                 "cbu": config.cbu,
                 "alias": config.alias,
@@ -445,7 +458,10 @@ class ComprobanteService:
             }
 
         # 🔍 Antes de validar
-        print(f"[DEBUG upload_comprobante] Monto que se pasa a _parse_and_validate: {config_data['monto_esperado']}")
+        logger.debug(
+            "[upload_comprobante] Monto que se pasa a _parse_and_validate: %s",
+            config_data["monto_esperado"],
+        )
 
         datos = cls._parse_and_validate(file_obj, config_data)
 

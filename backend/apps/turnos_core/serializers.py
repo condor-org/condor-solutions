@@ -1,6 +1,7 @@
 # apps/turnos_core/serializers.py
 
 from rest_framework import serializers
+from apps.common.logging import LoggedModelSerializer
 from django.core.exceptions import ValidationError as DjangoValidationError, PermissionDenied as DjangoPermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError, PermissionDenied as DRFPermissionDenied
 from apps.pagos_core.services.comprobantes import ComprobanteService
@@ -15,7 +16,7 @@ from django.contrib.contenttypes.models import ContentType
 Usuario = get_user_model()
 
 
-class TurnoSerializer(serializers.ModelSerializer):
+class TurnoSerializer(LoggedModelSerializer):
     servicio = serializers.CharField(source="servicio.nombre", read_only=True)
     recurso = serializers.SerializerMethodField()
     usuario = serializers.CharField(source="usuario.username", read_only=True)
@@ -106,23 +107,23 @@ class TurnoReservaSerializer(serializers.Serializer):
         return turno
 
 
-class TurnoDisponibleSerializer(serializers.ModelSerializer):
+class TurnoDisponibleSerializer(LoggedModelSerializer):
     hora = serializers.TimeField(format="%H:%M")
     class Meta:
         model = Turno
         fields = ["id", "fecha", "hora", "estado"]
 
-class LugarSerializer(serializers.ModelSerializer):
+class LugarSerializer(LoggedModelSerializer):
     class Meta:
         model = Lugar
         fields = ["id", "nombre", "direccion"]
 
-class BloqueoTurnosSerializer(serializers.ModelSerializer):
+class BloqueoTurnosSerializer(LoggedModelSerializer):
     class Meta:
         model = BloqueoTurnos
         fields = "__all__"
 
-class DisponibilidadSerializer(serializers.ModelSerializer):
+class DisponibilidadSerializer(LoggedModelSerializer):
     lugar_nombre = serializers.CharField(source="lugar.nombre", read_only=True)
 
     class Meta:
@@ -147,7 +148,7 @@ class DisponibilidadSerializer(serializers.ModelSerializer):
             raise DRFValidationError("Ya existe una disponibilidad con los mismos datos.")
         return attrs
 
-class PrestadorSerializer(serializers.ModelSerializer):
+class PrestadorSerializer(LoggedModelSerializer):
     cliente_nombre = serializers.CharField(source="cliente.nombre", read_only=True)
 
     class Meta:
@@ -161,7 +162,7 @@ class PrestadorSerializer(serializers.ModelSerializer):
             "cliente_nombre",
         ]
 
-class PrestadorDetailSerializer(serializers.ModelSerializer):
+class PrestadorDetailSerializer(LoggedModelSerializer):
     # Datos del usuario embebidos solo lectura
     nombre = serializers.CharField(source="user.nombre", read_only=True)
     apellido = serializers.CharField(source="user.apellido", read_only=True)
@@ -185,7 +186,7 @@ class PrestadorDetailSerializer(serializers.ModelSerializer):
             "disponibilidades"
         ]
 
-class PrestadorConUsuarioSerializer(serializers.ModelSerializer):
+class PrestadorConUsuarioSerializer(LoggedModelSerializer):
     # Campos del usuario embebidos
     email = serializers.EmailField(write_only=True)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
