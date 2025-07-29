@@ -45,9 +45,19 @@ const ReservarTurno = () => {
     api.get("turnos/sedes/")
       .then(res => setSedes(res.data.results || res.data || []))
       .catch(() => setSedes([]));
-    api.get("pagos/configuracion/")
-      .then(res => setConfigPago(res.data))
-      .catch(() => setConfigPago({}));
+    if (sedeId) {
+      api.get(`padel/sedes/${sedeId}/`)
+        .then(res => {
+          const conf = res.data.configuracion_padel || {};
+          setConfigPago({
+            alias: conf.alias || "",
+            cbu_cvu: conf.cbu_cvu || "",
+            tiempo_maximo_minutos: conf.tiempo_maximo_minutos || 15
+          });
+        })
+        .catch(() => setConfigPago({}));
+    }
+      
   }, [accessToken]);
 
   // 🔹 Cargar tipos de clase
@@ -224,6 +234,7 @@ const ReservarTurno = () => {
           setTipoClaseId("");
           setTiposClase([]);
           setTurnos([]);
+          setConfigPago({});
         }}
         onProfesorChange={setProfesorId}
         onTipoClaseChange={setTipoClaseId}

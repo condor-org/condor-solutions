@@ -141,9 +141,15 @@ class ComprobanteAprobarRechazarView(APIView):
                 intento.save(update_fields=["estado"])
 
             if turno:
+                from django.utils import timezone
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.debug(f"[RECHAZAR] Liberando turno {turno.id}: estado actual={turno.estado}, usuario actual={turno.usuario_id}")
+                
                 turno.usuario = None
-                turno.estado = 'pendiente'
-                turno.save(update_fields=["usuario", "estado"])
+                turno.estado = 'disponible'  # 🔄 Ajuste: usar el estado correcto
+                turno.save()
+                logger.debug(f"[RECHAZAR] Turno {turno.id} liberado correctamente")
 
             return Response({"mensaje": "❌ Comprobante rechazado y turno liberado"})
 

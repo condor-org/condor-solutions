@@ -14,13 +14,16 @@ import pytesseract
 from apps.common.permissions import EsSuperAdmin, EsAdminDeSuCliente
 from apps.pagos_core.models import ComprobantePago, ConfiguracionPago, PagoIntento
 
-
+from django.contrib.contenttypes.models import ContentType
+from apps.turnos_core.models import Prestador
 
 try:
     import dateutil.parser
     HAS_DATEUTIL = True
 except ImportError:
     HAS_DATEUTIL = False
+
+ANTIGUEDAD_MAXIMA_DE_COMPROBANTE_EN_MINUTOS = 150000
 
 
 class ComprobanteService:
@@ -366,9 +369,6 @@ class ComprobanteService:
         }
 
 
-
-
-
     @classmethod
     @transaction.atomic
     def upload_comprobante(
@@ -396,52 +396,60 @@ class ComprobanteService:
                 f"Extensión no permitida: «{ext}». Solo se permiten: {allowed}"
             )
 
+        # 🔍 Obtener turno
         try:
-            turno = Turno.objects.select_related("prestador").get(pk=turno_id)
-            if turno.prestador.cliente_id != (cliente or usuario.cliente).id:
-                raise PermissionDenied("No tenés acceso a este turno.")
+            turno = Turno.objects.select_related("usuario", "lugar").get(pk=turno_id)
         except Turno.DoesNotExist:
             raise ValidationError("Turno no existe.")
 
-        # 🔒 Permisos sobre el turno
-        if turno.usuario is not None and turno.usuario != usuario:
-            raise PermissionDenied("El turno ya está reservado por otro usuario.")
+        if turno.content_type != ContentType.objects.get_for_model(Prestador):
+            raise ValidationError("El turno no está asociado a un prestador válido.")
 
-        if EsSuperAdmin().has_permission(usuario, None):
+        prestador = turno.recurso
+        if prestador.cliente_id != (cliente or usuario.cliente).id:
+            raise PermissionDenied("No tenés acceso a este turno.")
+
+        # 🔒 Permisos
+        tipo_usuario = getattr(usuario, "tipo_usuario", None)
+        if tipo_usuario == "super_admin":
             pass
-        elif EsAdminDeSuCliente().has_permission(usuario, None):
-            if turno.prestador.cliente_id != usuario.cliente.id:
+        elif tipo_usuario == "admin_cliente":
+            if prestador.cliente_id != usuario.cliente.id:
                 raise PermissionDenied("No tenés permiso para operar sobre este turno.")
-        elif turno.usuario is not None:
-            raise PermissionDenied("No tenés permiso para modificar este turno.")
+        else:
+            if turno.usuario is not None and turno.usuario != usuario:
+                raise PermissionDenied("No tenés permiso para modificar este turno.")
 
         # 🔄 Verificar comprobante duplicado
         checksum = cls._generate_hash(file_obj)
         if ComprobantePago.objects.filter(hash_archivo=checksum).exists():
             raise ValidationError("Comprobante duplicado.")
 
-
-        # ✅ Validar comprobante con configuración dinámica
+        # ✅ Configuración
         if all([cbu_cvu, alias, monto]):
-            print(f"[DEBUG] Usando datos proporcionados: CBU/CVU={cbu_cvu}, Alias={alias}, Monto={monto}")
+            print(f"[DEBUG upload_comprobante] Datos recibidos directamente → CBU: {cbu_cvu}, Alias: {alias}, Monto: {monto}")
             config_data = {
                 "cbu": cbu_cvu,
                 "alias": alias,
                 "monto_esperado": monto,
-                "tiempo_maximo_minutos": 15  # Podríamos parametrizar esto después
+                "tiempo_maximo_minutos": ANTIGUEDAD_MAXIMA_DE_COMPROBANTE_EN_MINUTOS
             }
         else:
             config = cls._get_configuracion(cliente or usuario.cliente)
+            print(f"[DEBUG upload_comprobante] Configuración de la sede → CBU: {config.cbu}, Alias: {config.alias}, Monto: {config.monto_esperado}")
             config_data = {
                 "cbu": config.cbu,
                 "alias": config.alias,
                 "monto_esperado": config.monto_esperado,
                 "tiempo_maximo_minutos": config.tiempo_maximo_minutos
             }
-            print(f"[DEBUG] Usando configuración de ConfiguracionPago: {config_data}")
 
+        # 🔍 Antes de validar
+        print(f"[DEBUG upload_comprobante] Monto que se pasa a _parse_and_validate: {config_data['monto_esperado']}")
 
-        # 🧾 Crear comprobante y asociar al turno
+        datos = cls._parse_and_validate(file_obj, config_data)
+
+        # 🧾 Asociar comprobante
         turno.usuario = usuario
         turno.estado = "reservado"
         turno.save(update_fields=["usuario", "estado"])
@@ -454,17 +462,28 @@ class ComprobanteService:
             cliente=cliente or usuario.cliente
         )
 
-        # 💰 Crear intento de pago asociado
+        alias_dest = datos.get("alias")
+        cbu_dest = datos.get("cbu_destino")
+
+        # Si falta alias pero tenemos CBU
+        if not alias_dest and cbu_dest:
+            alias_dest = f"Usando CBU/CVU {cbu_dest}"
+
+        # Si falta CBU pero tenemos alias
+        if not cbu_dest and alias_dest:
+            cbu_dest = f"Usando alias {alias_dest}"
+
+        # 💰 Intento de pago
         PagoIntento.objects.create(
             cliente=comprobante.cliente,
             usuario=usuario,
             estado="pre_aprobado",
-            monto_esperado=datos.get("monto", config.monto_esperado),
+            monto_esperado=datos.get("monto", config_data["monto_esperado"]),
             moneda="ARS",
-            alias_destino=datos.get("alias", config.alias),
-            cbu_destino=datos.get("cbu_destino", config.cbu),
+            alias_destino=alias_dest,
+            cbu_destino=cbu_dest,
             origen=comprobante,
-            tiempo_expiracion=timezone.now() + timezone.timedelta(minutes=config.tiempo_maximo_minutos),
+            tiempo_expiracion=timezone.now() + timezone.timedelta(minutes=config_data["tiempo_maximo_minutos"]),
         )
 
         return comprobante
