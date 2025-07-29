@@ -1,13 +1,14 @@
 # apps/pagos_core/serializers.py
 
 from rest_framework import serializers
+from apps.common.serializers import DebugSerializerMixin
 from django.core.exceptions import ValidationError as DjangoValidationError
 from apps.turnos_core.models import Turno
 from apps.pagos_core.models import ComprobantePago
 from .models import ConfiguracionPago
 
 
-class ComprobanteUploadSerializer(serializers.Serializer):
+class ComprobanteUploadSerializer(DebugSerializerMixin, serializers.Serializer):
     turno_id = serializers.IntegerField()
     archivo = serializers.FileField()
 
@@ -62,7 +63,7 @@ class ComprobanteUploadSerializer(serializers.Serializer):
             raise serializers.ValidationError({"error": e.messages})
 
 
-class ComprobantePagoSerializer(serializers.ModelSerializer):
+class ComprobantePagoSerializer(DebugSerializerMixin, serializers.ModelSerializer):
     usuario_nombre = serializers.SerializerMethodField()
     usuario_email = serializers.SerializerMethodField()
     turno_hora = serializers.SerializerMethodField()
@@ -98,7 +99,7 @@ class ComprobantePagoSerializer(serializers.ModelSerializer):
         except AttributeError:
             return None
 
-class TurnoReservaSerializer(serializers.Serializer):
+class TurnoReservaSerializer(DebugSerializerMixin, serializers.Serializer):
     turno_id = serializers.IntegerField()
     archivo = serializers.FileField(required=False)
 

@@ -4,6 +4,9 @@ from datetime import date, datetime, timedelta
 from django.contrib.contenttypes.models import ContentType
 from apps.turnos_core.models import Turno, Disponibilidad, Prestador
 from apps.turnos_core.utils import esta_bloqueado
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def generar_turnos_para_prestador(prestador_id, fecha_inicio, fecha_fin, duracion_minutos=60):
@@ -52,7 +55,7 @@ def generar_turnos_para_prestador(prestador_id, fecha_inicio, fecha_fin, duracio
 
                 hora_actual += timedelta(minutes=duracion_minutos)
 
-    print(f"✅ Turnos generados: {total_generados}")
+    logger.debug("Turnos generados: %s", total_generados)
     return total_generados
 
 def _dias_para(disponibilidad, desde, hasta):

@@ -1,6 +1,7 @@
 # apps/turnos_core/serializers.py
 
 from rest_framework import serializers
+from apps.common.serializers import DebugSerializerMixin
 from django.core.exceptions import ValidationError as DjangoValidationError, PermissionDenied as DjangoPermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError, PermissionDenied as DRFPermissionDenied
 from apps.pagos_core.services.comprobantes import ComprobanteService
@@ -14,7 +15,7 @@ from django.utils import timezone
 Usuario = get_user_model()
 
 
-class TurnoSerializer(serializers.ModelSerializer):
+class TurnoSerializer(DebugSerializerMixin, serializers.ModelSerializer):
     servicio = serializers.CharField(source="servicio.nombre", read_only=True)
     recurso = serializers.SerializerMethodField()
     usuario = serializers.CharField(source="usuario.username", read_only=True)
@@ -32,7 +33,7 @@ class TurnoSerializer(serializers.ModelSerializer):
         return None
 
 
-class TurnoReservaSerializer(serializers.Serializer):
+class TurnoReservaSerializer(DebugSerializerMixin, serializers.Serializer):
     turno_id = serializers.IntegerField()
     archivo = serializers.FileField()
 
@@ -90,23 +91,23 @@ class TurnoReservaSerializer(serializers.Serializer):
         return turno
 
 
-class TurnoDisponibleSerializer(serializers.ModelSerializer):
+class TurnoDisponibleSerializer(DebugSerializerMixin, serializers.ModelSerializer):
     hora = serializers.TimeField(format="%H:%M")
     class Meta:
         model = Turno
         fields = ["id", "fecha", "hora", "estado"]
 
-class LugarSerializer(serializers.ModelSerializer):
+class LugarSerializer(DebugSerializerMixin, serializers.ModelSerializer):
     class Meta:
         model = Lugar
         fields = ["id", "nombre", "direccion"]
 
-class BloqueoTurnosSerializer(serializers.ModelSerializer):
+class BloqueoTurnosSerializer(DebugSerializerMixin, serializers.ModelSerializer):
     class Meta:
         model = BloqueoTurnos
         fields = "__all__"
 
-class DisponibilidadSerializer(serializers.ModelSerializer):
+class DisponibilidadSerializer(DebugSerializerMixin, serializers.ModelSerializer):
     lugar_nombre = serializers.CharField(source="lugar.nombre", read_only=True)
 
     class Meta:
@@ -131,7 +132,7 @@ class DisponibilidadSerializer(serializers.ModelSerializer):
             raise DRFValidationError("Ya existe una disponibilidad con los mismos datos.")
         return attrs
 
-class PrestadorSerializer(serializers.ModelSerializer):
+class PrestadorSerializer(DebugSerializerMixin, serializers.ModelSerializer):
     cliente_nombre = serializers.CharField(source="cliente.nombre", read_only=True)
 
     class Meta:
@@ -145,7 +146,7 @@ class PrestadorSerializer(serializers.ModelSerializer):
             "cliente_nombre",
         ]
 
-class PrestadorDetailSerializer(serializers.ModelSerializer):
+class PrestadorDetailSerializer(DebugSerializerMixin, serializers.ModelSerializer):
     # Datos del usuario embebidos solo lectura
     nombre = serializers.CharField(source="user.nombre", read_only=True)
     apellido = serializers.CharField(source="user.apellido", read_only=True)
@@ -169,7 +170,7 @@ class PrestadorDetailSerializer(serializers.ModelSerializer):
             "disponibilidades"
         ]
 
-class PrestadorConUsuarioSerializer(serializers.ModelSerializer):
+class PrestadorConUsuarioSerializer(DebugSerializerMixin, serializers.ModelSerializer):
     # Campos del usuario embebidos
     email = serializers.EmailField(write_only=True)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)

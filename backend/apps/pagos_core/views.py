@@ -21,7 +21,10 @@ from .models import ConfiguracionPago
 from .serializers import ConfiguracionPagoSerializer
 
 from apps.common.permissions import EsAdminDeSuCliente, EsSuperAdmin
-from apps.pagos_core.models import PagoIntento 
+from apps.pagos_core.models import PagoIntento
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ComprobanteView(ListCreateAPIView):
@@ -75,17 +78,26 @@ class ComprobanteDownloadView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk, *args, **kwargs):
-        print(f"[DEBUG] Intentando descargar comprobante ID={pk} por usuario={request.user} ({request.user.tipo_usuario})")
+        logger.debug(
+            "[COMPROBANTE DOWNLOAD] id=%s user=%s tipo=%s",
+            pk,
+            request.user,
+            getattr(request.user, "tipo_usuario", "-")
+        )
 
         try:
             comprobante = ComprobanteService.download_comprobante(
                 comprobante_id=int(pk),
                 usuario=request.user
             )
-            print(f"[DEBUG] Comprobante encontrado: {comprobante.id}, archivo: {comprobante.archivo}")
+            logger.debug(
+                "[COMPROBANTE DOWNLOAD] encontrado id=%s archivo=%s",
+                comprobante.id,
+                comprobante.archivo,
+            )
 
             if not comprobante.archivo or not comprobante.archivo.storage.exists(comprobante.archivo.name):
-                print(f"[ERROR] Archivo no encontrado en storage: {comprobante.archivo.name}")
+                logger.error("Archivo no encontrado en storage: %s", comprobante.archivo.name)
                 return Response({"error": "Archivo no encontrado en disco"}, status=404)
 
             return FileResponse(
@@ -95,11 +107,11 @@ class ComprobanteDownloadView(APIView):
             )
 
         except PermissionDenied as e:
-            print(f"[DEBUG] PermissionDenied: {e}")
+            logger.debug("PermissionDenied: %s", e)
             return Response({"error": str(e)}, status=status.HTTP_403_FORBIDDEN)
 
         except Exception as e:
-            print(f"[DEBUG] Error inesperado: {e}")
+            logger.debug("Error inesperado: %s", e)
             return Response({"error": "No encontrado"}, status=status.HTTP_404_NOT_FOUND)
 
 
