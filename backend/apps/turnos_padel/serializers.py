@@ -58,10 +58,16 @@ class SedePadelSerializer(serializers.ModelSerializer):
         tipos_data = config_data.pop("tipos_clase", [])
 
         user = self.context["request"].user
-        cliente = user.cliente if user.tipo_usuario != "super_admin" else validated_data.get("cliente")
+        if user.tipo_usuario == "super_admin":
+            cliente = validated_data.pop("cliente", None)
+            if not cliente:
+                raise serializers.ValidationError("Debe especificar un cliente si es super_admin.")
+        else:
+            validated_data.pop("cliente", None)  # eliminamos si vino del request
+            cliente = user.cliente
 
-        # Crear sede
         sede = Lugar.objects.create(cliente=cliente, **validated_data)
+
 
         # Crear configuración
         config = ConfiguracionSedePadel.objects.create(

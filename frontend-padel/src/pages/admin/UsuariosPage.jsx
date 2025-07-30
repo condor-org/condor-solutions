@@ -52,6 +52,10 @@ const UsuariosPage = () => {
   const input = useInputColors();
   const mutedText = useMutedText();
   
+  const usuariosFinales = usuarios.filter(u => u.tipo_usuario === "usuario_final");
+  const empleados = usuarios.filter(u => u.tipo_usuario === "empleado_cliente");
+  const admins = usuarios.filter(u => u.tipo_usuario === "admin_cliente");
+
 
   useEffect(() => {
     if (!accessToken) return;
@@ -196,55 +200,159 @@ const UsuariosPage = () => {
             </Button>
           </Flex>
   
-          {usuarios.length === 0 ? (
-            <Text color={mutedText} textAlign="center">No hay usuarios cargados.</Text>
-          ) : (
-            <VStack spacing={3} align="stretch">
-              {usuarios.map((u) => (
-                <Flex
-                  key={u.id}
-                  bg={card.bg}
-                  color={card.color}
-                  p={4}
-                  rounded="md"
-                  justify="space-between"
-                  align="center"
-                  boxShadow="md"
-                  direction={isMobile ? "column" : "row"}
-                  _hover={{ cursor: "pointer", bg: card.iconColor }}
-                  onClick={e => {
-                    if (e.target.closest("button")) return;
-                    handleOpenDetalle(u);
-                  }}
-                >
-                  <Box>
-                    <Text fontWeight="bold">{u.nombre} {u.apellido}</Text>
-                    <Text fontSize="sm" color={mutedText}>{u.email}</Text>
-                    <Text fontSize="sm" color={u.is_active ? "green.400" : "red.400"}>
-                      {u.is_active ? "Activo" : "Inactivo"}
-                    </Text>
-                  </Box>
-                  <Flex gap={2} mt={isMobile ? 2 : 0}>
-                    <IconButton
-                      icon={<EditIcon />}
-                      aria-label="Editar"
-                      onClick={() => openForEdit(u)}
-                      size="sm"
-                      colorScheme="blue"
-                    />
-                    <IconButton
-                      icon={<DeleteIcon />}
-                      aria-label="Eliminar"
-                      onClick={() => handleDelete(u.id, u.email)}
-                      size="sm"
-                      colorScheme="red"
-                    />
-                  </Flex>
+                  {/* USUARIOS */}
+        <Heading size="sm" mt={8} mb={2}>Usuarios</Heading>
+        {usuariosFinales.length === 0 ? (
+          <Text color={mutedText}>No hay usuarios cargados.</Text>
+        ) : (
+          <VStack spacing={3} align="stretch">
+            {usuariosFinales.map((u) => (
+              <Flex
+                key={u.id}
+                bg={card.bg}
+                color={card.color}
+                p={4}
+                rounded="md"
+                justify="space-between"
+                align="center"
+                boxShadow="md"
+                direction={isMobile ? "column" : "row"}
+                _hover={{ cursor: "pointer", bg: card.iconColor }}
+                onClick={e => {
+                  if (e.target.closest("button")) return;
+                  handleOpenDetalle(u);
+                }}
+              >
+                <Box>
+                  <Text fontWeight="bold">{u.nombre} {u.apellido}</Text>
+                  <Text fontSize="sm" color={mutedText}>{u.email}</Text>
+                  <Text fontSize="sm" color={u.is_active ? "green.400" : "red.400"}>
+                    {u.is_active ? "Activo" : "Inactivo"}
+                  </Text>
+                </Box>
+                <Flex gap={2} mt={isMobile ? 2 : 0}>
+                  <IconButton
+                    icon={<EditIcon />}
+                    aria-label="Editar"
+                    onClick={() => openForEdit(u)}
+                    size="sm"
+                    colorScheme="blue"
+                  />
+                  <IconButton
+                    icon={<DeleteIcon />}
+                    aria-label="Eliminar"
+                    onClick={() => handleDelete(u.id, u.email)}
+                    size="sm"
+                    colorScheme="red"
+                  />
                 </Flex>
-              ))}
-            </VStack>
-          )}
-  
+              </Flex>
+            ))}
+          </VStack>
+        )}
+
+        {/* PROFESORES */}
+        <Heading size="sm" mt={8} mb={2}>Profesores</Heading>
+        {empleados.length === 0 ? (
+          <Text color={mutedText}>No hay profesores cargados.</Text>
+        ) : (
+          <VStack spacing={3} align="stretch">
+            {empleados.map((u) => (
+              <Flex
+                key={u.id}
+                bg={card.bg}
+                color={card.color}
+                p={4}
+                rounded="md"
+                justify="space-between"
+                align="center"
+                boxShadow="md"
+                direction={isMobile ? "column" : "row"}
+                _hover={{ cursor: "pointer", bg: card.iconColor }}
+                onClick={e => {
+                  if (e.target.closest("button")) return;
+                  handleOpenDetalle(u);
+                }}
+              >
+                <Box>
+                  <Text fontWeight="bold">{u.nombre} {u.apellido}</Text>
+                  <Text fontSize="sm" color={mutedText}>{u.email}</Text>
+                  <Text fontSize="sm" color={u.is_active ? "green.400" : "red.400"}>
+                    {u.is_active ? "Activo" : "Inactivo"}
+                  </Text>
+                </Box>
+                <Flex gap={2} mt={isMobile ? 2 : 0}>
+                  <IconButton
+                    icon={<EditIcon />}
+                    aria-label="Editar"
+                    onClick={() => openForEdit(u)}
+                    size="sm"
+                    colorScheme="blue"
+                  />
+                  <IconButton
+                    icon={<DeleteIcon />}
+                    aria-label="Eliminar"
+                    onClick={() => handleDelete(u.id, u.email)}
+                    size="sm"
+                    colorScheme="red"
+                  />
+                </Flex>
+              </Flex>
+            ))}
+          </VStack>
+        )}
+
+        {/* ADMINISTRADORES */}
+        <Heading size="sm" mt={8} mb={2}>Administradores</Heading>
+        {admins.length === 0 ? (
+          <Text color={mutedText}>No hay administradores cargados.</Text>
+        ) : (
+          <VStack spacing={3} align="stretch">
+            {admins.map((u) => (
+              <Flex
+                key={u.id}
+                bg={card.bg}
+                color={card.color}
+                p={4}
+                rounded="md"
+                justify="space-between"
+                align="center"
+                boxShadow="md"
+                direction={isMobile ? "column" : "row"}
+                _hover={{ cursor: "pointer", bg: card.iconColor }}
+                onClick={e => {
+                  if (e.target.closest("button")) return;
+                  handleOpenDetalle(u);
+                }}
+              >
+                <Box>
+                  <Text fontWeight="bold">{u.nombre} {u.apellido}</Text>
+                  <Text fontSize="sm" color={mutedText}>{u.email}</Text>
+                  <Text fontSize="sm" color={u.is_active ? "green.400" : "red.400"}>
+                    {u.is_active ? "Activo" : "Inactivo"}
+                  </Text>
+                </Box>
+                <Flex gap={2} mt={isMobile ? 2 : 0}>
+                  <IconButton
+                    icon={<EditIcon />}
+                    aria-label="Editar"
+                    onClick={() => openForEdit(u)}
+                    size="sm"
+                    colorScheme="blue"
+                  />
+                  <IconButton
+                    icon={<DeleteIcon />}
+                    aria-label="Eliminar"
+                    onClick={() => handleDelete(u.id, u.email)}
+                    size="sm"
+                    colorScheme="red"
+                  />
+                </Flex>
+              </Flex>
+            ))}
+          </VStack>
+        )}
+
           {/* MODAL crear/editar */}
           <Modal isOpen={isOpen} onClose={() => { onClose(); resetForm(); }} isCentered size={isMobile ? "full" : "md"}>
             <ModalOverlay />
