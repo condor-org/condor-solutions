@@ -59,7 +59,6 @@ from apps.turnos_core.models import Turno, BloqueoTurnos
 from apps.turnos_core.serializers import BloqueoTurnosSerializer, TurnoSerializer
 
 
-# --- EXISTENTES ---
 class TurnoListView(ListAPIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -81,7 +80,6 @@ class TurnoListView(ListAPIView):
             usuario=usuario
         ).select_related("usuario", "lugar")
 
-
 class TurnoReservaView(CreateAPIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -92,7 +90,6 @@ class TurnoReservaView(CreateAPIView):
         serializer.is_valid(raise_exception=True)
         turno = serializer.save()
         return Response({"message": "Turno reservado exitosamente", "turno_id": turno.id})
-
 
 @extend_schema(
     description="Devuelve turnos para un prestador en una sede específica y fecha opcional.",
@@ -438,3 +435,13 @@ def prestadores_disponibles(request):
 
     serializer = PrestadorDisponibleSerializer(prestadores, many=True, context={"request": request})
     return Response(serializer.data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def prestador_actual(request):
+    user = request.user
+    prestador = Prestador.objects.filter(user=user).first()
+    if not prestador:
+        return Response({"detail": "No se encontró un prestador asociado a este usuario"}, status=404)
+    return Response({"id": prestador.id})

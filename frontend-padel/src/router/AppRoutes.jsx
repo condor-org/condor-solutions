@@ -19,7 +19,7 @@ import PagosPreaprobadosPage from "../pages/admin/PagosPreaprobadosPage";
 import JugadorDashboard from "../pages/user/JugadorDashboard";
 import PerfilPage from "../pages/user/PerfilPage";
 import ReservarTurno from "../pages/user/ReservarTurno";
-import TurnosReservados from "../pages/profesor/TurnosReservados";
+import TurnosReservados from "../pages/profesores/TurnosReservados";
 
 import NotFoundPage from "../pages/NotFoundPage";
 import MainLayout from "../components/layout/MainLayout";
@@ -149,7 +149,7 @@ const AppRoutes = () => {
           }
         />
         <Route
-          path="/profesor/turnos"
+          path="/profesores/turnos"
           element={
             <ProtectedRoute allowedRoles={["empleado_cliente"]}>
               <MainLayout>

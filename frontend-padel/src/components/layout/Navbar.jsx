@@ -65,7 +65,7 @@ const Navbar = () => {
             size="sm"
             variant="secondary"
             as={RouterLink}
-            to="/profesor/turnos"
+            to="/profesores/turnos"
           >
             Turnos
           </Button>

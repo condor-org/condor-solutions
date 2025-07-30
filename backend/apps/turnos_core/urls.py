@@ -1,7 +1,6 @@
 # apps/turnos_core/urls.py
 
 from django.urls import path, include
-from apps.turnos_core.views import GenerarTurnosView
 from rest_framework.routers import DefaultRouter
 from apps.turnos_core.views import (
     TurnoListView,
@@ -11,6 +10,8 @@ from apps.turnos_core.views import (
     BloqueoTurnosViewSet,
     PrestadorViewSet,
     DisponibilidadViewSet,
+    GenerarTurnosView,
+    prestador_actual,
 )
 
 router = DefaultRouter()
@@ -24,6 +25,7 @@ urlpatterns = [
     path("reservar/", TurnoReservaView.as_view(), name="turno-reserva"),
     path("disponibles/", TurnosDisponiblesView.as_view(), name="turno-disponibles"),
     path("generar/", GenerarTurnosView.as_view(), name="generar-turnos"),
+    path("prestador/mio/", prestador_actual),
     path("", include(router.urls)),
     
 ]
