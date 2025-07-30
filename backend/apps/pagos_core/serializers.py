@@ -67,6 +67,10 @@ class ComprobantePagoSerializer(LoggedModelSerializer):
     usuario_nombre = serializers.SerializerMethodField()
     usuario_email = serializers.SerializerMethodField()
     turno_hora = serializers.SerializerMethodField()
+    profesor_nombre = serializers.SerializerMethodField()
+    sede_nombre = serializers.SerializerMethodField()
+    especialidad_nombre = serializers.SerializerMethodField()
+    cliente_nombre = serializers.SerializerMethodField()
 
     class Meta:
         model = ComprobantePago
@@ -78,26 +82,72 @@ class ComprobantePagoSerializer(LoggedModelSerializer):
             "datos_extraidos",
             "usuario_nombre",
             "usuario_email",
-            "turno_hora", 
+            "turno_hora",
+            "profesor_nombre",
+            "sede_nombre",
+            "especialidad_nombre",
+            "cliente_nombre",
         ]
 
     def get_usuario_nombre(self, obj):
         try:
-            return obj.turno.usuario.get_full_name() or obj.turno.usuario.username or obj.turno.usuario.email
-        except AttributeError:
+            return (
+                obj.turno.usuario.get_full_name()
+                or obj.turno.usuario.username
+                or obj.turno.usuario.email
+            )
+        except Exception as e:
+            print(f"[DEBUG] usuario_nombre ERROR comprobante {obj.id}: {e}")
             return ""
-    
+
     def get_usuario_email(self, obj):
         try:
             return obj.turno.usuario.email
-        except AttributeError:
+        except Exception as e:
+            print(f"[DEBUG] usuario_email ERROR comprobante {obj.id}: {e}")
             return ""
 
     def get_turno_hora(self, obj):
         try:
             return obj.turno.hora.strftime("%H:%M")
-        except AttributeError:
+        except Exception as e:
+            print(f"[DEBUG] turno_hora ERROR comprobante {obj.id}: {e}")
             return None
+
+    def get_profesor_nombre(self, obj):
+        try:
+            recurso = obj.turno.recurso
+            if hasattr(recurso, "nombre_publico"):
+                return recurso.nombre_publico
+            return str(recurso)
+        except Exception as e:
+            print(f"[DEBUG] profesor_nombre ERROR comprobante {obj.id}: {e}")
+            return ""
+
+    def get_sede_nombre(self, obj):
+        try:
+            return obj.turno.lugar.nombre
+        except Exception as e:
+            print(f"[DEBUG] sede_nombre ERROR comprobante {obj.id}: {e}")
+            return ""
+
+    def get_cliente_nombre(self, obj):
+        try:
+            return obj.turno.lugar.cliente.nombre
+        except Exception as e:
+            print(f"[DEBUG] cliente_nombre ERROR comprobante {obj.id}: {e}")
+            return ""
+
+    def get_especialidad_nombre(self, obj):
+        try:
+            recurso = obj.turno.recurso
+            if hasattr(recurso, "especialidad"):
+                return recurso.especialidad
+            return ""
+        except Exception as e:
+            print(f"[DEBUG] especialidad_nombre ERROR comprobante {obj.id}: {e}")
+            return ""
+
 
 class TurnoReservaSerializer(serializers.Serializer):
     turno_id = serializers.IntegerField()

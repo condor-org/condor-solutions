@@ -23,6 +23,7 @@ from .serializers import ConfiguracionPagoSerializer
 
 from apps.common.permissions import EsAdminDeSuCliente, EsSuperAdmin
 from apps.pagos_core.models import PagoIntento 
+from django.db import transaction
 
 
 class ComprobanteView(ListCreateAPIView):
@@ -43,18 +44,25 @@ class ComprobanteView(ListCreateAPIView):
 
     def get_queryset(self):
         usuario = self.request.user
+        qs = ComprobantePago.objects.select_related("turno", "turno__usuario", "turno__lugar")
 
         if usuario.tipo_usuario == "super_admin":
-            return ComprobantePago.objects.all()
+            qs = qs
+        elif usuario.tipo_usuario == "admin_cliente" and usuario.cliente_id:
+            qs = qs.filter(cliente=usuario.cliente)
+        elif usuario.tipo_usuario == "empleado_cliente":
+            qs = qs.filter(turno__usuario=usuario)
+        else:  # usuario_final
+            qs = qs.filter(turno__usuario=usuario)
 
-        if usuario.tipo_usuario == "admin_cliente" and usuario.cliente_id:
-            return ComprobantePago.objects.filter(cliente=usuario.cliente)
+        # 🔥 ACÁ ESTÁ EL FILTRO QUE FALTABA
+        if self.request.query_params.get("solo_preaprobados") == "true":
+            qs = qs.filter(valido=False)
 
-        if usuario.tipo_usuario == "empleado_cliente":
-            return ComprobantePago.objects.filter(turno__prestador=usuario)
+        return qs
 
-        # usuario_final
-        return ComprobantePago.objects.filter(turno__usuario=usuario)
+
+
 
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -110,54 +118,66 @@ class ComprobanteAprobarRechazarView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [EsAdminDeSuCliente | EsSuperAdmin]
 
+    @transaction.atomic
     def patch(self, request, pk, action):
+        logger = logging.getLogger(__name__)
+        logger.debug("[PATCH] Acción '%s' sobre comprobante ID=%s", action, pk)
+
         try:
             comprobante = ComprobantePago.objects.get(pk=pk)
+            logger.debug("[PATCH] Comprobante encontrado: ID=%s", comprobante.id)
         except ComprobantePago.DoesNotExist:
+            logger.warning("[PATCH] Comprobante no encontrado: ID=%s", pk)
             return Response({"error": "No encontrado"}, status=404)
 
         turno = comprobante.turno
 
-        # Buscar PagoIntento asociado por GenericRelation
         intento = PagoIntento.objects.filter(
             content_type__model="comprobantepago",
             object_id=comprobante.id
         ).first()
+        if intento:
+            logger.debug("[PATCH] IntentoPago asociado encontrado: ID=%s", intento.id)
+        else:
+            logger.debug("[PATCH] No se encontró intento de pago asociado")
 
         if action == 'aprobar':
             comprobante.valido = True
             comprobante.save(update_fields=["valido"])
+            logger.debug("[APROBAR] Comprobante %s marcado como válido", comprobante.id)
 
             if intento:
                 intento.estado = "confirmado"
                 intento.save(update_fields=["estado"])
+                logger.debug("[APROBAR] IntentoPago %s marcado como confirmado", intento.id)
 
             return Response({"mensaje": "✅ Comprobante aprobado"})
 
         elif action == 'rechazar':
             comprobante.valido = False
             comprobante.save(update_fields=["valido"])
+            logger.debug("[RECHAZAR] Comprobante %s marcado como inválido", comprobante.id)
 
             if intento:
                 intento.estado = "rechazado"
                 intento.save(update_fields=["estado"])
+                logger.debug("[RECHAZAR] IntentoPago %s marcado como rechazado", intento.id)
 
             if turno:
-                logger = logging.getLogger(__name__)
                 logger.debug(
                     "[RECHAZAR] Liberando turno %s: estado actual=%s, usuario actual=%s",
-                    turno.id,
-                    turno.estado,
-                    turno.usuario_id,
+                    turno.id, turno.estado, turno.usuario_id,
                 )
 
                 turno.usuario = None
-                turno.estado = 'disponible'  # 🔄 Ajuste: usar el estado correcto
+                turno.estado = 'disponible'
                 turno.save()
+
                 logger.debug("[RECHAZAR] Turno %s liberado correctamente", turno.id)
 
             return Response({"mensaje": "❌ Comprobante rechazado y turno liberado"})
 
+        logger.warning("[PATCH] Acción inválida: '%s'", action)
         return Response({"error": "Acción no válida. Usa 'aprobar' o 'rechazar'."}, status=400)
 
 

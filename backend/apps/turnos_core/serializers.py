@@ -244,6 +244,19 @@ class PrestadorConUsuarioSerializer(LoggedModelSerializer):
             nombre_publico=nombre_publico,
             **validated_data
         )
+        disponibilidades_data = self.initial_data.get("disponibilidades", [])
+        if disponibilidades_data:
+            nuevas = []
+            for d in disponibilidades_data:
+                nuevas.append(Disponibilidad(
+                    prestador=prestador,
+                    lugar_id=d["lugar"],
+                    dia_semana=d["dia_semana"],
+                    hora_inicio=d["hora_inicio"],
+                    hora_fin=d["hora_fin"],
+                    activo=True
+                ))
+            Disponibilidad.objects.bulk_create(nuevas)
 
         return prestador
 
