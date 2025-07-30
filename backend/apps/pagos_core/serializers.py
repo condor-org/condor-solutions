@@ -63,7 +63,7 @@ class ComprobanteUploadSerializer(serializers.Serializer):
             raise serializers.ValidationError({"error": e.messages})
 
 
-class ComprobantePagoSerializer(serializers.ModelSerializer):
+class ComprobantePagoSerializer(LoggedModelSerializer):
     usuario_nombre = serializers.SerializerMethodField()
     usuario_email = serializers.SerializerMethodField()
     turno_hora = serializers.SerializerMethodField()
