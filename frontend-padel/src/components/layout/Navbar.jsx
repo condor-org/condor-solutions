@@ -11,6 +11,7 @@ import { MoonIcon, SunIcon } from '@chakra-ui/icons';
 import { useAuth } from '../../auth/AuthContext';
 import { useNavbarTokens } from '../theme/tokens';
 import Button from '../ui/Button';
+import { Link as RouterLink } from 'react-router-dom';
 
 const Navbar = () => {
   const { colorMode, toggleColorMode } = useColorMode();
@@ -56,14 +57,24 @@ const Navbar = () => {
           {titulo}
         </Text>
         <Flex align="center" gap={4}>
-          <Text fontSize="sm" color={textColor} opacity={emailOpacity}>
-            {user?.email}
-          </Text>
-          <Tooltip label="Cambiar modo" hasArrow>
-            <IconButton
-              aria-label="Toggle modo claro/oscuro"
-              icon={colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
-              onClick={toggleColorMode}
+        <Text fontSize="sm" color={textColor} opacity={emailOpacity}>
+          {user?.email}
+        </Text>
+        {user?.tipo_usuario === "empleado_cliente" && (
+          <Button
+            size="sm"
+            variant="secondary"
+            as={RouterLink}
+            to="/profesor/turnos"
+          >
+            Turnos
+          </Button>
+        )}
+        <Tooltip label="Cambiar modo" hasArrow>
+          <IconButton
+            aria-label="Toggle modo claro/oscuro"
+            icon={colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
+            onClick={toggleColorMode}
               variant="ghost"
               size="sm"
               isRound
