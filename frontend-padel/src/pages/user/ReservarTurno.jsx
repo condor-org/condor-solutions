@@ -34,6 +34,8 @@ const ReservarTurno = () => {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [tiposClase, setTiposClase] = useState([]);
   const [tipoClaseId, setTipoClaseId] = useState("");
+  const [bonificaciones, setBonificaciones] = useState([]);
+  const [usarBonificado, setUsarBonificado] = useState(false);
 
 
   const card = useCardColors();
@@ -113,6 +115,17 @@ const ReservarTurno = () => {
 
   }, [sedeId, profesorId, accessToken]);
 
+
+  // cargar Bonificaciones
+  useEffect(() => {
+    if (!isOpen || !accessToken) return;
+    const api = axiosAuth(accessToken);
+    api.get("/turnos/bonificados/mios/")
+      .then(res => setBonificaciones(res.data || []))
+      .catch(() => setBonificaciones([]));
+  }, [isOpen, accessToken]);
+  
+  
   const handleEventClick = (info) => {
     const isReservado = info.event.extendedProps.estado === "reservado";
   
@@ -143,40 +156,90 @@ const ReservarTurno = () => {
   
   
 
-  const handleReserva = async () => {
-    if (!turnoSeleccionado || !archivo || !tipoClaseId) {
-      toast({
-        title: "Faltan datos.",
-        description: "Seleccioná un turno, tipo de clase y subí el comprobante.",
-        status: "warning", duration: 10000
-      });
-      return;
-    }
-    setLoading(true);
-    try {
-      const formData = new FormData();
-      formData.append("turno_id", turnoSeleccionado.id);
-      formData.append("tipo_clase_id", tipoClaseId);
+const handleReserva = async () => {
+  if (!turnoSeleccionado || !tipoClaseId || (!usarBonificado && !archivo)) {
+    toast({
+      title: "Faltan datos.",
+      description: usarBonificado
+        ? "Seleccioná un turno y tipo de clase."
+        : "Seleccioná un turno, tipo de clase y subí el comprobante.",
+      status: "warning",
+      duration: 10000,
+    });
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    const formData = new FormData();
+    formData.append("turno_id", turnoSeleccionado.id);
+    formData.append("tipo_clase_id", tipoClaseId);
+
+    if (usarBonificado) {
+      formData.append("usar_bonificado", "true");
+    } else {
       formData.append("archivo", archivo);
-  
-      const api = axiosAuth(accessToken);
-      await api.post("turnos/reservar/", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      toast({ title: "Reserva enviada", description: "Será validada por el administrador.", status: "success", duration: 3500 });
-      onClose();
-      setArchivo(null);
-      setTurnoSeleccionado(null);
-      const profId = profesorId;
-      setProfesorId(""); setTimeout(() => setProfesorId(profId), 50);
-    } catch (e) {
-      let msg = e?.response?.data?.error || e?.response?.data?.detail || "Error al enviar la reserva";
-      toast({ title: "Error", description: msg, status: "error", duration: 5000 });
-      console.error("[handleReserva][Error]", e);
-    } finally {
-      setLoading(false);
     }
-  };
+
+    const api = axiosAuth(accessToken);
+    await api.post("turnos/reservar/", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+
+    toast({
+      title: "Reserva enviada",
+      description: "Será validada por el administrador.",
+      status: "success",
+      duration: 3500,
+    });
+
+    onClose();
+    setArchivo(null);
+    setTurnoSeleccionado(null);
+    setUsarBonificado(false);
+
+    // 🔄 Refrescar bonificaciones
+    try {
+      const res = await api.get("/turnos/bonificados/mios/");
+      const nuevasBonos = res.data.bonificaciones || res.data || [];
+      setBonificaciones(nuevasBonos);
+
+      // ✅ Opcional: mostrar toast si ya no quedan más bonificaciones
+      if (usarBonificado && nuevasBonos.length === 0) {
+        toast({
+          title: "Sin más bonificaciones",
+          description: "Ya no te quedan turnos bonificados disponibles.",
+          status: "info",
+          duration: 5000,
+        });
+      }
+    } catch (e) {
+      console.warn("⚠️ Error al refrescar bonificaciones:", e);
+      setBonificaciones([]);
+    }
+
+    // 🔁 Refrescar turnos
+    const profId = profesorId;
+    setProfesorId("");
+    setTimeout(() => setProfesorId(profId), 50);
+  } catch (e) {
+    let msg =
+      e?.response?.data?.error ||
+      e?.response?.data?.detail ||
+      "Error al enviar la reserva";
+    toast({
+      title: "Error",
+      description: msg,
+      status: "error",
+      duration: 5000,
+    });
+    console.error("[handleReserva][Error]", e);
+  } finally {
+    setLoading(false);
+  }
+};
+
   
   const renderEventContent = (eventInfo) => {
     const bg = eventInfo.event.backgroundColor;
@@ -220,7 +283,7 @@ const ReservarTurno = () => {
       <Text fontSize="2xl" fontWeight="bold" mb={4} textAlign="center">
         Reserva de Turnos
       </Text>
-
+  
       <TurnoSelector
         sedes={sedes}
         profesores={profesores}
@@ -240,8 +303,7 @@ const ReservarTurno = () => {
         onTipoClaseChange={setTipoClaseId}
         disabled={false}
       />
-
-
+  
       <Box
         bg={card.bg}
         rounded="md"
@@ -259,23 +321,29 @@ const ReservarTurno = () => {
           slotMaxTime="23:00:00"
         />
       </Box>
-
+  
       <ReservaPagoModal
         isOpen={isOpen}
         onClose={onClose}
         turno={turnoSeleccionado}
         configPago={configPago}
-        tipoClase={tiposClase.find(tc => String(tc.id) === String(tipoClaseId))} // 🔹 Agregar esto
+        tipoClase={tiposClase.find(tc => String(tc.id) === String(tipoClaseId))}
         archivo={archivo}
         onArchivoChange={(file) => setArchivo(file)}
         onRemoveArchivo={() => setArchivo(null)}
         onConfirmar={handleReserva}
         loading={loading}
-        tiempoRestante={configPago?.tiempo_maximo_minutos ? configPago.tiempo_maximo_minutos * 60 : undefined}
+        tiempoRestante={
+          configPago?.tiempo_maximo_minutos
+            ? configPago.tiempo_maximo_minutos * 60
+            : undefined
+        }
+        bonificaciones={bonificaciones}
+        usarBonificado={usarBonificado}
+        setUsarBonificado={setUsarBonificado}
       />
-
     </Box>
-  );
+  );  
 };
 
 export default ReservarTurno;

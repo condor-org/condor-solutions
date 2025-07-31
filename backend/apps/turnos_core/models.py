@@ -5,7 +5,8 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.conf import settings  
 from apps.clientes_core.models import Cliente 
-
+from django.conf import settings
+from django.utils import timezone
 
 class Turno(models.Model):
     ESTADOS = [
@@ -118,3 +119,37 @@ class Disponibilidad(models.Model):
 
     def __str__(self):
         return f"{self.prestador} en {self.lugar} los {self.get_dia_semana_display()} de {self.hora_inicio} a {self.hora_fin}"
+
+
+class TurnoBonificado(models.Model):
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="turnos_bonificados")
+    
+    # Origen del vale (opcional)
+    turno_original = models.ForeignKey(Turno, null=True, blank=True, on_delete=models.SET_NULL, related_name="bonificaciones_emitidas")
+    
+    # Turno al que se aplicó (si ya se usó)
+    usado_en_turno = models.ForeignKey(Turno, null=True, blank=True, on_delete=models.SET_NULL, related_name="bonificacion_usada")
+    
+    # Audit info
+    motivo = models.CharField(max_length=255, blank=True)
+    generado_automaticamente = models.BooleanField(default=False)
+    emitido_por = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="bonificaciones_emitidas_manual")
+    
+    usado = models.BooleanField(default=False)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    valido_hasta = models.DateField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Turno bonificado"
+        verbose_name_plural = "Turnos bonificados"
+
+    def marcar_usado(self, turno):
+        self.usado = True
+        self.usado_en_turno = turno
+        self.save()
+
+    def esta_vigente(self):
+        return not self.usado and (not self.valido_hasta or self.valido_hasta >= timezone.now().date())
+
+    def __str__(self):
+        return f"Bono para {self.usuario} ({'usado' if self.usado else 'activo'})"

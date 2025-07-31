@@ -1,3 +1,5 @@
+#apps/clientes_core/models.py
+
 from django.db import models
 
 class Cliente(models.Model):

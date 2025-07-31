@@ -11,8 +11,12 @@ from django.utils.dateparse import parse_date
 from django.utils.timezone import now
 
 # Django REST Framework
-from rest_framework import permissions, viewsets
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import (
+    api_view,
+    permission_classes,
+    action,
+)
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import CreateAPIView, ListAPIView
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
@@ -23,7 +27,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 # drf-spectacular
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 
-# App imports
+# App imports - Permisos
 from apps.common.permissions import (
     EsAdminDeSuCliente,
     EsDelMismoCliente,
@@ -31,6 +35,8 @@ from apps.common.permissions import (
     EsSuperAdmin,
     SoloLecturaUsuariosFinalesYEmpleados,
 )
+
+# App imports - Modelos
 from apps.turnos_core.models import (
     BloqueoTurnos,
     Disponibilidad,
@@ -38,6 +44,8 @@ from apps.turnos_core.models import (
     Prestador,
     Turno,
 )
+
+# App imports - Serializers
 from apps.turnos_core.serializers import (
     BloqueoTurnosSerializer,
     DisponibilidadSerializer,
@@ -48,15 +56,12 @@ from apps.turnos_core.serializers import (
     TurnoDisponibleSerializer,
     TurnoReservaSerializer,
     TurnoSerializer,
+    CrearTurnoBonificadoSerializer,
 )
+
+# App imports - Servicios
 from apps.turnos_core.services.turnos import generar_turnos_para_prestador
 
-from django.contrib.contenttypes.models import ContentType
-from rest_framework.decorators import action
-from rest_framework import status
-
-from apps.turnos_core.models import Turno, BloqueoTurnos
-from apps.turnos_core.serializers import BloqueoTurnosSerializer, TurnoSerializer
 
 
 class TurnoListView(ListAPIView):
@@ -419,6 +424,35 @@ class GenerarTurnosView(APIView):
             "detalle": detalle
         })
 
+class CrearBonificacionManualView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if request.user.tipo_usuario not in ["super_admin", "admin_cliente"]:
+            return Response({"detail": "No autorizado"}, status=403)
+
+        serializer = CrearTurnoBonificadoSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        bono = serializer.save()
+        return Response({"message": "Bonificación creada correctamente."}, status=201)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def bonificaciones_mias(request):
+    usuario = request.user
+    bonificaciones = usuario.turnos_bonificados.filter(usado=False)
+
+    data = [
+        {
+            "id": b.id,
+            "motivo": b.motivo,
+            "fecha_creacion": b.fecha_creacion,
+            "valido_hasta": b.valido_hasta,
+        }
+        for b in bonificaciones
+    ]
+
+    return Response(data)
 
 
 @api_view(["GET"])
@@ -445,3 +479,4 @@ def prestador_actual(request):
     if not prestador:
         return Response({"detail": "No se encontró un prestador asociado a este usuario"}, status=404)
     return Response({"id": prestador.id})
+

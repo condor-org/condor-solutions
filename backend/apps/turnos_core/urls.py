@@ -12,7 +12,10 @@ from apps.turnos_core.views import (
     DisponibilidadViewSet,
     GenerarTurnosView,
     prestador_actual,
+    CrearBonificacionManualView,
+    bonificaciones_mias,
 )
+
 
 router = DefaultRouter()
 router.register(r'sedes', LugarViewSet, basename='sedes')
@@ -25,6 +28,8 @@ urlpatterns = [
     path("reservar/", TurnoReservaView.as_view(), name="turno-reserva"),
     path("disponibles/", TurnosDisponiblesView.as_view(), name="turno-disponibles"),
     path("generar/", GenerarTurnosView.as_view(), name="generar-turnos"),
+    path("bonificaciones/crear-manual/", CrearBonificacionManualView.as_view(), name="crear-bonificacion-manual"),
+    path("bonificados/mios/", bonificaciones_mias, name="bonificaciones-mias"),
     path("prestador/mio/", prestador_actual),
     path("", include(router.urls)),
     

@@ -5,13 +5,14 @@ from apps.common.logging import LoggedModelSerializer
 from django.core.exceptions import ValidationError as DjangoValidationError, PermissionDenied as DjangoPermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError, PermissionDenied as DRFPermissionDenied
 from apps.pagos_core.services.comprobantes import ComprobanteService
-from apps.turnos_core.models import Lugar, BloqueoTurnos, Turno, Prestador, Disponibilidad
+from apps.turnos_core.models import Lugar, BloqueoTurnos, Turno, Prestador, Disponibilidad, TurnoBonificado
 
 from django.contrib.auth import get_user_model
-from apps.turnos_core.models import Prestador
 from apps.pagos_core.models import PagoIntento
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
+from apps.turnos_core.services.bonificaciones import emitir_bonificacion_manual
+
 
 Usuario = get_user_model()
 
@@ -33,18 +34,17 @@ class TurnoSerializer(LoggedModelSerializer):
             return str(obj.recurso)
         return None
 
-
 class TurnoReservaSerializer(serializers.Serializer):
     turno_id = serializers.IntegerField()
-    tipo_clase_id = serializers.IntegerField()  # 🔹 Necesitamos esto
-    archivo = serializers.FileField()
+    tipo_clase_id = serializers.IntegerField()
+    archivo = serializers.FileField(required=False, allow_null=True)
+    usar_bonificado = serializers.BooleanField(default=False)
 
     def validate(self, attrs):
+        user = self.context["request"].user
         turno_id = attrs["turno_id"]
         tipo_clase_id = attrs["tipo_clase_id"]
-        user = self.context["request"].user
 
-        # 🔍 Validar turno
         try:
             turno = Turno.objects.get(pk=turno_id)
         except Turno.DoesNotExist:
@@ -52,7 +52,6 @@ class TurnoReservaSerializer(serializers.Serializer):
         if turno.usuario is not None:
             raise DRFValidationError({"turno_id": "Ese turno ya está reservado."})
 
-        # 🔍 Validar tipo de clase
         from apps.turnos_padel.models import TipoClasePadel
         try:
             tipo_clase = TipoClasePadel.objects.select_related("configuracion_sede").get(pk=tipo_clase_id)
@@ -67,45 +66,55 @@ class TurnoReservaSerializer(serializers.Serializer):
         user = self.context["request"].user
         turno = validated_data["turno"]
         tipo_clase = validated_data["tipo_clase"]
-        archivo = validated_data["archivo"]
+        usar_bonificado = validated_data.get("usar_bonificado", False)
+        archivo = validated_data.get("archivo")
 
-        try:
-            comprobante = ComprobanteService.upload_comprobante(
-                turno_id=turno.id,
-                file_obj=archivo,
-                usuario=user,
+        from apps.turnos_core.models import TurnoBonificado
+
+        if usar_bonificado:
+            bonificado = TurnoBonificado.objects.filter(usuario=user, usado=False).first()
+            if not bonificado:
+                raise DRFValidationError({"usar_bonificado": "No tenés turnos bonificados disponibles."})
+            bonificado.marcar_usado(turno)
+        else:
+            if not archivo:
+                raise DRFValidationError({"archivo": "El comprobante es obligatorio si no usás turno bonificado."})
+            try:
+                comprobante = ComprobanteService.upload_comprobante(
+                    turno_id=turno.id,
+                    file_obj=archivo,
+                    usuario=user,
+                    cliente=user.cliente,
+                    cbu_cvu=tipo_clase.configuracion_sede.cbu_cvu,
+                    alias=tipo_clase.configuracion_sede.alias,
+                    monto=tipo_clase.precio
+                )
+            except DjangoValidationError as e:
+                mensaje = e.messages[0] if hasattr(e, "messages") else str(e)
+                raise DRFValidationError({"error": f"Comprobante inválido: {mensaje}"})
+            except DjangoPermissionDenied as e:
+                raise DRFPermissionDenied({"error": str(e)})
+            except Exception as e:
+                raise DRFValidationError({"error": f"Error inesperado: {str(e)}"})
+
+            # Crear intento de pago
+            PagoIntento.objects.create(
                 cliente=user.cliente,
-                cbu_cvu=tipo_clase.configuracion_sede.cbu_cvu,
-                alias=tipo_clase.configuracion_sede.alias,
-                monto=tipo_clase.precio
+                usuario=user,
+                estado="pre_aprobado",
+                monto_esperado=tipo_clase.precio,
+                moneda="ARS",
+                alias_destino=tipo_clase.configuracion_sede.alias,
+                cbu_destino=tipo_clase.configuracion_sede.cbu_cvu,
+                content_type=ContentType.objects.get_for_model(comprobante),
+                object_id=comprobante.id,
+                tiempo_expiracion=timezone.now() + timezone.timedelta(minutes=60),
             )
-        except DjangoValidationError as e:
-            mensaje = e.messages[0] if hasattr(e, "messages") and e.messages else str(e)
-            raise DRFValidationError({"error": f"Comprobante no válido: {mensaje}"})
-        except DjangoPermissionDenied as e:
-            raise DRFPermissionDenied({"error": str(e)})
-        except Exception as e:
-            raise DRFValidationError({"error": f"Error inesperado al validar comprobante: {str(e)}"})
-
-        # Crear intento de pago
-        PagoIntento.objects.create(
-            cliente=user.cliente,
-            usuario=user,
-            estado="pre_aprobado",
-            monto_esperado=tipo_clase.precio,
-            moneda="ARS",
-            alias_destino=tipo_clase.configuracion_sede.alias,
-            cbu_destino=tipo_clase.configuracion_sede.cbu_cvu,
-            content_type=ContentType.objects.get_for_model(comprobante),
-            object_id=comprobante.id,
-            tiempo_expiracion=timezone.now() + timezone.timedelta(minutes=60),
-        )
 
         turno.usuario = user
         turno.estado = "reservado"
         turno.save(update_fields=["usuario", "estado"])
         return turno
-
 
 class TurnoDisponibleSerializer(LoggedModelSerializer):
     hora = serializers.TimeField(format="%H:%M")
@@ -312,3 +321,28 @@ class PrestadorConUsuarioSerializer(LoggedModelSerializer):
             Disponibilidad.objects.bulk_create(nuevas)
 
         return instance
+
+class CrearTurnoBonificadoSerializer(serializers.Serializer):
+    usuario_id = serializers.IntegerField()
+    motivo = serializers.CharField(required=False, allow_blank=True)
+    valido_hasta = serializers.DateField(required=False)
+
+    def validate_usuario_id(self, value):
+        User = get_user_model()
+        if not User.objects.filter(id=value).exists():
+            raise serializers.ValidationError("Usuario no encontrado.")
+        return value
+
+    def create(self, validated_data):
+        admin_user = self.context["request"].user
+        User = get_user_model()
+        usuario = User.objects.get(id=validated_data["usuario_id"])
+        motivo = validated_data.get("motivo", "Bonificación manual")
+        valido_hasta = validated_data.get("valido_hasta")
+
+        return emitir_bonificacion_manual(
+            admin_user=admin_user,
+            usuario=usuario,
+            motivo=motivo,
+            valido_hasta=valido_hasta
+        )
