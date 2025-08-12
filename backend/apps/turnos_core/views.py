@@ -3,12 +3,17 @@
 # Built-in
 from datetime import datetime
 
+from apps.turnos_core.services.bonificaciones import emitir_bonificacion_automatica
+from rest_framework.exceptions import PermissionDenied as DRFPermissionDenied
+
+
 # Django
 from django.contrib.contenttypes.models import ContentType
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 from django.utils.dateparse import parse_date
-from django.utils.timezone import now
+from django.utils.timezone import now, localtime 
+
 
 # Django REST Framework
 from rest_framework import permissions, status, viewsets
@@ -43,6 +48,7 @@ from apps.turnos_core.models import (
     Lugar,
     Prestador,
     Turno,
+    TurnoBonificado,
 )
 
 # App imports - Serializers
@@ -57,10 +63,16 @@ from apps.turnos_core.serializers import (
     TurnoReservaSerializer,
     TurnoSerializer,
     CrearTurnoBonificadoSerializer,
+    CancelarTurnoSerializer,
 )
 
 # App imports - Servicios
 from apps.turnos_core.services.turnos import generar_turnos_para_prestador
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 
 
 
@@ -73,17 +85,28 @@ class TurnoListView(ListAPIView):
         usuario = self.request.user
 
         if usuario.is_superuser:
-            return Turno.objects.all().select_related("usuario", "lugar")
-
-        if hasattr(usuario, "tipo_usuario") and usuario.tipo_usuario == "empleado_cliente":
-            return Turno.objects.filter(
+            qs = Turno.objects.all().select_related("usuario", "lugar")
+        elif getattr(usuario, "tipo_usuario", None) == "empleado_cliente":
+            qs = Turno.objects.filter(
                 content_type=ContentType.objects.get_for_model(Prestador),
                 object_id__in=Prestador.objects.filter(user=usuario).values_list("id", flat=True)
             ).select_related("usuario", "lugar")
+        else:
+            qs = Turno.objects.filter(usuario=usuario).select_related("usuario", "lugar")
 
-        return Turno.objects.filter(
-            usuario=usuario
-        ).select_related("usuario", "lugar")
+        # --- filtros opcionales ---
+        estado = self.request.query_params.get("estado")
+        if estado:
+            qs = qs.filter(estado=estado)
+
+        upcoming = self.request.query_params.get("upcoming")
+        if (upcoming or "").lower() in {"1", "true", "sí", "si"}:
+            ahora = localtime()
+            hoy = ahora.date()
+            hora = ahora.time()
+            qs = qs.filter(Q(fecha__gt=hoy) | Q(fecha=hoy, hora__gte=hora))
+
+        return qs.order_by("fecha", "hora")
 
 class TurnoReservaView(CreateAPIView):
     authentication_classes = [JWTAuthentication]
@@ -342,11 +365,39 @@ class PrestadorViewSet(viewsets.ModelViewSet):
 
         turnos_afectados = Turno.objects.filter(**filtros)
 
-        turnos_afectados.update(estado="cancelado")
+        from django.db import transaction
+
+        creados = 0
+        with transaction.atomic():
+            for t in turnos_afectados.select_for_update():
+                # cancelar
+                t.estado = "cancelado"
+                t.save(update_fields=["estado"])
+
+                # si el turno se reservó con bono → NO re-emitir
+                if TurnoBonificado.objects.filter(usado_en_turno=t).exists():
+                    continue
+
+                # si fue pago y conocemos tipo_turno → emitir del mismo tipo
+                if t.tipo_turno and t.usuario_id:
+                    try:
+                        emitir_bonificacion_automatica(
+                            usuario=t.usuario,
+                            turno_original=t,
+                            motivo="Cancelación por bloqueo/admin",
+                        )
+                        creados += 1
+                    except Exception:
+                        logger.exception(
+                            "[admin.cancel_masiva][bono][fail] turno=%s user=%s tipo=%s",
+                            t.id, t.usuario_id, t.tipo_turno
+                        )
 
         return Response({
-            "message": f"{turnos_afectados.count()} turnos cancelados."
+            "message": f"{turnos_afectados.count()} turnos cancelados.",
+            "bonificaciones_emitidas": creados
         }, status=200)
+
 
 class DisponibilidadViewSet(viewsets.ModelViewSet):
     serializer_class = DisponibilidadSerializer
@@ -436,6 +487,73 @@ class CrearBonificacionManualView(APIView):
         bono = serializer.save()
         return Response({"message": "Bonificación creada correctamente."}, status=201)
 
+
+class CancelarTurnoView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        ser = CancelarTurnoSerializer(data=request.data, context={"request": request})
+        if not ser.is_valid():
+            logger.warning("[turnos.cancelar][invalid] user=%s errors=%s", request.user.id, ser.errors)
+            return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        turno = ser.validated_data["turno"]
+
+        with transaction.atomic():
+            # 🔒 lock por carrera
+            turno = Turno.objects.select_for_update().get(pk=turno.pk)
+
+            # Revalidar estado por si cambió entre request y lock
+            if turno.estado != "reservado":
+                return Response({"turno_id": ["El turno ya no está reservado."]}, status=400)
+
+            # ¿fue reservado con bonificación?
+            bonificacion = TurnoBonificado.objects.filter(usado_en_turno=turno).first()
+            # Si tu modelo usa otro esquema, usar:
+            # bonificacion = TurnoBonificado.objects.filter(turno=turno, usado=True).first()
+
+            # 🔓 Liberar el slot
+            turno.usuario = None
+            turno.estado = "disponible"
+            turno.save(update_fields=["usuario", "estado"])
+
+            bono_creado = False
+            if not bonificacion:
+                if not turno.tipo_turno:
+                    logger.error("[turnos.cancelar][sin_tipo_turno] user=%s turno_id=%s", request.user.id, turno.id)
+                else:
+                    try:
+                        emitir_bonificacion_automatica(
+                            usuario=request.user,
+                            turno_original=turno,
+                            motivo="Cancelación con política cumplida",
+                        )
+                        bono_creado = True
+                    except Exception as e:
+                        logger.exception(
+                            "[turnos.cancelar][bono][fail] user=%s turno_id=%s err=%s",
+                            request.user.id, turno.id, str(e)
+                        )
+
+            # (Opcional) Anular intentos de pago asociados al comprobante de este turno:
+            # try:
+            #     from apps.pagos_core.models import PagoIntento
+            #     PagoIntento.objects.filter(
+            #         usuario=request.user,
+            #         estado__in=["pre_aprobado", "pendiente"],
+            #         object_id=<ID_DEL_COMPROBANTE_SI_LO TENÉS>,
+            #     ).update(estado="anulado")
+            # except Exception:
+            #     logger.exception("[turnos.cancelar][pago_intento][anular][fail] turno_id=%s", turno.id)
+
+        return Response({
+            "message": "Turno cancelado y liberado.",
+            "bonificacion_creada": bono_creado
+        }, status=200)
+
+
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def bonificaciones_mias(request):
@@ -446,11 +564,13 @@ def bonificaciones_mias(request):
         {
             "id": b.id,
             "motivo": b.motivo,
+            "tipo_turno": b.tipo_turno,          # << ADD
             "fecha_creacion": b.fecha_creacion,
             "valido_hasta": b.valido_hasta,
         }
         for b in bonificaciones
     ]
+
 
     return Response(data)
 
@@ -467,7 +587,7 @@ def prestadores_disponibles(request):
         disponibilidades__lugar_id=lugar_id,
     ).distinct()
 
-    serializer = PrestadorDisponibleSerializer(prestadores, many=True, context={"request": request})
+    serializer = PrestadorSerializer(prestadores, many=True, context={"request": request})
     return Response(serializer.data)
 
 

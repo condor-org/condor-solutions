@@ -1,6 +1,6 @@
 // src/components/modals/ReservaPagoModal.jsx
 
-import React from "react";
+import React, { useEffect } from "react";
 import {
   Box,
   Modal,
@@ -24,6 +24,8 @@ import { FaCalendarAlt, FaClock, FaTrash } from "react-icons/fa";
 import CountdownClock from "../ui/CountdownClock";
 
 const ReservaPagoModal = ({
+  alias, 
+  cbuCvu,
   isOpen,
   onClose,
   turno,
@@ -49,9 +51,14 @@ const ReservaPagoModal = ({
   const dropzoneBorder = useColorModeValue("green.500", "#27ae60");
 
   const tieneBonos = bonificaciones.length > 0;
+  useEffect(() => {
+    if (!tieneBonos && usarBonificado) {
+      setUsarBonificado(false);
+    }
+  }, [tieneBonos, usarBonificado, setUsarBonificado]);
+  
 
   const segundos = Number(tiempoRestante || configPago?.tiempo_maximo_minutos * 60 || 180);
-  console.log("🧾 Bonificaciones:", bonificaciones);
 
 
   return (
@@ -103,8 +110,8 @@ const ReservaPagoModal = ({
             <Box mb={6}>
               <Text><b>Tipo de clase:</b> {tipoClase.nombre}</Text>
               <Text><b>Monto:</b> ${tipoClase.precio}</Text>
-              <Text><b>CBU:</b> {configPago?.cbu || <i>-</i>}</Text>
-              <Text><b>Alias:</b> {configPago?.alias || <i>-</i>}</Text>
+              <Text><b>Alias:</b> {alias}</Text>
+              <Text><b>CBU/CVU:</b> {cbuCvu}</Text>
             </Box>
           )}
 
@@ -197,6 +204,7 @@ const ReservaPagoModal = ({
             Las cancelaciones sólo se permiten con <b>mínimo 24 horas de anticipación</b>.
             Si no se confirma el pago antes del fin del contador, el turno será liberado automáticamente.
           </Text>
+          
         </ModalBody>
 
         <ModalFooter>

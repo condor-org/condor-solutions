@@ -36,6 +36,8 @@ const UsuariosPage = () => {
   const [activo, setActivo] = useState(true);
   const [password, setPassword] = useState("");
   const [detalleUsuario, setDetalleUsuario] = useState(null);
+  const [tipoTurnoBono, setTipoTurnoBono] = useState("individual");
+
 
   const { isOpen, onOpen, onClose } = useDisclosure();
   const {
@@ -452,6 +454,15 @@ const UsuariosPage = () => {
                         value={motivoBonificacion}
                         onChange={(e) => setMotivoBonificacion(e.target.value)}
                       />
+                      <Select
+                        value={tipoTurnoBono}
+                        onChange={(e) => setTipoTurnoBono(e.target.value)}
+                      >
+                        <option value="individual">Individual</option>
+                        <option value="x2">2 Personas</option>
+                        <option value="x3">3 Personas</option>
+                        <option value="x4">4 Personas</option>
+                      </Select>
                       <Button
                         isLoading={cargandoBono}
                         onClick={async () => {
@@ -465,7 +476,8 @@ const UsuariosPage = () => {
                           try {
                             await api.post("/turnos/bonificaciones/crear-manual/", {
                               usuario_id: detalleUsuario.id,
-                              motivo: motivoBonificacion
+                              motivo: motivoBonificacion,
+                              tipo_turno: tipoTurnoBono,        // << ADD
                             });
                             toast.success("Bonificación emitida correctamente");
                             setMotivoBonificacion("");

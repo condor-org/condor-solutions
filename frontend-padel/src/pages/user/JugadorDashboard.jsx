@@ -27,7 +27,7 @@ import { axiosAuth } from "../../utils/axiosAuth";
 
 const JugadorDashboard = () => {
   const { user, accessToken, logout } = useContext(AuthContext);
-  const [mostrarReserva, setMostrarReserva] = useState(false);
+  const [mostrarReserva, setMostrarReserva] = useState(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
 
   const [turnosReservados, setTurnosReservados] = useState(0);
@@ -61,13 +61,14 @@ const JugadorDashboard = () => {
     });
   }, [accessToken]);
 
-  const openModal = () => {
-    setMostrarReserva(true);
+  const openModal = (modo = null) => {
+    setMostrarReserva(modo);
     onOpen();
   };
+  
 
   const closeModal = () => {
-    setMostrarReserva(false);
+    setMostrarReserva(null);
     onClose();
   };
 
@@ -84,20 +85,25 @@ const JugadorDashboard = () => {
           <Card title="Próximo turno" value={proximoTurno} icon={FaClock} />
         </Flex>
 
-        <Flex justify="center" mt={4}>
-          <Button
-            onClick={openModal}
-            variant={mostrarReserva ? "secondary" : "primary"}
-          >
+        <Flex justify="center" mt={4} gap={4}>
+          <Button onClick={() => { setMostrarReserva("reservar"); onOpen(); }} variant={mostrarReserva === "reservar" ? "secondary" : "primary"}>
             Reservar turno
           </Button>
+          <Button onClick={() => { setMostrarReserva("misTurnos"); onOpen(); }} variant="secondary">
+            Mis turnos
+          </Button>
         </Flex>
+
 
         <Modal isOpen={isOpen} onClose={closeModal} size="6xl" isCentered>
           <ModalOverlay />
           <ModalContent bg={modal.bg} color={modal.color} maxW="6xl" p={0}>
             <ModalBody>
-              <ReservarTurno onClose={closeModal} />
+            <ReservarTurno
+              onClose={closeModal}
+              defaultMisTurnos={mostrarReserva === "misTurnos"}
+            />
+
             </ModalBody>
           </ModalContent>
         </Modal>

@@ -3,9 +3,8 @@
 from django.db import models
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
-from django.conf import settings  
-from apps.clientes_core.models import Cliente 
 from django.conf import settings
+from apps.clientes_core.models import Cliente
 from django.utils import timezone
 
 class Turno(models.Model):
@@ -31,6 +30,9 @@ class Turno(models.Model):
         blank=True
     )
 
+    # Se setea al reservar (no al generar). Mantiene core genérico.
+    tipo_turno = models.CharField(max_length=50, null=True, blank=True)
+
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
 
@@ -39,7 +41,8 @@ class Turno(models.Model):
 
     def __str__(self):
         base = f"{self.fecha} {self.hora} reservado por {self.usuario}"
-        return f"{base} en {self.recurso}"
+        tipo = f" [{self.tipo_turno}]" if self.tipo_turno else ""
+        return f"{base}{tipo} en {self.recurso}"
 
 
 class Lugar(models.Model):
@@ -51,7 +54,6 @@ class Lugar(models.Model):
 
     def __str__(self):
         return self.nombre
-
 
 
 class BloqueoTurnos(models.Model):
@@ -86,13 +88,12 @@ class Prestador(models.Model):
     especialidad = models.CharField(max_length=100, blank=True, null=True)
     foto = models.ImageField(upload_to="prestadores/fotos/", blank=True, null=True)
     activo = models.BooleanField(default=True)
-    nombre_publico = models.CharField(max_length=255) 
+    nombre_publico = models.CharField(max_length=255)
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return str(self.user)
-
 
 
 class Disponibilidad(models.Model):
@@ -123,18 +124,21 @@ class Disponibilidad(models.Model):
 
 class TurnoBonificado(models.Model):
     usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="turnos_bonificados")
-    
+
     # Origen del vale (opcional)
-    turno_original = models.ForeignKey(Turno, null=True, blank=True, on_delete=models.SET_NULL, related_name="bonificaciones_emitidas")
-    
+    turno_original = models.ForeignKey("Turno", null=True, blank=True, on_delete=models.SET_NULL, related_name="bonificaciones_emitidas")
+
     # Turno al que se aplicó (si ya se usó)
-    usado_en_turno = models.ForeignKey(Turno, null=True, blank=True, on_delete=models.SET_NULL, related_name="bonificacion_usada")
-    
+    usado_en_turno = models.ForeignKey("Turno", null=True, blank=True, on_delete=models.SET_NULL, related_name="bonificacion_usada")
+
     # Audit info
     motivo = models.CharField(max_length=255, blank=True)
     generado_automaticamente = models.BooleanField(default=False)
     emitido_por = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="bonificaciones_emitidas_manual")
-    
+
+    # NEW: código textual del tipo de turno (obligatorio para atar el bono al tipo)
+    tipo_turno = models.CharField(max_length=50)
+
     usado = models.BooleanField(default=False)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
     valido_hasta = models.DateField(null=True, blank=True)
@@ -142,6 +146,11 @@ class TurnoBonificado(models.Model):
     class Meta:
         verbose_name = "Turno bonificado"
         verbose_name_plural = "Turnos bonificados"
+        indexes = [
+            models.Index(fields=["usuario", "usado"]),
+            models.Index(fields=["tipo_turno", "usado"]),
+            models.Index(fields=["usuario", "tipo_turno", "usado"]),
+        ]
 
     def marcar_usado(self, turno):
         self.usado = True
@@ -152,4 +161,5 @@ class TurnoBonificado(models.Model):
         return not self.usado and (not self.valido_hasta or self.valido_hasta >= timezone.now().date())
 
     def __str__(self):
-        return f"Bono para {self.usuario} ({'usado' if self.usado else 'activo'})"
+        estado = "usado" if self.usado else "activo"
+        return f"Bono {self.tipo_turno} para {self.usuario} ({estado})"

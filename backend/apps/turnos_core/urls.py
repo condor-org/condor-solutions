@@ -14,6 +14,7 @@ from apps.turnos_core.views import (
     prestador_actual,
     CrearBonificacionManualView,
     bonificaciones_mias,
+    CancelarTurnoView,
 )
 
 
@@ -31,6 +32,6 @@ urlpatterns = [
     path("bonificaciones/crear-manual/", CrearBonificacionManualView.as_view(), name="crear-bonificacion-manual"),
     path("bonificados/mios/", bonificaciones_mias, name="bonificaciones-mias"),
     path("prestador/mio/", prestador_actual),
+    path("cancelar/", CancelarTurnoView.as_view(), name="cancelar-turno"),
     path("", include(router.urls)),
-    
 ]

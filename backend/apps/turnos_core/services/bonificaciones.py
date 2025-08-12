@@ -17,32 +17,42 @@ logger = logging.getLogger(__name__)
 def emitir_bonificacion_automatica(usuario, turno_original, motivo="Cancelación válida", valido_hasta=None):
     """
     Emite un turno bonificado automáticamente, asociado a un turno original cancelado.
+    El bono queda atado al mismo tipo_turno del turno original.
     """
+    if not getattr(turno_original, "tipo_turno", None):
+        raise ValueError("turno_original.tipo_turno es requerido para emitir bonificación automática.")
+
     bono = TurnoBonificado.objects.create(
         usuario=usuario,
         turno_original=turno_original,
         motivo=motivo,
         generado_automaticamente=True,
-        valido_hasta=valido_hasta
+        valido_hasta=valido_hasta,
+        tipo_turno=turno_original.tipo_turno,  # << clave
     )
-    logger.info(f"[BONIFICACION] Automática creada para {usuario} desde turno {turno_original.id}")
+    logger.info(f"[BONIFICACION][auto] user={usuario.id} turno={turno_original.id} tipo={turno_original.tipo_turno}")
     return bono
 
 
 @transaction.atomic
-def emitir_bonificacion_manual(admin_user, usuario, motivo="Bonificación manual", valido_hasta=None):
+def emitir_bonificacion_manual(admin_user, usuario, motivo="Bonificación manual", valido_hasta=None, tipo_turno=None):
     """
-    Permite al admin emitir un turno bonificado sin turno original asociado.
+    Permite al admin emitir un turno bonificado manual, atado a un tipo_turno específico.
     """
+    if not tipo_turno:
+        raise ValueError("tipo_turno es obligatorio para bonificación manual.")
+
     bono = TurnoBonificado.objects.create(
         usuario=usuario,
         motivo=motivo,
         generado_automaticamente=False,
         emitido_por=admin_user,
-        valido_hasta=valido_hasta
+        valido_hasta=valido_hasta,
+        tipo_turno=tipo_turno,  # << clave
     )
-    logger.info(f"[BONIFICACION] Manual creada por {admin_user} para {usuario}")
+    logger.info(f"[BONIFICACION][manual] admin={admin_user.id} user={usuario.id} tipo={tipo_turno}")
     return bono
+
 
 
 # -----------------------------
@@ -60,6 +70,9 @@ def bonificaciones_vigentes(usuario):
     ).filter(
         models.Q(valido_hasta__isnull=True) | models.Q(valido_hasta__gte=hoy)
     )
+
+def bonificaciones_vigentes_por_tipo(usuario, tipo_turno):
+    return bonificaciones_vigentes(usuario).filter(tipo_turno=tipo_turno)
 
 
 def tiene_bonificaciones_disponibles(usuario):
@@ -81,25 +94,26 @@ def cantidad_bonificaciones(usuario):
 # -----------------------------
 
 @transaction.atomic
-def usar_bonificacion(usuario, turno):
+def usar_bonificacion(usuario, turno, tipo_turno=None):
     """
-    Aplica la primera bonificación vigente del usuario al turno dado.
-    Marca el turno como reservado y la bonificación como usada.
+    Marca como usada una bonificación vigente. Si se pasa tipo_turno, filtra por ese tipo.
     """
-    bono = bonificaciones_vigentes(usuario).first()
+    qs = bonificaciones_vigentes(usuario)
+    if tipo_turno:
+        qs = qs.filter(tipo_turno=tipo_turno)
 
+    bono = qs.first()
     if not bono:
-        logger.info(f"[BONIFICACION] Usuario {usuario} intentó usar bono pero no tiene disponibles.")
+        logger.info(f"[BONIFICACION][usar][no_disp] user={usuario.id} tipo={tipo_turno}")
         return None
 
     bono.usado = True
     bono.usado_en_turno = turno
     bono.save(update_fields=["usado", "usado_en_turno"])
 
-    logger.info(f"[BONIFICACION] Usuario {usuario} usó bonificación ID {bono.id} en turno {turno.id}")
+    logger.info(f"[BONIFICACION][usar] user={usuario.id} bono={bono.id} turno={turno.id} tipo={bono.tipo_turno}")
     return bono
-
-
+    
 # -----------------------------
 # UTILIDADES AVANZADAS (opcional)
 # -----------------------------
