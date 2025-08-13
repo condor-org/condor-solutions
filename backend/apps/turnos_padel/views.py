@@ -49,7 +49,7 @@ class SedePadelViewSet(viewsets.ModelViewSet):
 
     def retrieve(self, request, *args, **kwargs):
         """
-        GET: Garantiza configuración en retrieve.
+        GET: Garantiza configuración en retrieve.a
         """
         instance = self.get_object()
         config, created = ConfiguracionSedePadel.objects.get_or_create(sede=instance, defaults={"alias": "", "cbu_cvu": ""})

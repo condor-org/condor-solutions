@@ -1,6 +1,6 @@
 // src/components/modals/ReservaPagoModal.jsx
 
-import React from "react";
+import React, { useEffect } from "react";
 import {
   Box,
   Modal,
@@ -15,22 +15,31 @@ import {
   Icon,
   Input,
   useColorModeValue,
-  Flex
+  Flex,
+  Switch,
+  FormControl,
+  FormLabel
 } from "@chakra-ui/react";
 import { FaCalendarAlt, FaClock, FaTrash } from "react-icons/fa";
 import CountdownClock from "../ui/CountdownClock";
 
 const ReservaPagoModal = ({
+  alias, 
+  cbuCvu,
   isOpen,
   onClose,
   turno,
   configPago,
-  tipoClase,   // 🔹 Nuevo: datos del tipo de clase seleccionado
+  tipoClase,
   archivo,
   onArchivoChange,
   onRemoveArchivo,
   onConfirmar,
-  loading
+  loading,
+  tiempoRestante,
+  bonificaciones = [],
+  usarBonificado,
+  setUsarBonificado
 }) => {
   const modalBg = useColorModeValue("white", "gray.900");
   const modalText = useColorModeValue("gray.800", "white");
@@ -41,9 +50,16 @@ const ReservaPagoModal = ({
   const dropzoneHover = useColorModeValue("gray.200", "#243039");
   const dropzoneBorder = useColorModeValue("green.500", "#27ae60");
 
-  const tiempoRestante = Number(configPago?.tiempo_maximo_minutos) > 0
-    ? Number(configPago.tiempo_maximo_minutos) * 60
-    : 180; // fallback de 3 minutos
+  const tieneBonos = bonificaciones.length > 0;
+  useEffect(() => {
+    if (!tieneBonos && usarBonificado) {
+      setUsarBonificado(false);
+    }
+  }, [tieneBonos, usarBonificado, setUsarBonificado]);
+  
+
+  const segundos = Number(tiempoRestante || configPago?.tiempo_maximo_minutos * 60 || 180);
+
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} isCentered size="lg" motionPreset="slideInBottom">
@@ -90,18 +106,17 @@ const ReservaPagoModal = ({
             </Box>
           )}
 
-          {/* 🔹 Información de tipo de clase y pago */}
           {tipoClase && (
             <Box mb={6}>
               <Text><b>Tipo de clase:</b> {tipoClase.nombre}</Text>
               <Text><b>Monto:</b> ${tipoClase.precio}</Text>
-              <Text><b>CBU:</b> {configPago?.cbu || <i>-</i>}</Text>
-              <Text><b>Alias:</b> {configPago?.alias || <i>-</i>}</Text>
+              <Text><b>Alias:</b> {alias}</Text>
+              <Text><b>CBU/CVU:</b> {cbuCvu}</Text>
             </Box>
           )}
 
           <CountdownClock
-            segundosTotales={tiempoRestante}
+            segundosTotales={segundos}
             size="md"
             showLabel={true}
             colorScheme="green"
@@ -111,38 +126,67 @@ const ReservaPagoModal = ({
             }}
           />
 
-          <Box
-            as="label"
-            htmlFor="archivo"
-            border="2px dashed"
-            borderColor={dropzoneBorder}
-            bg={dropzoneBg}
-            px={4}
-            py={4}
-            minH="60px"
-            rounded="lg"
-            w="100%"
-            cursor="pointer"
-            display="flex"
-            alignItems="center"
-            justifyContent="center"
-            textAlign="center"
-            _hover={{ borderColor: "green.400", bg: dropzoneHover }}
-            mt={6}
-            mb={3}
-          >
-            <Input
-              id="archivo"
-              type="file"
-              display="none"
-              onChange={e => onArchivoChange(e.target.files[0])}
-            />
-            <Text color="gray.500" fontSize="sm" fontWeight="medium">
-              {archivo ? `📄 ${archivo.name}` : "📎 Subí el comprobante de pago"}
-            </Text>
-          </Box>
+          {tieneBonos && (
+            <Box
+              mt={6}
+              mb={4}
+              p={4}
+              borderRadius="md"
+              bg={`${resumenBg}88`}
+              border="1px solid"
+              borderColor={resumenBorder}
+            >
+              <Text fontWeight="medium" mb={2}>
+                Tenés {bonificaciones.length} turno{bonificaciones.length > 1 ? "s" : ""} bonificado{bonificaciones.length > 1 ? "s" : ""}.
+              </Text>
+              <FormControl display="flex" alignItems="center">
+                <FormLabel htmlFor="usarBonificado" mb="0">
+                  ¿Querés usar uno para esta reserva?
+                </FormLabel>
+                <Switch
+                  id="usarBonificado"
+                  isChecked={usarBonificado}
+                  onChange={(e) => setUsarBonificado(e.target.checked)}
+                  colorScheme="teal"
+                />
+              </FormControl>
+            </Box>
+          )}
 
-          {archivo && (
+          {!usarBonificado && (
+            <Box
+              as="label"
+              htmlFor="archivo"
+              border="2px dashed"
+              borderColor={dropzoneBorder}
+              bg={dropzoneBg}
+              px={4}
+              py={4}
+              minH="60px"
+              rounded="lg"
+              w="100%"
+              cursor="pointer"
+              display="flex"
+              alignItems="center"
+              justifyContent="center"
+              textAlign="center"
+              _hover={{ borderColor: "green.400", bg: dropzoneHover }}
+              mt={4}
+              mb={3}
+            >
+              <Input
+                id="archivo"
+                type="file"
+                display="none"
+                onChange={e => onArchivoChange(e.target.files[0])}
+              />
+              <Text color="gray.500" fontSize="sm" fontWeight="medium">
+                {archivo ? `📄 ${archivo.name}` : "📎 Subí el comprobante de pago"}
+              </Text>
+            </Box>
+          )}
+
+          {!usarBonificado && archivo && (
             <Button
               size="sm"
               leftIcon={<FaTrash />}
@@ -158,9 +202,9 @@ const ReservaPagoModal = ({
           <Text fontSize="sm" color="gray.500" mt={6}>
             <b>📋 Política de reserva:</b> Toda reserva debe incluir comprobante de pago.
             Las cancelaciones sólo se permiten con <b>mínimo 24 horas de anticipación</b>.
-            Pasado ese tiempo, no se realizarán reembolsos ni cambios.
             Si no se confirma el pago antes del fin del contador, el turno será liberado automáticamente.
           </Text>
+          
         </ModalBody>
 
         <ModalFooter>

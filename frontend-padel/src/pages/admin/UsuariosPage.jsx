@@ -36,6 +36,8 @@ const UsuariosPage = () => {
   const [activo, setActivo] = useState(true);
   const [password, setPassword] = useState("");
   const [detalleUsuario, setDetalleUsuario] = useState(null);
+  const [tipoTurnoBono, setTipoTurnoBono] = useState("individual");
+
 
   const { isOpen, onOpen, onClose } = useDisclosure();
   const {
@@ -56,6 +58,24 @@ const UsuariosPage = () => {
   const empleados = usuarios.filter(u => u.tipo_usuario === "empleado_cliente");
   const admins = usuarios.filter(u => u.tipo_usuario === "admin_cliente");
 
+  const [motivoBonificacion, setMotivoBonificacion] = useState("");
+  const [cargandoBono, setCargandoBono] = useState(false);
+  const [bonificaciones, setBonificaciones] = useState([]);
+  const [usarBonificado, setUsarBonificado] = useState(false);
+  const [archivo, setArchivo] = useState(null);
+
+  useEffect(() => {
+    const fetchBonificaciones = async () => {
+      try {
+        const res = await axiosAuth(accessToken).get("/turnos/bonificados/mios/");
+        setBonificaciones(res.data); // debe ser un array
+      } catch (e) {
+        console.error("Error al obtener bonificaciones:", e);
+      }
+    };
+  
+    fetchBonificaciones();
+  }, []);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -178,6 +198,7 @@ const UsuariosPage = () => {
       toast.error("Error al eliminar usuario");
     }
   };
+  console.log("🧾 Bonificaciones:", bonificaciones);
 
   return (
     <>
@@ -424,6 +445,55 @@ const UsuariosPage = () => {
                     </Text>
                   </VStack>
                 )}
+                {detalleUsuario?.tipo_usuario === "usuario_final" && (
+                  <Box mt={4} p={4} bg={card.bg} borderRadius="md">
+                    <Text fontWeight="bold" mb={2}>Emitir Bonificación Manual</Text>
+                    <VStack spacing={3} align="stretch">
+                      <Input
+                        placeholder="Motivo"
+                        value={motivoBonificacion}
+                        onChange={(e) => setMotivoBonificacion(e.target.value)}
+                      />
+                      <Select
+                        value={tipoTurnoBono}
+                        onChange={(e) => setTipoTurnoBono(e.target.value)}
+                      >
+                        <option value="individual">Individual</option>
+                        <option value="x2">2 Personas</option>
+                        <option value="x3">3 Personas</option>
+                        <option value="x4">4 Personas</option>
+                      </Select>
+                      <Button
+                        isLoading={cargandoBono}
+                        onClick={async () => {
+                          if (!motivoBonificacion.trim()) {
+                            toast.error("El motivo es obligatorio");
+                            return;
+                          }
+
+                          setCargandoBono(true);
+                          const api = axiosAuth(accessToken);
+                          try {
+                            await api.post("/turnos/bonificaciones/crear-manual/", {
+                              usuario_id: detalleUsuario.id,
+                              motivo: motivoBonificacion,
+                              tipo_turno: tipoTurnoBono,        // << ADD
+                            });
+                            toast.success("Bonificación emitida correctamente");
+                            setMotivoBonificacion("");
+                          } catch (err) {
+                            toast.error("Error al emitir bonificación");
+                          } finally {
+                            setCargandoBono(false);
+                          }
+                        }}
+                      >
+                        Emitir Bono
+                      </Button>
+                    </VStack>
+                  </Box>
+                )}
+
               </ModalBody>
               <ModalFooter>
                 <Button onClick={onCloseDetalle} size="lg">
