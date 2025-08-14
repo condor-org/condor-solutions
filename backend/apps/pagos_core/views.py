@@ -15,16 +15,18 @@ from django.core.exceptions import PermissionDenied
 import logging
 
 from apps.pagos_core.services.comprobantes import ComprobanteService
-from apps.pagos_core.models import ComprobantePago
-from apps.pagos_core.serializers import ComprobantePagoSerializer, ComprobanteUploadSerializer
+from apps.pagos_core.models import ComprobantePago, ComprobanteAbono, PagoIntento
+from apps.pagos_core.serializers import ComprobantePagoSerializer, ComprobanteUploadSerializer, ComprobanteAbonoUploadSerializer
 from apps.pagos_core.filters import ComprobantePagoFilter
 from .models import ConfiguracionPago
 from .serializers import ConfiguracionPagoSerializer
 
 from apps.common.permissions import EsAdminDeSuCliente, EsSuperAdmin
-from apps.pagos_core.models import PagoIntento 
+
 from django.db import transaction
 
+from apps.turnos_padel.models import AbonoMes
+from apps.turnos_core.models import Turno, TurnoBonificado
 
 class ComprobanteView(ListCreateAPIView):
     authentication_classes = [JWTAuthentication]
@@ -75,9 +77,6 @@ class ComprobanteView(ListCreateAPIView):
             "id_comprobante": comprobante.id
         }, status=status.HTTP_201_CREATED)
 
-
-# apps/pagos_core/views.py
-
 class ComprobanteDownloadView(APIView):
     queryset = ComprobantePago.objects.none()
     authentication_classes = [JWTAuthentication]
@@ -112,8 +111,6 @@ class ComprobanteDownloadView(APIView):
             logger.debug("Error inesperado: %s", e)
             return Response({"error": "No encontrado"}, status=status.HTTP_404_NOT_FOUND)
 
-
-
 class ComprobanteAprobarRechazarView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [EsAdminDeSuCliente | EsSuperAdmin]
@@ -123,63 +120,130 @@ class ComprobanteAprobarRechazarView(APIView):
         logger = logging.getLogger(__name__)
         logger.debug("[PATCH] Acción '%s' sobre comprobante ID=%s", action, pk)
 
+        # 1) Intentar con ComprobantePago (turno individual)
         try:
             comprobante = ComprobantePago.objects.get(pk=pk)
-            logger.debug("[PATCH] Comprobante encontrado: ID=%s", comprobante.id)
+            logger.debug("[PATCH] ComprobantePago encontrado: ID=%s", comprobante.id)
+
+            turno = comprobante.turno
+            intento = PagoIntento.objects.filter(
+                content_type__model="comprobantepago",
+                object_id=comprobante.id
+            ).first()
+            if intento:
+                logger.debug("[PATCH] IntentoPago asociado encontrado: ID=%s", intento.id)
+            else:
+                logger.debug("[PATCH] No se encontró intento de pago asociado")
+
+            if action == 'aprobar':
+                comprobante.valido = True
+                comprobante.save(update_fields=["valido"])
+                logger.debug("[APROBAR] ComprobantePago %s marcado como válido", comprobante.id)
+
+                if intento:
+                    intento.estado = "confirmado"
+                    intento.save(update_fields=["estado"])
+                    logger.debug("[APROBAR] IntentoPago %s marcado como confirmado", intento.id)
+
+                return Response({"mensaje": "✅ Comprobante aprobado"})
+
+            elif action == 'rechazar':
+                comprobante.valido = False
+                comprobante.save(update_fields=["valido"])
+                logger.debug("[RECHAZAR] ComprobantePago %s marcado como inválido", comprobante.id)
+
+                if intento:
+                    intento.estado = "rechazado"
+                    intento.save(update_fields=["estado"])
+                    logger.debug("[RECHAZAR] IntentoPago %s marcado como rechazado", intento.id)
+
+                if turno:
+                    logger.debug(
+                        "[RECHAZAR] Liberando turno %s: estado actual=%s, usuario actual=%s",
+                        turno.id, turno.estado, turno.usuario_id,
+                    )
+                    turno.usuario = None
+                    turno.estado = 'disponible'
+                    turno.save(update_fields=["usuario", "estado"])
+                    logger.debug("[RECHAZAR] Turno %s liberado correctamente", turno.id)
+
+                return Response({"mensaje": "❌ Comprobante rechazado y turno liberado"})
+
+            logger.warning("[PATCH] Acción inválida: '%s'", action)
+            return Response({"error": "Acción no válida. Usa 'aprobar' o 'rechazar'."}, status=400)
+
         except ComprobantePago.DoesNotExist:
-            logger.warning("[PATCH] Comprobante no encontrado: ID=%s", pk)
+            logger.debug("[PATCH] No es ComprobantePago. Probando ComprobanteAbono...")
+
+        # 2) Intentar con ComprobanteAbono (abono mensual)
+        try:
+            comprobante_abono = ComprobanteAbono.objects.select_related("abono_mes").get(pk=pk)
+            logger.debug("[PATCH] ComprobanteAbono encontrado: ID=%s", comprobante_abono.id)
+
+            intento = PagoIntento.objects.filter(
+                content_type__model="comprobanteabono",
+                object_id=comprobante_abono.id
+            ).first()
+            if intento:
+                logger.debug("[PATCH][abono] IntentoPago asociado encontrado: ID=%s", intento.id)
+            else:
+                logger.debug("[PATCH][abono] No se encontró intento de pago asociado")
+
+            abono = comprobante_abono.abono_mes
+
+            if action == 'aprobar':
+                comprobante_abono.valido = True
+                comprobante_abono.save(update_fields=["valido"])
+                logger.debug("[APROBAR][abono] ComprobanteAbono %s marcado como válido", comprobante_abono.id)
+
+                if intento:
+                    intento.estado = "confirmado"
+                    intento.save(update_fields=["estado"])
+                    logger.debug("[APROBAR][abono] IntentoPago %s marcado como confirmado", intento.id)
+
+                # El abono queda pagado (los turnos ya quedaron reservados al subir el comprobante)
+                abono.estado = "pagado"
+                abono.save(update_fields=["estado"])
+                logger.debug("[APROBAR][abono] AbonoMes %s marcado como pagado", abono.id)
+
+                return Response({"mensaje": "✅ Comprobante de abono aprobado"})
+
+            elif action == 'rechazar':
+                comprobante_abono.valido = False
+                comprobante_abono.save(update_fields=["valido"])
+                logger.debug("[RECHAZAR][abono] ComprobanteAbono %s marcado como inválido", comprobante_abono.id)
+
+                if intento:
+                    intento.estado = "rechazado"
+                    intento.save(update_fields=["estado"])
+                    logger.debug("[RECHAZAR][abono] IntentoPago %s marcado como rechazado", intento.id)
+
+                # Liberar TODOS los turnos asociados a este comprobante de abono
+                from apps.turnos_core.models import Turno  # import local para evitar ciclos
+                turnos = Turno.objects.select_for_update().filter(comprobante_abono=comprobante_abono)
+                liberados = 0
+                for t in turnos:
+                    t.usuario = None
+                    t.estado = "disponible"
+                    t.tipo_turno = None
+                    t.comprobante_abono = None
+                    t.save(update_fields=["usuario", "estado", "tipo_turno", "comprobante_abono"])
+                    liberados += 1
+                logger.debug("[RECHAZAR][abono] Turnos liberados: %s", liberados)
+
+                # El abono queda en estado "creado" nuevamente (o podrías marcarlo "vencido" según política)
+                abono.estado = "creado"
+                abono.save(update_fields=["estado"])
+                logger.debug("[RECHAZAR][abono] AbonoMes %s vuelto a estado 'creado'", abono.id)
+
+                return Response({"mensaje": "❌ Comprobante de abono rechazado y turnos liberados"})
+
+            logger.warning("[PATCH][abono] Acción inválida: '%s'", action)
+            return Response({"error": "Acción no válida. Usa 'aprobar' o 'rechazar'."}, status=400)
+
+        except ComprobanteAbono.DoesNotExist:
+            logger.warning("[PATCH] Comprobante no encontrado (pago o abono): ID=%s", pk)
             return Response({"error": "No encontrado"}, status=404)
-
-        turno = comprobante.turno
-
-        intento = PagoIntento.objects.filter(
-            content_type__model="comprobantepago",
-            object_id=comprobante.id
-        ).first()
-        if intento:
-            logger.debug("[PATCH] IntentoPago asociado encontrado: ID=%s", intento.id)
-        else:
-            logger.debug("[PATCH] No se encontró intento de pago asociado")
-
-        if action == 'aprobar':
-            comprobante.valido = True
-            comprobante.save(update_fields=["valido"])
-            logger.debug("[APROBAR] Comprobante %s marcado como válido", comprobante.id)
-
-            if intento:
-                intento.estado = "confirmado"
-                intento.save(update_fields=["estado"])
-                logger.debug("[APROBAR] IntentoPago %s marcado como confirmado", intento.id)
-
-            return Response({"mensaje": "✅ Comprobante aprobado"})
-
-        elif action == 'rechazar':
-            comprobante.valido = False
-            comprobante.save(update_fields=["valido"])
-            logger.debug("[RECHAZAR] Comprobante %s marcado como inválido", comprobante.id)
-
-            if intento:
-                intento.estado = "rechazado"
-                intento.save(update_fields=["estado"])
-                logger.debug("[RECHAZAR] IntentoPago %s marcado como rechazado", intento.id)
-
-            if turno:
-                logger.debug(
-                    "[RECHAZAR] Liberando turno %s: estado actual=%s, usuario actual=%s",
-                    turno.id, turno.estado, turno.usuario_id,
-                )
-
-                turno.usuario = None
-                turno.estado = 'disponible'
-                turno.save()
-
-                logger.debug("[RECHAZAR] Turno %s liberado correctamente", turno.id)
-
-            return Response({"mensaje": "❌ Comprobante rechazado y turno liberado"})
-
-        logger.warning("[PATCH] Acción inválida: '%s'", action)
-        return Response({"error": "Acción no válida. Usa 'aprobar' o 'rechazar'."}, status=400)
-
 
 class ConfiguracionPagoPermission(BasePermission):
     """
@@ -189,7 +253,6 @@ class ConfiguracionPagoPermission(BasePermission):
         if request.method in SAFE_METHODS:
             return request.user and request.user.is_authenticated
         return request.user and request.user.tipo_usuario in {"admin_cliente", "super_admin"}
-
 
 class ConfiguracionPagoView(RetrieveUpdateAPIView):
     queryset = ConfiguracionPago.objects.all()
@@ -211,8 +274,6 @@ class ConfiguracionPagoView(RetrieveUpdateAPIView):
         )
         return obj
 
-
-
 class PagosPendientesCountView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [EsAdminDeSuCliente | EsSuperAdmin]
@@ -220,3 +281,49 @@ class PagosPendientesCountView(APIView):
     def get(self, request):
         count = ComprobantePago.objects.filter(cliente=request.user.cliente, valido=False).count()
         return Response({"count": count})
+
+class ComprobanteAbonoView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, *args, **kwargs):
+        ser = ComprobanteAbonoUploadSerializer(data=request.data, context={"request": request})
+        ser.is_valid(raise_exception=True)
+        comprobante = ser.save()
+        abono = comprobante.abono_mes
+
+        # Reserva inmediata en batch (misma lógica que turno individual “preaprobado”)
+        # Opción A: si falla un turno => falla todo
+        # mapear tipo_turno code
+        nombre_norm = (abono.tipo_clase.nombre or "").strip().lower()
+        mapping = {"individual": "individual", "2 personas": "x2", "3 personas": "x3", "4 personas": "x4"}
+        tipo_turno_code = mapping.get(nombre_norm)
+
+        fechas = AbonoMesSerializer._fechas_del_mes_por_dia_semana(abono.anio, abono.mes, abono.dia_semana)
+        with transaction.atomic():
+            qs = Turno.objects.select_for_update().filter(
+                fecha__in=fechas, hora=abono.hora, lugar=abono.sede,
+                content_type__model="prestador", object_id=abono.prestador_id, estado="disponible"
+            )
+            if qs.count() != len(fechas):
+                # revertimos: borrar intento & comprobante creados
+                PagoIntento.objects.filter(
+                    content_type__model="comprobanteabono", object_id=comprobante.id
+                ).delete()
+                comprobante.delete()
+                return Response({"detail":"Al menos un turno ya no está disponible. Operación abortada."}, status=409)
+
+            # reservar todos y apuntar al mismo comprobante de abono
+            for t in qs:
+                t.usuario = abono.usuario
+                t.estado = "reservado"
+                t.tipo_turno = tipo_turno_code
+                t.comprobante_abono = comprobante
+                t.save(update_fields=["usuario","estado","tipo_turno","comprobante_abono"])
+
+        return Response({
+            "mensaje": "✅ Comprobante de abono recibido. Turnos reservados (a confirmar por admin).",
+            "abono_mes_id": abono.id,
+            "comprobante_abono_id": comprobante.id
+        }, status=201)

@@ -30,6 +30,15 @@ class Turno(models.Model):
         blank=True
     )
 
+    comprobante_abono = models.ForeignKey(
+        "pagos_core.ComprobanteAbono",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="turnos",
+        help_text="Si el turno pertenece a un AbonoMes pagado, todos comparten este comprobante."
+    )
+
     # Se setea al reservar (no al generar). Mantiene core genérico.
     tipo_turno = models.CharField(max_length=50, null=True, blank=True)
 

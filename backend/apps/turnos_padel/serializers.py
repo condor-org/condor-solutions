@@ -2,7 +2,13 @@
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from apps.turnos_padel.models import ConfiguracionSedePadel, TipoClasePadel
-from apps.turnos_core.models import Lugar
+from apps.turnos_core.models import Lugar, Turno, Disponibilidad, BloqueoTurnos, Prestador
+from rest_framework import serializers
+from django.db.models import Q
+from django.utils import timezone
+from calendar import monthrange, Calendar
+from apps.turnos_padel.models import AbonoMes, TipoClasePadel
+
 
 class TipoClasePadelSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False)  # Permite crear sin ID
@@ -118,3 +124,54 @@ class SedePadelSerializer(serializers.ModelSerializer):
                 TipoClasePadel.objects.create(configuracion_sede=config, **tipo)
 
         return instance
+
+class AbonoMesSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AbonoMes
+        fields = ["id","usuario","sede","prestador","anio","mes","dia_semana","hora","tipo_clase","monto","estado","creado_en","actualizado_en"]
+        read_only_fields = ["estado","creado_en","actualizado_en"]
+
+    def validate(self, attrs):
+        user_req = self.context["request"].user
+        usuario = attrs["usuario"]
+        sede = attrs["sede"]
+        prestador = attrs["prestador"]
+        tipo_clase = attrs["tipo_clase"]
+        anio, mes = attrs["anio"], attrs["mes"]
+
+        # 1) mismo cliente
+        if not all([
+            getattr(usuario, "cliente_id", None) == sede.cliente_id == prestador.cliente_id ==
+            tipo_clase.configuracion_sede.sede.cliente_id
+        ]):
+            raise serializers.ValidationError("Todos los elementos del abono deben pertenecer al mismo cliente.")
+
+        # 2) tipo_clase de la misma sede
+        if tipo_clase.configuracion_sede.sede_id != sede.id:
+            raise serializers.ValidationError({"tipo_clase": "El tipo de clase no pertenece a la sede seleccionada."})
+
+        # 3) disponibilidad: todos los días del mes para ese día_semana/hora deben existir y estar libres
+        fechas = self._fechas_del_mes_por_dia_semana(anio, mes, attrs["dia_semana"])
+        if not fechas:
+            raise serializers.ValidationError("No hay fechas válidas en el mes para ese día de semana.")
+
+        # turnos existentes y disponibles
+        turnos = Turno.objects.filter(
+            fecha__in=fechas, hora=attrs["hora"], lugar=sede,
+            content_type__model="prestador", object_id=prestador.id, estado="disponible"
+        )
+        if turnos.count() != len(fechas):
+            raise serializers.ValidationError("Hay al menos un turno no disponible para esa franja en el mes.")
+
+        return attrs
+
+    @staticmethod
+    def _fechas_del_mes_por_dia_semana(anio:int, mes:int, dia_semana:int):
+        from datetime import date
+        c = Calendar(firstweekday=0)
+        fechas = []
+        for week in c.monthdatescalendar(anio, mes):
+            for d in week:
+                if d.month == mes and d.weekday() == dia_semana:
+                    fechas.append(d)
+        return fechas

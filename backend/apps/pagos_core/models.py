@@ -4,12 +4,43 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
-from apps.turnos_core.models import Turno
 from pathlib import Path
 from apps.clientes_core.models import Cliente
 from django.utils import timezone
 
 User = get_user_model()
+
+def comprobante_abono_upload_path(instance, filename):
+    return f"comprobantes/abono_mes_{instance.abono_mes_id}/{filename}"
+
+class ComprobanteAbono(models.Model):
+    cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="comprobantes_abono")
+    abono_mes = models.OneToOneField("turnos_padel.AbonoMes", on_delete=models.CASCADE, related_name="comprobante")
+    archivo = models.FileField(upload_to=comprobante_abono_upload_path)
+    hash_archivo = models.CharField(max_length=64, unique=True)
+    valido = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # metadata OCR (mismo patrón que ComprobantePago)
+    datos_extraidos = models.JSONField(blank=True, null=True)
+    nro_operacion = models.CharField(max_length=100, blank=True, null=True)
+    emisor_nombre = models.CharField(max_length=255, blank=True, null=True)
+    emisor_cbu = models.CharField(max_length=22, blank=True, null=True)
+    emisor_cuit = models.CharField(max_length=20, blank=True, null=True)
+    fecha_detectada = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def save(self, *args, **kwargs):
+        if not self.cliente:
+            raise ValueError("ComprobanteAbono debe tener cliente asignado.")
+        if not self.abono_mes:
+            raise ValueError("ComprobanteAbono debe estar asociado a un AbonoMes.")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"ComprobanteAbono #{self.pk} – AbonoMes {self.abono_mes_id}"
 
 class PagoIntento(models.Model):
     cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="pagos", null=False)
@@ -70,7 +101,7 @@ class ComprobantePago(models.Model):
         blank=False
     )
     turno = models.OneToOneField(
-        Turno,
+        "turnos_core.Turno",
         on_delete=models.CASCADE,
         related_name="comprobante",
         null=True,

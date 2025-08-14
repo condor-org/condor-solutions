@@ -12,8 +12,9 @@ from io import BytesIO
 from PIL import Image
 import pytesseract
 import logging
+from apps.turnos_padel.models import AbonoMes
 from apps.common.permissions import EsSuperAdmin, EsAdminDeSuCliente
-from apps.pagos_core.models import ComprobantePago, ConfiguracionPago, PagoIntento
+from apps.pagos_core.models import ComprobantePago, ConfiguracionPago, PagoIntento, ComprobanteAbono
 
 from django.contrib.contenttypes.models import ContentType
 from apps.turnos_core.models import Prestador
@@ -30,6 +31,75 @@ ANTIGUEDAD_MAXIMA_DE_COMPROBANTE_EN_MINUTOS = 150000
 
 
 class ComprobanteService:
+
+    @classmethod
+    @transaction.atomic
+    def upload_comprobante_abono(
+        cls,
+        abono_mes_id: int,
+        file_obj,
+        usuario,
+        cliente=None,
+        alias=None,
+        cbu_cvu=None,
+        monto_esperado=None,
+        ip_cliente=None,
+        user_agent=None,
+    ) -> ComprobanteAbono:
+        # 1) cargar AbonoMes y validar pertenencia
+        try:
+            abono = AbonoMes.objects.select_related("sede__cliente","tipo_clase__configuracion_sede").get(pk=abono_mes_id)
+        except AbonoMes.DoesNotExist:
+            raise ValidationError("AbonoMes no existe.")
+
+        cliente = cliente or usuario.cliente
+        if abono.sede.cliente_id != cliente.id:
+            raise PermissionDenied("No tenés acceso a este AbonoMes.")
+
+        # 2) validar duplicado
+        checksum = cls._generate_hash(file_obj)
+        if ComprobanteAbono.objects.filter(hash_archivo=checksum).exists():
+            raise ValidationError("Comprobante duplicado.")
+
+        # 3) datos de validación
+        alias = alias or abono.tipo_clase.configuracion_sede.alias
+        cbu_cvu = cbu_cvu or abono.tipo_clase.configuracion_sede.cbu_cvu
+        if monto_esperado is None:
+            raise ValidationError("Debe indicarse el monto esperado para el abono.")
+
+        config_data = {
+            "cbu": cbu_cvu,
+            "alias": alias,
+            "monto_esperado": float(monto_esperado),
+            "tiempo_maximo_minutos": ANTIGUEDAD_MAXIMA_DE_COMPROBANTE_EN_MINUTOS,
+        }
+
+        datos = cls._parse_and_validate(file_obj, config_data)
+
+        # 4) crear ComprobanteAbono
+        comprobante = ComprobanteAbono.objects.create(
+            cliente=cliente,
+            abono_mes=abono,
+            archivo=file_obj,
+            hash_archivo=checksum,
+            datos_extraidos=datos,
+        )
+
+        # 5) crear PagoIntento
+        PagoIntento.objects.create(
+            cliente=cliente,
+            usuario=usuario,
+            estado="pre_aprobado",
+            monto_esperado=datos.get("monto", config_data["monto_esperado"]),
+            moneda="ARS",
+            alias_destino=datos.get("alias") or f"Usando CBU/CVU {datos.get('cbu_destino')}",
+            cbu_destino=datos.get("cbu_destino") or f"Usando alias {datos.get('alias')}",
+            origen=comprobante,
+            tiempo_expiracion=timezone.now() + timezone.timedelta(minutes=config_data["tiempo_maximo_minutos"]),
+        )
+
+        logger.info("[abono.comprobante.upload] abono=%s monto_esp=%s hash=%s", abono.id, monto_esperado, checksum)
+        return comprobante
 
     @staticmethod
     def download_comprobante(comprobante_id: int, usuario) -> ComprobantePago:

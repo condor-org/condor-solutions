@@ -65,3 +65,7 @@ node_modules/
 .cache/
 frontend/node_modules/
 frontend/.cache/
+
+backend/estado_actual.sh
+backend/estado_actual_backend.txt
+backend/estado_actual_backend.zip

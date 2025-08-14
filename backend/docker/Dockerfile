@@ -1,6 +1,6 @@
 # /backend/docker/Dockerfile
 
-FROM python:3.11-slim
+FROM python:3.11.6-slim
 
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1

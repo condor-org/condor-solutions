@@ -6,7 +6,8 @@ from apps.pagos_core.views import (
     ComprobanteDownloadView,
     ComprobanteAprobarRechazarView,
     ConfiguracionPagoView,
-    PagosPendientesCountView,  # <-- ¡IMPORTANTE!
+    PagosPendientesCountView,
+    ComprobanteAbonoView,
 )
 
 urlpatterns = [
@@ -14,5 +15,6 @@ urlpatterns = [
     path("comprobantes/<int:pk>/descargar/", ComprobanteDownloadView.as_view(), name="comprobante-download"),
     path("comprobantes/<int:pk>/<str:action>/", ComprobanteAprobarRechazarView.as_view(), name="comprobante-aprobar-rechazar"),
     path('configuracion/', ConfiguracionPagoView.as_view(), name='configuracion-pago'),
-    path('pendientes/', PagosPendientesCountView.as_view(), name='pagos-pendientes'),  # <-- Endpoint nuevo
+    path('pendientes/', PagosPendientesCountView.as_view(), name='pagos-pendientes'),
+    path("comprobantes-abono/", ComprobanteAbonoView.as_view(), name="comprobante-abono-upload"),
 ]

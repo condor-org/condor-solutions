@@ -231,3 +231,19 @@ class ConfiguracionPagoSerializer(LoggedModelSerializer):
     class Meta:
         model = ConfiguracionPago
         fields = "__all__"
+
+
+class ComprobanteAbonoUploadSerializer(serializers.Serializer):
+    abono_mes_id = serializers.IntegerField()
+    archivo = serializers.FileField()
+    monto_esperado = serializers.DecimalField(max_digits=10, decimal_places=2)
+
+    def create(self, validated_data):
+        usuario = self.context["request"].user
+        return ComprobanteService.upload_comprobante_abono(
+            abono_mes_id=validated_data["abono_mes_id"],
+            file_obj=validated_data["archivo"],
+            usuario=usuario,
+            cliente=getattr(usuario, "cliente", None),
+            monto_esperado=validated_data["monto_esperado"],
+        )
