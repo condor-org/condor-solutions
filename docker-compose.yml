@@ -13,7 +13,7 @@ services:
     environment:
       - DJANGO_SETTINGS_MODULE=condor_core.settings.dev
     volumes:
-      - ./backend/condor_core/media:/app/condor_core/media
+      - ./backend:/app
     ports:
       - "8000:8000"
     depends_on:

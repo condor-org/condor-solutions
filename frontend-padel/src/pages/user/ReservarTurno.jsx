@@ -47,12 +47,13 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
   const card = useCardColors();
   const input = useInputColors();
 
-    // --- map tipo_clase.nombre -> tipo_turno ---
-  const mapTipo = { "individual": "individual", "2 personas": "x2", "3 personas": "x3", "4 personas": "x4" };
 
   const tipoClaseSeleccionada = tiposClase.find(tc => String(tc.id) === String(tipoClaseId));
   const nombreTipo = (tipoClaseSeleccionada?.nombre || "").trim().toLowerCase();
-  const tipoTurnoSeleccionado = mapTipo[nombreTipo] || null;
+  const tipoTurnoSeleccionado =
+    /2/.test(nombreTipo) ? "x2" :
+    /3/.test(nombreTipo) ? "x3" :
+    /4/.test(nombreTipo) ? "x4" : "x1";
 
   // ¿hay bono del mismo tipo?
   const tieneBonoDeEsteTipo = tipoTurnoSeleccionado
@@ -152,7 +153,7 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
   useEffect(() => {
   if (!pagoDisc.isOpen || !accessToken) return;
     const api = axiosAuth(accessToken);
-    api.get("/turnos/bonificados/mios/")
+    api.get(`turnos/bonificados/mios/?tipo_clase_id=${tipoClaseId}`)
       .then(res => setBonificaciones(res.data || []))
       .catch(() => setBonificaciones([]));
   }, [pagoDisc.isOpen, accessToken]);
@@ -474,7 +475,7 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
             onConfirmar={handleReserva}
             loading={loading}
             tiempoRestante={configPago?.tiempo_maximo_minutos ? configPago.tiempo_maximo_minutos * 60 : undefined}
-            bonificaciones={bonificaciones.filter(b => b.tipo_turno === tipoTurnoSeleccionado)}
+            bonificaciones={bonificaciones}
             usarBonificado={usarBonificado}
             setUsarBonificado={setUsarBonificado}
             alias={configPago.alias}

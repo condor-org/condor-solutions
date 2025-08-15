@@ -78,3 +78,17 @@ def generar_turnos_para_prestador(prestador_id, fecha_inicio, fecha_fin, duracio
         prestador_id, fecha_inicio, fecha_fin, duracion_minutos, total_generados
     )
     return total_generados
+
+def _dias_para(disponibilidad, desde, hasta):
+    """
+    Devuelve las fechas entre 'desde' y 'hasta' (inclusive)
+    cuyo weekday coincide con disponibilidad.dia_semana.
+    """
+    dias = []
+    d = desde
+    objetivo = int(disponibilidad.dia_semana)
+    while d <= hasta:
+        if d.weekday() == objetivo:
+            dias.append(d)
+        d += timedelta(days=1)
+    return dias

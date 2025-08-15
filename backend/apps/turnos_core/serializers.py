@@ -86,7 +86,16 @@ class TurnoReservaSerializer(serializers.Serializer):
         tipo_turno = getattr(tipo_clase, "code", None)
         if not tipo_turno:
             nombre_norm = (tipo_clase.nombre or "").strip().lower()
-            mapping = {"individual": "individual", "2 personas": "x2", "3 personas": "x3", "4 personas": "x4"}
+            mapping = {
+                "individual": "x1",
+                "x1": "x1",
+                "2 personas": "x2",
+                "x2": "x2",
+                "3 personas": "x3",
+                "x3": "x3",
+                "4 personas": "x4",
+                "x4": "x4",
+            }
             tipo_turno = mapping.get(nombre_norm)
         if not tipo_turno:
             raise DRFValidationError({"tipo_clase_id": "Tipo de clase inválido para la reserva."})

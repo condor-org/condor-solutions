@@ -37,7 +37,17 @@ const meses = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
 ];
-
+const monthDateRange = (yyyy, mm /* 1-12 */) => {
+  const y = Number(yyyy);
+  const m = Number(mm);
+  if (!y || !m || m < 1 || m > 12) throw new Error("Mes/Año inválidos");
+  const lastDay = new Date(y, m, 0).getDate();
+  const pad2 = (n) => String(n).padStart(2, "0");
+  return {
+    start: `${y}-${pad2(m)}-01`,
+    end: `${y}-${pad2(m)}-${pad2(lastDay)}`
+  };
+};
 const DashboardPage = () => {
   const { user, logout, accessToken } = useContext(AuthContext);
 
@@ -93,22 +103,24 @@ const DashboardPage = () => {
     setResultado(null);
     const api = axiosAuth(accessToken);
     try {
+      const { start, end } = monthDateRange(anio, mes); // ← usa el helper inline
       const body = {
-        fecha_inicio: `${anio}-${mes.toString().padStart(2, "0")}-01`,
-        fecha_fin: `${anio}-${mes.toString().padStart(2, "0")}-31`, // simple y seguro para producción
+        fecha_inicio: start,
+        fecha_fin: end,
         duracion_minutos: Number(duracion),
+        ...(profesorId ? { prestador_id: Number(profesorId) } : {})
       };
-      if (profesorId) body.prestador_id = Number(profesorId);
-  
       const res = await api.post("turnos/generar/", body);
       setResultado(res.data);
       toast.success(`¡Turnos generados! Total: ${res.data.turnos_generados}`);
     } catch (err) {
-      toast.error("Error al generar turnos");
+      console.error("[UI][turnos.generar][error]", err?.response?.data || err);
+      toast.error(err?.response?.data?.error || "Error al generar turnos");
     } finally {
       setGenerando(false);
     }
   };
+  
   
 
   return (

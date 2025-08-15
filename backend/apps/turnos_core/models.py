@@ -42,6 +42,22 @@ class Turno(models.Model):
     # Se setea al reservar (no al generar). Mantiene core genérico.
     tipo_turno = models.CharField(max_length=50, null=True, blank=True)
 
+    abono_mes_reservado = models.ForeignKey(
+        "turnos_padel.AbonoMes",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="turnos_reservados_directos"
+    )
+
+    abono_mes_prioridad = models.ForeignKey(
+        "turnos_padel.AbonoMes",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="turnos_prioridad_directos"
+    )
+
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
 

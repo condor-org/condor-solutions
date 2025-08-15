@@ -128,16 +128,16 @@ class SedePadelSerializer(serializers.ModelSerializer):
 class AbonoMesSerializer(serializers.ModelSerializer):
     class Meta:
         model = AbonoMes
-        fields = ["id","usuario","sede","prestador","anio","mes","dia_semana","hora","tipo_clase","monto","estado","creado_en","actualizado_en"]
-        read_only_fields = ["estado","creado_en","actualizado_en"]
+        fields = ["id","usuario","sede","prestador","anio","mes","dia_semana","hora","tipo_clase","monto","estado","creado_en","actualizado_en","fecha_limite_renovacion"]
+        read_only_fields = ["estado","creado_en","actualizado_en","fecha_limite_renovacion"]
 
     def validate(self, attrs):
-        user_req = self.context["request"].user
         usuario = attrs["usuario"]
         sede = attrs["sede"]
         prestador = attrs["prestador"]
         tipo_clase = attrs["tipo_clase"]
         anio, mes = attrs["anio"], attrs["mes"]
+        dia_semana, hora = attrs["dia_semana"], attrs["hora"]
 
         # 1) mismo cliente
         if not all([
@@ -150,28 +150,88 @@ class AbonoMesSerializer(serializers.ModelSerializer):
         if tipo_clase.configuracion_sede.sede_id != sede.id:
             raise serializers.ValidationError({"tipo_clase": "El tipo de clase no pertenece a la sede seleccionada."})
 
-        # 3) disponibilidad: todos los días del mes para ese día_semana/hora deben existir y estar libres
-        fechas = self._fechas_del_mes_por_dia_semana(anio, mes, attrs["dia_semana"])
-        if not fechas:
+        # 3) validar franja completa (mes actual y siguiente): todos los días deben tener turno
+        #    y ninguno puede estar 'reservado'.
+        from apps.turnos_padel.services.abonos import _proximo_mes
+        fechas_actual = self._fechas_del_mes_por_dia_semana(anio, mes, dia_semana)
+        if not fechas_actual:
             raise serializers.ValidationError("No hay fechas válidas en el mes para ese día de semana.")
 
-        # turnos existentes y disponibles
-        turnos = Turno.objects.filter(
-            fecha__in=fechas, hora=attrs["hora"], lugar=sede,
-            content_type__model="prestador", object_id=prestador.id, estado="disponible"
-        )
-        if turnos.count() != len(fechas):
-            raise serializers.ValidationError("Hay al menos un turno no disponible para esa franja en el mes.")
+        prox_anio, prox_mes = _proximo_mes(anio, mes)
+        fechas_prox = self._fechas_del_mes_por_dia_semana(prox_anio, prox_mes, dia_semana)
+
+        def _chequear_mes(fechas, etiqueta):
+            qs = Turno.objects.filter(
+                fecha__in=fechas, hora=hora, lugar=sede,
+                content_type__model="prestador", object_id=prestador.id
+            ).only("id","fecha","estado")
+            # mapear por fecha
+            por_fecha = {t.fecha: t for t in qs}
+            faltantes = [f for f in fechas if f not in por_fecha]
+            if faltantes:
+                raise serializers.ValidationError({etiqueta: f"Faltan turnos generados para {len(faltantes)} fecha(s)."})
+
+            reservados = [t for t in por_fecha.values() if t.estado == "reservado"]
+            if reservados:
+                raise serializers.ValidationError({etiqueta: "Hay turnos ya reservados en la franja; no se puede crear el abono."})
+
+            # si llegó acá, todas las fechas existen y están en disponible o cancelado
+            return True
+
+        _chequear_mes(fechas_actual, "mes_actual")
+        if fechas_prox:
+            _chequear_mes(fechas_prox, "mes_siguiente")
 
         return attrs
 
     @staticmethod
     def _fechas_del_mes_por_dia_semana(anio:int, mes:int, dia_semana:int):
-        from datetime import date
-        c = Calendar(firstweekday=0)
+        from calendar import Calendar
         fechas = []
-        for week in c.monthdatescalendar(anio, mes):
+        for week in Calendar(firstweekday=0).monthdatescalendar(anio, mes):
             for d in week:
                 if d.month == mes and d.weekday() == dia_semana:
                     fechas.append(d)
         return fechas
+
+class TurnoSimpleSerializer(serializers.ModelSerializer):
+    lugar = serializers.StringRelatedField()
+
+    class Meta:
+        model = Turno
+        fields = ["id", "fecha", "hora", "lugar", "estado"]
+
+class AbonoMesDetailSerializer(serializers.ModelSerializer):
+    usuario = serializers.StringRelatedField()
+    sede = serializers.StringRelatedField()
+    prestador = serializers.StringRelatedField()
+    tipo_clase = TipoClasePadelSerializer()
+    turnos_reservados = TurnoSimpleSerializer(many=True)
+    turnos_prioridad = TurnoSimpleSerializer(many=True)
+
+    class Meta:
+        model = AbonoMes
+        fields = [
+            "id", "usuario", "sede", "prestador",
+            "anio", "mes", "dia_semana", "hora", "tipo_clase",
+            "monto", "estado", "fecha_limite_renovacion",
+            "turnos_reservados", "turnos_prioridad",
+            "creado_en", "actualizado_en"
+        ]
+
+
+    def get_turnos_reservados(self, obj):
+        return [t.id for t in obj.turnos_reservados.all()]
+
+    def get_turnos_prioridad(self, obj):
+        return [t.id for t in obj.turnos_prioridad.all()]
+
+    def get_tipo_turno_code(self, obj):
+        nombre = (obj.tipo_clase.nombre or "").strip().lower()
+        return {
+            "individual": "individual",
+            "2 personas": "x2",
+            "3 personas": "x3",
+            "4 personas": "x4"
+        }.get(nombre, "")
+

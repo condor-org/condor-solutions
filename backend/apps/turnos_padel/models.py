@@ -2,12 +2,12 @@ from django.db import models
 from django.conf import settings
 from django.db.models import Q
 
+
 class AbonoMes(models.Model):
     ESTADOS = [
-        ("creado", "Creado"),        # creado por admin, aún sin reserva
-        ("pagado", "Pagado"),        # reservado (con o sin comprobante, según TB usados)
-        ("vencido", "Vencido"),      # no pagado a tiempo (se libera)
-        ("cancelado", "Cancelado"),  # baja manual
+        ("pagado", "Pagado"),               # turnos confirmados
+        ("vencido", "No pagado a tiempo"),  # prioridad no usada
+        ("cancelado", "Cancelado"),         # baja manual
     ]
 
     usuario = models.ForeignKey(
@@ -16,42 +16,55 @@ class AbonoMes(models.Model):
         related_name="abonos_mensuales"
     )
     sede = models.ForeignKey(
-        "turnos_core.Lugar",                   # ← referencia perezosa por string
+        "turnos_core.Lugar",
         on_delete=models.CASCADE,
         related_name="abonos_mensuales"
     )
     prestador = models.ForeignKey(
-        "turnos_core.Prestador",               # ← referencia perezosa por string
+        "turnos_core.Prestador",
         on_delete=models.CASCADE,
         related_name="abonos_mensuales"
     )
+    tipo_clase = models.ForeignKey(
+        "turnos_padel.TipoClasePadel",
+        on_delete=models.PROTECT,
+        related_name="abonos"
+    )
 
     anio = models.IntegerField()
-    mes = models.IntegerField()  # 1..12
+    mes = models.IntegerField()
     dia_semana = models.IntegerField(choices=[
         (0, "Lunes"), (1, "Martes"), (2, "Miércoles"), (3, "Jueves"),
         (4, "Viernes"), (5, "Sábado"), (6, "Domingo")
     ])
     hora = models.TimeField()
 
-    tipo_clase = models.ForeignKey(
-        "turnos_padel.TipoClasePadel",        # ← referencia perezosa por string
-        on_delete=models.PROTECT,
-        related_name="abonos"
-    )  # debe ser de esta sede
-    monto = models.DecimalField(max_digits=10, decimal_places=2)  # TOTAL del mes (puede incluir descuento)
-    estado = models.CharField(max_length=20, choices=ESTADOS, default="creado")
+    monto = models.DecimalField(max_digits=10, decimal_places=2)
+    estado = models.CharField(max_length=20, choices=ESTADOS, default="pagado")
+
+    fecha_limite_renovacion = models.DateField(null=True, blank=True)
+
+    turnos_reservados = models.ManyToManyField(
+        "turnos_core.Turno",
+        blank=True,
+        related_name="abonos_confirmados"
+    )
+
+    turnos_prioridad = models.ManyToManyField(
+        "turnos_core.Turno",
+        blank=True,
+        related_name="abonos_prioritarios"
+    )
 
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
 
     class Meta:
-        # Unicidad de franja para abonos activos (prioridad real)
         constraints = [
             models.UniqueConstraint(
                 fields=["sede", "prestador", "anio", "mes", "dia_semana", "hora"],
-                condition=Q(estado__in=["creado", "pagado"]),
-                name="uq_abono_mes_franja_activa"
+                condition=models.Q(estado__in=["pagado"]),
+                name="uq_abono_mes_franja_pagada"
             )
         ]
         indexes = [

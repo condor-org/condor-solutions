@@ -27,6 +27,8 @@ from django.db import transaction
 
 from apps.turnos_padel.models import AbonoMes
 from apps.turnos_core.models import Turno, TurnoBonificado
+from apps.turnos_padel.services.abonos import reservar_abono_mes_actual_y_prioridad
+
 
 class ComprobanteView(ListCreateAPIView):
     authentication_classes = [JWTAuthentication]
@@ -201,7 +203,7 @@ class ComprobanteAprobarRechazarView(APIView):
                     intento.save(update_fields=["estado"])
                     logger.debug("[APROBAR][abono] IntentoPago %s marcado como confirmado", intento.id)
 
-                # El abono queda pagado (los turnos ya quedaron reservados al subir el comprobante)
+                # Nota: la reserva (mes actual + prioridad) ya ocurrió al subir el comprobante.
                 abono.estado = "pagado"
                 abono.save(update_fields=["estado"])
                 logger.debug("[APROBAR][abono] AbonoMes %s marcado como pagado", abono.id)
@@ -218,25 +220,47 @@ class ComprobanteAprobarRechazarView(APIView):
                     intento.save(update_fields=["estado"])
                     logger.debug("[RECHAZAR][abono] IntentoPago %s marcado como rechazado", intento.id)
 
-                # Liberar TODOS los turnos asociados a este comprobante de abono
+                # Liberar turnos: mes actual (con comprobante) + prioridad (sin comprobante)
                 from apps.turnos_core.models import Turno  # import local para evitar ciclos
-                turnos = Turno.objects.select_for_update().filter(comprobante_abono=comprobante_abono)
-                liberados = 0
-                for t in turnos:
-                    t.usuario = None
-                    t.estado = "disponible"
-                    t.tipo_turno = None
-                    t.comprobante_abono = None
-                    t.save(update_fields=["usuario", "estado", "tipo_turno", "comprobante_abono"])
-                    liberados += 1
-                logger.debug("[RECHAZAR][abono] Turnos liberados: %s", liberados)
 
-                # El abono queda en estado "creado" nuevamente (o podrías marcarlo "vencido" según política)
-                abono.estado = "creado"
-                abono.save(update_fields=["estado"])
-                logger.debug("[RECHAZAR][abono] AbonoMes %s vuelto a estado 'creado'", abono.id)
+                liberados_actual = 0
+                liberados_prio = 0
 
-                return Response({"mensaje": "❌ Comprobante de abono rechazado y turnos liberados"})
+                with transaction.atomic():
+                    # 1) Mes actual: todos los turnos con este comprobante_abono
+                    turnos_actual = Turno.objects.select_for_update().filter(comprobante_abono=comprobante_abono)
+                    for t in turnos_actual:
+                        t.usuario = None
+                        t.estado = "disponible"
+                        t.tipo_turno = None
+                        t.comprobante_abono = None
+                        t.save(update_fields=["usuario", "estado", "tipo_turno", "comprobante_abono"])
+                        liberados_actual += 1
+
+                    # 2) Mes próximo (prioridad): los del M2M del abono (no tienen comprobante)
+                    prio_ids = list(abono.turnos_prioridad.values_list("pk", flat=True))
+                    if prio_ids:
+                        turnos_prio = Turno.objects.select_for_update().filter(pk__in=prio_ids)
+                        for t in turnos_prio:
+                            t.usuario = None
+                            t.estado = "disponible"
+                            t.tipo_turno = None
+                            t.save(update_fields=["usuario", "estado", "tipo_turno"])
+                            liberados_prio += 1
+
+                    # Limpiar M2M del abono
+                    abono.turnos_reservados.clear()
+                    abono.turnos_prioridad.clear()
+
+                    # Estado final del abono → cancelado (no “creado”)
+                    abono.estado = "cancelado"
+                    abono.save(update_fields=["estado"])
+
+                logger.debug(
+                    "[RECHAZAR][abono] AbonoMes %s cancelado. Liberados actual=%s prio=%s",
+                    abono.id, liberados_actual, liberados_prio
+                )
+                return Response({"mensaje": "❌ Comprobante de abono rechazado. Turnos liberados y abono cancelado."})
 
             logger.warning("[PATCH][abono] Acción inválida: '%s'", action)
             return Response({"error": "Acción no válida. Usa 'aprobar' o 'rechazar'."}, status=400)
@@ -288,42 +312,46 @@ class ComprobanteAbonoView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request, *args, **kwargs):
+        logger = logging.getLogger(__name__)
+
         ser = ComprobanteAbonoUploadSerializer(data=request.data, context={"request": request})
         ser.is_valid(raise_exception=True)
         comprobante = ser.save()
         abono = comprobante.abono_mes
 
-        # Reserva inmediata en batch (misma lógica que turno individual “preaprobado”)
-        # Opción A: si falla un turno => falla todo
-        # mapear tipo_turno code
-        nombre_norm = (abono.tipo_clase.nombre or "").strip().lower()
-        mapping = {"individual": "individual", "2 personas": "x2", "3 personas": "x3", "4 personas": "x4"}
-        tipo_turno_code = mapping.get(nombre_norm)
+        logger.info(
+            "[abono.comprobante.upload] abono=%s user=%s sede=%s prestador=%s %s-%02d %s@%s",
+            abono.id, request.user.id, abono.sede_id, abono.prestador_id,
+            abono.anio, abono.mes, abono.get_dia_semana_display(), abono.hora
+        )
 
-        fechas = AbonoMesSerializer._fechas_del_mes_por_dia_semana(abono.anio, abono.mes, abono.dia_semana)
-        with transaction.atomic():
-            qs = Turno.objects.select_for_update().filter(
-                fecha__in=fechas, hora=abono.hora, lugar=abono.sede,
-                content_type__model="prestador", object_id=abono.prestador_id, estado="disponible"
+        # 🔒 Reservar mes actual (pagado, con comprobante) + mes siguiente (prioridad, sin comprobante)
+        try:
+            from apps.turnos_padel.services.abonos import reservar_abono_mes_actual_y_prioridad
+            reservar_abono_mes_actual_y_prioridad(abono, comprobante_abono=comprobante)
+        except Exception as e:
+            # Rollback coherente: si falla la reserva, eliminamos intento y comprobante
+            PagoIntento.objects.filter(
+                content_type__model="comprobanteabono",
+                object_id=comprobante.id
+            ).delete()
+            comprobante.delete()
+            logger.exception("[abono.reserve][fail] abono=%s err=%s", abono.id, str(e))
+            return Response(
+                {"detail": f"No se pudo reservar el abono: {str(e)}"},
+                status=status.HTTP_409_CONFLICT
             )
-            if qs.count() != len(fechas):
-                # revertimos: borrar intento & comprobante creados
-                PagoIntento.objects.filter(
-                    content_type__model="comprobanteabono", object_id=comprobante.id
-                ).delete()
-                comprobante.delete()
-                return Response({"detail":"Al menos un turno ya no está disponible. Operación abortada."}, status=409)
 
-            # reservar todos y apuntar al mismo comprobante de abono
-            for t in qs:
-                t.usuario = abono.usuario
-                t.estado = "reservado"
-                t.tipo_turno = tipo_turno_code
-                t.comprobante_abono = comprobante
-                t.save(update_fields=["usuario","estado","tipo_turno","comprobante_abono"])
+        logger.info(
+            "[abono.reserve][ok] abono=%s reservados=%s prioridad=%s vence=%s",
+            abono.id, abono.turnos_reservados.count(), abono.turnos_prioridad.count(), abono.fecha_limite_renovacion
+        )
 
         return Response({
-            "mensaje": "✅ Comprobante de abono recibido. Turnos reservados (a confirmar por admin).",
+            "mensaje": "✅ Comprobante de abono recibido. Turnos reservados para este mes y prioridad para el próximo.",
             "abono_mes_id": abono.id,
-            "comprobante_abono_id": comprobante.id
-        }, status=201)
+            "comprobante_abono_id": comprobante.id,
+            "reservados": abono.turnos_reservados.count(),
+            "prioridad": abono.turnos_prioridad.count(),
+            "vence": str(abono.fecha_limite_renovacion),
+        }, status=status.HTTP_201_CREATED)
