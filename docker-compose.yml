@@ -29,7 +29,6 @@ services:
     ports:
       - "80:80"
 
-
   db:
     image: postgres:14
     container_name: postgres_condor
@@ -51,6 +50,23 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+
+  cron:
+    build:
+      context: ./backend
+      dockerfile: docker/Dockerfile.cron
+    container_name: cron_condor
+    restart: always
+    env_file:
+      - ./backend/.env
+    environment:
+      - DJANGO_SETTINGS_MODULE=condor_core.settings.dev
+    volumes:
+      - ./backend:/app
+      - /etc/localtime:/etc/localtime:ro  # para que use el horario del host
+    depends_on:
+      - db
+      - redis
 
 volumes:
   postgres_data:

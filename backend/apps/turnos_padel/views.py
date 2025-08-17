@@ -1,5 +1,5 @@
 # apps/turnos_padel/views.py
-from rest_framework import viewsets
+from rest_framework import viewsets, status
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response 
@@ -20,20 +20,15 @@ from apps.turnos_padel.serializers import (
 
 from django.db import transaction
 
-
-
-# apps/turnos_padel/views.py
-from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
-from apps.common.permissions import EsAdminDeSuCliente, EsSuperAdmin, SoloLecturaUsuariosFinalesYEmpleados
-import logging
+
 from rest_framework.request import Request
 from rest_framework.parsers import JSONParser
 from io import BytesIO
 import json
 from apps.turnos_padel.services.abonos import reservar_abono_mes_actual_y_prioridad
-
+import logging
 logger = logging.getLogger(__name__)
 
 class SedePadelViewSet(viewsets.ModelViewSet):
@@ -151,21 +146,14 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         logger.info("[AbonoMesViewSet:get_queryset] Usuario: %s (%s)", user.id, user.tipo_usuario)
 
         if user.tipo_usuario == "super_admin":
-            logger.info("[AbonoMesViewSet:get_queryset] Super admin → todos los abonos")
             return AbonoMes.objects.all()
-
         elif user.tipo_usuario == "admin_cliente":
-            logger.info("[AbonoMesViewSet:get_queryset] Admin cliente → abonos de cliente %s", user.cliente)
             return AbonoMes.objects.filter(sede__cliente=user.cliente)
-
-        logger.info("[AbonoMesViewSet:get_queryset] Usuario final → sólo sus abonos")
         return AbonoMes.objects.filter(usuario=user)
 
     def get_serializer_class(self):
         if self.action in ["retrieve", "list"]:
-            logger.info("[AbonoMesViewSet:get_serializer_class] Usando AbonoMesDetailSerializer")
             return AbonoMesDetailSerializer
-        logger.info("[AbonoMesViewSet:get_serializer_class] Usando AbonoMesSerializer")
         return AbonoMesSerializer
 
     @transaction.atomic
@@ -174,132 +162,37 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         logger.info("[AbonoMesViewSet:create] Usuario: %s (%s)", user.id, user.tipo_usuario)
         logger.debug("[AbonoMesViewSet:create] Data original: %s", request.data)
 
+        # Si es usuario final, fuerza su propio ID como usuario
+        data = request.data.copy()
         if user.tipo_usuario == "usuario_final":
-            usuario_id = request.data.get("usuario")
-            logger.debug("[AbonoMesViewSet:create] usuario enviado en payload: %s", usuario_id)
-
+            usuario_id = data.get("usuario")
             if usuario_id and int(usuario_id) != user.id:
-                logger.warning("[AbonoMesViewSet:create] Intento de crear abono para otro usuario")
-                return Response({"detail": "No podés crear abonos para otro usuario."}, status=status.HTTP_403_FORBIDDEN)
-
-            data = request.data.copy()
+                return Response({"detail": "No podés crear abonos para otro usuario."}, status=403)
             data["usuario"] = user.id
-            logger.debug("[AbonoMesViewSet:create] Data final con usuario forzado: %s", data)
 
-            serializer = self.get_serializer(data=data)
-            serializer.is_valid(raise_exception=True)
-            logger.debug("[AbonoMesViewSet:create] Serializer validado. Data: %s", serializer.validated_data)
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        logger.debug("[AbonoMesViewSet:create] Serializer validado: %s", serializer.validated_data)
 
-            abono, resumen = self.perform_create(serializer)
+        abono, resumen = self.perform_create(serializer)
 
-            # Serializamos nuevamente para reflejar M2M y campos calculados
-            resp_serializer = self.get_serializer(abono)
-            payload = resp_serializer.data
-            payload["resumen"] = resumen
-            payload["monto_sugerido"] = resumen.get("monto_sugerido")
+        # Serializamos de nuevo para incluir relaciones y campos calculados
+        resp_serializer = self.get_serializer(abono)
+        payload = resp_serializer.data
+        payload["resumen"] = resumen
+        payload["monto_sugerido"] = resumen.get("monto_sugerido")
 
-            headers = self.get_success_headers(resp_serializer.data)
-            logger.info("[AbonoMesViewSet:create] Abono creado exitosamente con resumen")
-            return Response(payload, status=status.HTTP_201_CREATED, headers=headers)
-
-        logger.info("[AbonoMesViewSet:create] Usuario no es usuario_final → paso al super().create()")
-        return super().create(request, *args, **kwargs)
+        logger.info("[AbonoMesViewSet:create] Abono creado exitosamente con turnos")
+        return Response(payload, status=status.HTTP_201_CREATED, headers=self.get_success_headers(payload))
 
     @transaction.atomic
     def perform_create(self, serializer):
-        logger.debug("[AbonoMesViewSet:perform_create] Guardando serializer...")
         abono = serializer.save()
-        logger.info("[AbonoMesViewSet:perform_create] Abono creado con ID %s", abono.id)
+        logger.info("[AbonoMesViewSet:perform_create] Abono ID %s creado", abono.id)
 
         try:
-            # Ahora el service devuelve (abono, resumen)
             abono, resumen = reservar_abono_mes_actual_y_prioridad(abono)
-            logger.info(
-                "[AbonoMesViewSet:perform_create] Turnos reservados correctamente para abono %s (resumen=%s)",
-                abono.id, resumen
-            )
             return abono, resumen
         except ValueError as e:
             logger.warning("[AbonoMesViewSet:perform_create] Error al reservar turnos: %s", str(e))
-            # Propagamos como error de validación de DRF
             raise serializers.ValidationError({"detalle": str(e)})
-
-    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
-    def reservar(self, request, pk=None):
-        logger.info("[AbonoMesViewSet:reservar] (placeholder, no implementado)")
-        return Response({"detail": "Reservar aún no implementado"}, status=status.HTTP_501_NOT_IMPLEMENTED)
-
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        user = self.request.user
-        logger.info("[AbonoMesViewSet:get_queryset] Usuario: %s (%s)", user.id, user.tipo_usuario)
-
-        if user.tipo_usuario == "super_admin":
-            logger.info("[AbonoMesViewSet:get_queryset] Super admin → todos los abonos")
-            return AbonoMes.objects.all()
-
-        elif user.tipo_usuario == "admin_cliente":
-            logger.info("[AbonoMesViewSet:get_queryset] Admin cliente → abonos de cliente %s", user.cliente)
-            return AbonoMes.objects.filter(sede__cliente=user.cliente)
-
-        logger.info("[AbonoMesViewSet:get_queryset] Usuario final → sólo sus abonos")
-        return AbonoMes.objects.filter(usuario=user)
-
-    def get_serializer_class(self):
-        if self.action in ["retrieve", "list"]:
-            logger.info("[AbonoMesViewSet:get_serializer_class] Usando AbonoMesDetailSerializer")
-            return AbonoMesDetailSerializer
-        logger.info("[AbonoMesViewSet:get_serializer_class] Usando AbonoMesSerializer")
-        return AbonoMesSerializer
-
-    @transaction.atomic
-    def create(self, request, *args, **kwargs):
-        user = request.user
-        logger.info("[AbonoMesViewSet:create] Usuario: %s (%s)", user.id, user.tipo_usuario)
-        logger.debug("[AbonoMesViewSet:create] Data original: %s", request.data)
-
-        if user.tipo_usuario == "usuario_final":
-            usuario_id = request.data.get("usuario")
-            logger.debug("[AbonoMesViewSet:create] usuario enviado en payload: %s", usuario_id)
-
-            if usuario_id and int(usuario_id) != user.id:
-                logger.warning("[AbonoMesViewSet:create] Intento de crear abono para otro usuario")
-                return Response({"detail": "No podés crear abonos para otro usuario."}, status=403)
-
-            data = request.data.copy()
-            data["usuario"] = user.id
-            logger.debug("[AbonoMesViewSet:create] Data final con usuario forzado: %s", data)
-
-            serializer = self.get_serializer(data=data)
-            serializer.is_valid(raise_exception=True)
-            logger.debug("[AbonoMesViewSet:create] Serializer validado. Data: %s", serializer.validated_data)
-
-            self.perform_create(serializer)
-            headers = self.get_success_headers(serializer.data)
-            logger.info("[AbonoMesViewSet:create] Abono creado exitosamente")
-            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-
-        logger.info("[AbonoMesViewSet:create] Usuario no es usuario_final → paso al super().create()")
-        return super().create(request, *args, **kwargs)
-
-    @transaction.atomic
-    def perform_create(self, serializer):
-        logger.debug("[AbonoMesViewSet:perform_create] Guardando serializer...")
-        abono = serializer.save()
-        logger.info("[AbonoMesViewSet:perform_create] Abono creado con ID %s", abono.id)
-
-        try:
-            reservar_abono_mes_actual_y_prioridad(abono)
-            logger.info("[AbonoMesViewSet:perform_create] Turnos reservados correctamente para abono %s", abono.id)
-        except ValueError as e:
-            logger.warning("[AbonoMesViewSet:perform_create] Error al reservar turnos: %s", str(e))
-            # Decidí si querés relanzar o simplemente dejar el abono sin turnos
-            raise serializers.ValidationError({"detalle": str(e)})
-
-        return abono
-    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
-    def reservar(self, request, pk=None):
-        logger.info("[AbonoMesViewSet:reservar] (placeholder, no implementado)")
-        return Response({"detail": "Reservar aún no implementado"}, status=501)

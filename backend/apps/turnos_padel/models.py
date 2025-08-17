@@ -41,6 +41,11 @@ class AbonoMes(models.Model):
 
     monto = models.DecimalField(max_digits=10, decimal_places=2)
     estado = models.CharField(max_length=20, choices=ESTADOS, default="pagado")
+    
+    renovado = models.BooleanField(
+        default=False,
+        help_text="Se marca True si fue renovado con un abono del mes siguiente"
+    )
 
     fecha_limite_renovacion = models.DateField(null=True, blank=True)
 

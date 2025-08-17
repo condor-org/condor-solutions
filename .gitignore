@@ -69,3 +69,6 @@ frontend/.cache/
 backend/estado_actual.sh
 backend/estado_actual_backend.txt
 backend/estado_actual_backend.zip
+
+
+test*

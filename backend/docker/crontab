@@ -1,0 +1,1 @@
+0 0 1 * * cd /app && python manage.py generar_turnos_mensuales && python manage.py procesar_abonos_mensuales >> /var/log/cron.log 2>&1

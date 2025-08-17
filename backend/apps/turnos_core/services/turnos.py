@@ -1,5 +1,3 @@
-# apps/turnos_core/services/turnos.py
-
 from datetime import datetime, timedelta
 from django.contrib.contenttypes.models import ContentType
 from apps.turnos_core.models import Turno, Disponibilidad, Prestador
@@ -8,16 +6,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def generar_turnos_para_prestador(prestador_id, fecha_inicio, fecha_fin, duracion_minutos=60):
+def generar_turnos_para_prestador(prestador_id, fecha_inicio, fecha_fin, duracion_minutos=60, estado="disponible"):
     """
-    Genera turnos 'disponible' para un prestador según sus disponibilidades activas,
+    Genera turnos para un prestador según sus disponibilidades activas,
     entre fecha_inicio y fecha_fin (inclusive). Omite días bloqueados.
 
     Notas:
     - Idempotente: usa bulk_create(ignore_conflicts=True) para no duplicar si se re-ejecuta.
     - No setea tipo_turno: eso se define al reservar, no al generar slots.
-    - Mantiene el mismo límite de franja que tu implementación original
-      (la franja final es EXCLUSIVA: no se crea turno que termine justo en hora_fin).
+    - Si estado='reservado', se generan como bloqueados (sin usuario).
     """
     content_type = ContentType.objects.get_for_model(Prestador)
     total_generados = 0
@@ -36,10 +33,6 @@ def generar_turnos_para_prestador(prestador_id, fecha_inicio, fecha_fin, duracio
             sede = disp.lugar
 
             if esta_bloqueado(prestador, sede, dia):
-                logger.debug(
-                    "[turnos.generar][skip_bloqueo] prestador_id=%s sede_id=%s fecha=%s",
-                    prestador_id, getattr(sede, "id", None), dia
-                )
                 continue
 
             hora_actual = datetime.combine(dia, disp.hora_inicio)
@@ -53,29 +46,19 @@ def generar_turnos_para_prestador(prestador_id, fecha_inicio, fecha_fin, duracio
                     lugar=disp.lugar,
                     content_type=content_type,
                     object_id=prestador_id,
-                    estado="disponible",
+                    estado=estado,
                 ))
                 hora_actual += timedelta(minutes=duracion_minutos)
 
             if not nuevos:
-                logger.debug(
-                    "[turnos.generar][sin_slots] prestador_id=%s sede_id=%s fecha=%s",
-                    prestador_id, getattr(sede, "id", None), dia
-                )
                 continue
 
-            # Idempotente / safe contra concurrencia: evita duplicados por unique_together
             creados = Turno.objects.bulk_create(nuevos, ignore_conflicts=True)
             total_generados += len(creados)
 
-            logger.debug(
-                "[turnos.generar][dia] prestador_id=%s sede_id=%s fecha=%s generados=%s solicitados=%s",
-                prestador_id, getattr(sede, "id", None), dia, len(creados), len(nuevos)
-            )
-
     logger.info(
-        "[turnos.generar][done] prestador_id=%s desde=%s hasta=%s duracion_min=%s total_generados=%s",
-        prestador_id, fecha_inicio, fecha_fin, duracion_minutos, total_generados
+        "[turnos.generar][done] prestador_id=%s desde=%s hasta=%s duracion_min=%s total_generados=%s estado=%s",
+        prestador_id, fecha_inicio, fecha_fin, duracion_minutos, total_generados, estado
     )
     return total_generados
 

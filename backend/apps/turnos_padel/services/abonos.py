@@ -6,6 +6,7 @@ from django.db import transaction
 from apps.turnos_core.models import Turno
 from apps.turnos_padel.models import AbonoMes
 from apps.turnos_padel.serializers import AbonoMesSerializer
+from apps.turnos_padel.utils import proximo_mes
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ def reservar_abono_mes_actual_y_prioridad(abono: AbonoMes, comprobante_abono=Non
 
     # Fechas por mes
     fechas_actual = AbonoMesSerializer._fechas_del_mes_por_dia_semana(abono.anio, abono.mes, abono.dia_semana)
-    prox_anio, prox_mes = _proximo_mes(abono.anio, abono.mes)
+    prox_anio, prox_mes = proximo_mes(abono.anio, abono.mes)
     fechas_prox = AbonoMesSerializer._fechas_del_mes_por_dia_semana(prox_anio, prox_mes, abono.dia_semana)
 
     def _fetch_map(fechas):
@@ -126,3 +127,52 @@ def reservar_abono_mes_actual_y_prioridad(abono: AbonoMes, comprobante_abono=Non
         abono.fecha_limite_renovacion
     )
     return abono, resumen
+
+def liberar_abono_por_vencimiento(abono):
+    """
+    Libera todos los turnos en prioridad de un abono vencido.
+    """
+    for turno in abono.turnos_prioridad.all():
+        turno.estado = "disponible"
+        turno.abono_mes_prioridad = None
+        turno.usuario = None
+        turno.tipo_turno = None
+        turno.save()
+
+@transaction.atomic
+def procesar_renovacion_de_abono(abono_anterior: AbonoMes):
+    """
+    Si el abono anterior tiene `renovado = True`, se crea un nuevo abono con mismos datos:
+    - Se pasan los turnos prioridad del anterior como reservados.
+    - Se reservan nuevos turnos prioridad en el mes siguiente.
+    """
+    anio, mes = proximo_mes(abono_anterior.anio, abono_anterior.mes)
+
+    abono_nuevo = AbonoMes.objects.create(
+        usuario=abono_anterior.usuario,
+        sede=abono_anterior.sede,
+        prestador=abono_anterior.prestador,
+        dia_semana=abono_anterior.dia_semana,
+        hora=abono_anterior.hora,
+        tipo_clase=abono_anterior.tipo_clase,
+        anio=anio,
+        mes=mes,
+        monto=abono_anterior.monto,  
+        estado="pagado",             
+    )
+
+    # 1. Promover turnos prioridad → reservados
+    turnos_prioridad = abono_anterior.turnos_prioridad.all()
+    for turno in turnos_prioridad:
+        turno.abono_mes_prioridad = None
+        turno.abono_mes_reservado = abono_nuevo
+        turno.save(update_fields=["abono_mes_prioridad", "abono_mes_reservado"])
+
+    abono_nuevo.turnos_reservados.set(turnos_prioridad)
+    abono_anterior.turnos_prioridad.clear()
+
+    # 2. Reservar nuevos turnos como prioridad (para el mes siguiente)
+    try:
+        reservar_abono_mes_actual_y_prioridad(abono_nuevo)
+    except Exception as e:
+        logger.warning("[ABONOS] Falló reserva de turnos prioridad para abono renovado %s: %s", abono_nuevo.id, str(e))

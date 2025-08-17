@@ -1,0 +1,24 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copia el backend
+COPY . /app
+
+# Instala dependencias
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Instala cron
+RUN apt-get update && apt-get install -y cron && apt-get clean
+
+# Copia el archivo crontab
+COPY docker/crontab /etc/cron.d/abonos-cron
+
+# Da permisos
+RUN chmod 0644 /etc/cron.d/abonos-cron
+
+# Aplica el cronjob
+RUN crontab /etc/cron.d/abonos-cron
+
+# Ejecuta cron en foreground
+CMD ["cron", "-f"]

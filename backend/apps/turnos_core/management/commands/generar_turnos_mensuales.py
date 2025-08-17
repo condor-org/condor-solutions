@@ -8,22 +8,41 @@ import logging
 logger = logging.getLogger(__name__)
 
 class Command(BaseCommand):
-    help = "Genera turnos para todos los prestadores hasta 2 meses desde hoy"
+    help = "Genera turnos para todos los prestadores: el mes actual como disponibles y el mes siguiente como reservados (bloqueados)"
 
     def handle(self, *args, **kwargs):
         hoy = timezone.localdate()
-        fecha_inicio = hoy
-        fecha_fin = _ultimo_dia_del_mes(_proximo_mes(hoy))
 
-        logger.info("[CRON] Generando turnos desde %s hasta %s", fecha_inicio, fecha_fin)
+        # Mes actual → turnos disponibles
+        fecha_inicio_actual = hoy
+        fecha_fin_actual = _ultimo_dia_del_mes(hoy)
 
-        total_generados_global = 0
+        # Mes siguiente → turnos reservados (bloqueados para abonos)
+        fecha_inicio_siguiente = _proximo_mes(hoy)
+        fecha_fin_siguiente = _ultimo_dia_del_mes(fecha_inicio_siguiente)
+
+        total_generados = 0
+
         for prestador in Prestador.objects.filter(activo=True):
-            creados = generar_turnos_para_prestador(prestador.id, fecha_inicio, fecha_fin)
-            logger.info("[CRON] Prestador %s (%s): %s turnos generados", prestador.id, prestador, creados)
-            total_generados_global += creados
+            logger.info(f"[CRON] Generando para prestador {prestador.id} ({prestador})")
 
-        logger.info("[CRON] Total turnos generados: %s", total_generados_global)
+            creados_actual = generar_turnos_para_prestador(
+                prestador.id, fecha_inicio_actual, fecha_fin_actual,
+                estado="disponible"
+            )
+            creados_siguiente = generar_turnos_para_prestador(
+                prestador.id, fecha_inicio_siguiente, fecha_fin_siguiente,
+                estado="disponible"  
+            )
+
+            # logger.info(
+            #     "[CRON] Prestador %s (%s): %s disponibles (actual), %s reservados (siguiente)",
+            #     prestador.id, prestador, creados_actual, creados_siguiente
+            # )
+
+            total_generados += creados_actual + creados_siguiente
+
+        logger.info("[CRON] Total turnos generados: %s", total_generados)
 
 
 def _proximo_mes(fecha: date) -> date:
