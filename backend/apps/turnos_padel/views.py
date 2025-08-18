@@ -19,6 +19,9 @@ from apps.turnos_padel.serializers import (
 )
 
 from django.db import transaction
+from calendar import Calendar
+from django.contrib.contenttypes.models import ContentType
+from django.db.models import Q
 
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -29,6 +32,7 @@ from io import BytesIO
 import json
 from apps.turnos_padel.services.abonos import reservar_abono_mes_actual_y_prioridad
 import logging
+
 logger = logging.getLogger(__name__)
 
 class SedePadelViewSet(viewsets.ModelViewSet):
@@ -196,3 +200,105 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         except ValueError as e:
             logger.warning("[AbonoMesViewSet:perform_create] Error al reservar turnos: %s", str(e))
             raise serializers.ValidationError({"detalle": str(e)})
+
+    @action(detail=False, methods=["GET"], url_path="disponibles")
+    def disponibles(self, request):
+        logger.info("[abonos.disponibles] params=%s", dict(request.query_params))
+        try:
+            sede_id = int(request.query_params.get("sede_id"))
+            prestador_id = int(request.query_params.get("prestador_id"))
+            dia_semana = int(request.query_params.get("dia_semana"))  # 0..6
+            anio = int(request.query_params.get("anio"))
+            mes = int(request.query_params.get("mes"))
+        except (TypeError, ValueError):
+            logger.warning("[abonos.disponibles] Parámetros inválidos")
+            return Response({"detail": "Parámetros inválidos"}, status=status.HTTP_400_BAD_REQUEST)
+
+        hora_filtro = request.query_params.get("hora")  # opcional
+
+        sede = Lugar.objects.select_related("cliente").filter(id=sede_id).first()
+        if not sede:
+            return Response({"detail": "Sede no encontrada"}, status=404)
+
+        user = request.user
+        if user.tipo_usuario == "admin_cliente" and sede.cliente_id != getattr(user, "cliente_id", None):
+            return Response({"detail": "No autorizado para esta sede"}, status=403)
+        if user.tipo_usuario not in ("super_admin", "admin_cliente"):
+            if getattr(user, "cliente_id", None) != sede.cliente_id:
+                return Response({"detail": "No autorizado"}, status=403)
+
+        tipos_qs = TipoClasePadel.objects.filter(
+            configuracion_sede__sede_id=sede_id
+        ).only("id", "nombre", "precio")
+        tipos_map = [{"id": t.id, "nombre": t.nombre, "precio": t.precio} for t in tipos_qs]
+
+        def fechas_mes(anio_i, mes_i, dsem):
+            cal = Calendar(firstweekday=0)
+            out = []
+            for week in cal.monthdatescalendar(anio_i, mes_i):
+                for d in week:
+                    if d.month == mes_i and d.weekday() == dsem:
+                        out.append(d)
+            return out
+
+        def proximo_mes(anio_i, mes_i):
+            return (anio_i + 1, 1) if mes_i == 12 else (anio_i, mes_i + 1)
+
+        fechas_actual = fechas_mes(anio, mes, dia_semana)
+        prox_anio, prox_mes = proximo_mes(anio, mes)
+        fechas_prox = fechas_mes(prox_anio, prox_mes, dia_semana)
+        if not fechas_actual and not fechas_prox:
+            logger.info("[abonos.disponibles] sin fechas para el día de semana")
+            return Response([], status=200)
+
+        fechas_total = fechas_actual + fechas_prox
+
+        try:
+            ct_prestador = ContentType.objects.get(app_label="turnos_core", model="prestador")
+        except ContentType.DoesNotExist:
+            logger.error("[abonos.disponibles] ContentType prestador no encontrado")
+            return Response({"detail": "Error de configuración (prestador)"}, status=500)
+
+        base_q = Q(lugar_id=sede_id) & Q(content_type=ct_prestador, object_id=prestador_id) & Q(fecha__in=fechas_total)
+
+        turnos_qs = Turno.objects.filter(base_q).only(
+            "id", "fecha", "hora", "estado",
+            "abono_mes_reservado", "abono_mes_prioridad", "lugar_id"
+        )
+        if hora_filtro:
+            turnos_qs = turnos_qs.filter(hora=hora_filtro)
+
+        por_hora = {}
+        for t in turnos_qs:
+            # t.hora es time -> to_str
+            h = t.hora.isoformat()
+            por_hora.setdefault(h, {})[t.fecha] = t
+
+        horas_libres = []
+        for h, mapa in por_hora.items():
+            if not all(f in mapa for f in fechas_total):
+                continue
+            ok = True
+            for f in fechas_total:
+                t = mapa[f]
+                if t.estado != "disponible":
+                    ok = False; break
+                if getattr(t, "abono_mes_reservado", False) or getattr(t, "abono_mes_prioridad", False):
+                    ok = False; break
+                if hasattr(t, "bloqueado_para_reservas") and getattr(t, "bloqueado_para_reservas", False):
+                    ok = False; break
+            if ok:
+                horas_libres.append(h)
+
+        horas_libres.sort()
+
+        result = []
+        for h in horas_libres:
+            for tipo in tipos_map:
+                result.append({"hora": h, "tipo_clase": tipo})
+
+        logger.info(
+            "[abonos.disponibles] sede=%s prestador=%s dsem=%s anio=%s mes=%s -> horas=%s",
+            sede_id, prestador_id, dia_semana, anio, mes, horas_libres
+        )
+        return Response(result, status=200)

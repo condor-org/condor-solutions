@@ -31,6 +31,7 @@ urlpatterns = [
     path("generar/", GenerarTurnosView.as_view(), name="generar-turnos"),
     path("bonificaciones/crear-manual/", CrearBonificacionManualView.as_view(), name="crear-bonificacion-manual"),
     path("bonificados/mios/", bonificaciones_mias, name="bonificaciones-mias"),
+    path("turnos/bonificados/mios/<int:tipo_clase_id>/", bonificaciones_mias, name="bonificaciones_mias_por_tipo"),
     path("prestador/mio/", prestador_actual),
     path("cancelar/", CancelarTurnoView.as_view(), name="cancelar-turno"),
     path("", include(router.urls)),

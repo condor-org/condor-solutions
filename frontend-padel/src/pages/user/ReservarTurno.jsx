@@ -56,9 +56,7 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
     /4/.test(nombreTipo) ? "x4" : "x1";
 
   // ¿hay bono del mismo tipo?
-  const tieneBonoDeEsteTipo = tipoTurnoSeleccionado
-    ? bonificaciones.some(b => b.tipo_turno === tipoTurnoSeleccionado)
-    : false;
+  const tieneBonoDeEsteTipo = bonificaciones.length > 0;
 
   // si cambia el tipo y ya no hay bono, apago el toggle
   useEffect(() => {
@@ -149,15 +147,22 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
 
   }, [sedeId, profesorId, accessToken]);
 
-// cargar Bonificaciones cuando el modal de pago está abierto
+  // cargar Bonificaciones cuando el modal de pago está abierto
   useEffect(() => {
-  if (!pagoDisc.isOpen || !accessToken) return;
+    if (!pagoDisc.isOpen || !accessToken || !tipoClaseId) {
+      setBonificaciones([]); // coherencia visual si cambió el tipo o cerraste el modal
+      return;
+    }
+
     const api = axiosAuth(accessToken);
-    api.get(`turnos/bonificados/mios/?tipo_clase_id=${tipoClaseId}`)
-      .then(res => setBonificaciones(res.data || []))
-      .catch(() => setBonificaciones([]));
-  }, [pagoDisc.isOpen, accessToken]);
-  
+    api.get("turnos/bonificados/mios/", { params: { tipo_clase_id: tipoClaseId } })
+      .then(res => setBonificaciones(Array.isArray(res.data) ? res.data : (res.data?.bonificaciones || [])))
+      .catch((err) => {
+        console.warn("[bonos.fetch] error", err);
+        setBonificaciones([]);
+      });
+  }, [pagoDisc.isOpen, accessToken, tipoClaseId]); 
+    
 
   const handleEventClick = (info) => {
     const isReservado = info.event.extendedProps.estado === "reservado";
@@ -315,11 +320,10 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
 
       // 🔄 Refrescar bonificaciones
       try {
-        const res = await api.get("/turnos/bonificados/mios/");
-        const nuevasBonos = res.data.bonificaciones || res.data || [];
+        const res = await api.get("turnos/bonificados/mios/", { params: { tipo_clase_id: tipoClaseId } });
+        const nuevasBonos = Array.isArray(res.data) ? res.data : (res.data?.bonificaciones || []);
         setBonificaciones(nuevasBonos);
-
-        // ✅ Opcional: mostrar toast si ya no quedan más bonificaciones
+      
         if (usarBonificado && nuevasBonos.length === 0) {
           toast({
             title: "Sin más bonificaciones",

@@ -47,68 +47,87 @@ class TurnoReservaSerializer(serializers.Serializer):
     usar_bonificado = serializers.BooleanField(default=False)
 
     def validate(self, attrs):
-        user = self.context["request"].user
         turno_id = attrs["turno_id"]
         tipo_clase_id = attrs["tipo_clase_id"]
-        tipo_clase = TipoClasePadel.objects.select_related(
-            "configuracion_sede", "configuracion_sede__sede"
-        ).get(pk=tipo_clase_id)
 
+        # Turno existente y libre
         try:
             turno = Turno.objects.get(pk=turno_id)
         except Turno.DoesNotExist:
             raise DRFValidationError({"turno_id": "El turno no existe."})
-        if turno.usuario is not None:
+        if turno.usuario_id is not None:
             raise DRFValidationError({"turno_id": "Ese turno ya está reservado."})
 
+        # Tipo de clase válido
         try:
-            tipo_clase = TipoClasePadel.objects.select_related("configuracion_sede").get(pk=tipo_clase_id)
+            tipo_clase = TipoClasePadel.objects.select_related(
+                "configuracion_sede", "configuracion_sede__sede"
+            ).get(pk=tipo_clase_id)
         except TipoClasePadel.DoesNotExist:
             raise DRFValidationError({"tipo_clase_id": "El tipo de clase no existe."})
 
-        attrs["turno"] = turno
-        attrs["tipo_clase"] = tipo_clase
-
+        # Sede consistente
         sede_tipo = getattr(tipo_clase.configuracion_sede, "sede", None)
         if turno.lugar_id and sede_tipo and turno.lugar_id != sede_tipo.id:
             raise DRFValidationError({"tipo_clase_id": "El tipo de clase no corresponde a la sede del turno."})
 
+        attrs["turno"] = turno
+        attrs["tipo_clase"] = tipo_clase
         return attrs
 
     def create(self, validated_data):
+        from django.db.models import Q  # import local para mantener el snippet autocontenible
+
         user = self.context["request"].user
         turno = validated_data["turno"]
         tipo_clase = validated_data["tipo_clase"]
         usar_bonificado = validated_data.get("usar_bonificado", False)
         archivo = validated_data.get("archivo")
 
-        # --- Resolver code textual para tipo_turno ---
+        # --- Resolver code canónico para tipo_turno (x1/x2/x3/x4) ---
         tipo_turno = getattr(tipo_clase, "code", None)
         if not tipo_turno:
             nombre_norm = (tipo_clase.nombre or "").strip().lower()
             mapping = {
-                "individual": "x1",
-                "x1": "x1",
-                "2 personas": "x2",
-                "x2": "x2",
-                "3 personas": "x3",
-                "x3": "x3",
-                "4 personas": "x4",
-                "x4": "x4",
+                "individual": "x1", "x1": "x1",
+                "2 personas": "x2", "x2": "x2",
+                "3 personas": "x3", "x3": "x3",
+                "4 personas": "x4", "x4": "x4",
             }
             tipo_turno = mapping.get(nombre_norm)
         if not tipo_turno:
             raise DRFValidationError({"tipo_clase_id": "Tipo de clase inválido para la reserva."})
 
         if usar_bonificado:
-            # Debe existir bono vigente del MISMO tipo_turno
-            bono = bonificaciones_vigentes(user).filter(tipo_turno=tipo_turno).first()
+            # Aceptar alias históricos además del code (ej. "individual" para x1)
+            alias_map = {
+                "x1": {"x1", "individual"},
+                "x2": {"x2", "2 personas"},
+                "x3": {"x3", "3 personas"},
+                "x4": {"x4", "4 personas"},
+            }
+            aliases = alias_map.get(tipo_turno, {tipo_turno})
+
+            qs = bonificaciones_vigentes(user).filter(
+                Q(tipo_turno__in=list(aliases))
+            ).order_by("fecha_creacion")
+
+            bono = qs.first()
             if not bono:
-                raise DRFValidationError({"usar_bonificado": f"No tenés bonificaciones disponibles para {tipo_clase.nombre}."})
+                raise DRFValidationError({
+                    "usar_bonificado": f"No tenés bonificaciones disponibles para {tipo_clase.nombre}."
+                })
+
+            # Marcar bono usado en este turno
             bono.marcar_usado(turno)
+
         else:
+            # Requiere comprobante si no usa bonificación
             if not archivo:
-                raise DRFValidationError({"archivo": "El comprobante es obligatorio si no usás turno bonificado."})
+                raise DRFValidationError({
+                    "archivo": "El comprobante es obligatorio si no usás turno bonificado."
+                })
+
             try:
                 comprobante = ComprobanteService.upload_comprobante(
                     turno_id=turno.id,
@@ -146,6 +165,7 @@ class TurnoReservaSerializer(serializers.Serializer):
         turno.tipo_turno = tipo_turno
         turno.save(update_fields=["usuario", "estado", "tipo_turno"])
         return turno
+
 
 class CancelarTurnoSerializer(serializers.Serializer):
     turno_id = serializers.IntegerField()
@@ -386,6 +406,21 @@ class CrearTurnoBonificadoSerializer(serializers.Serializer):
     motivo = serializers.CharField(required=False, allow_blank=True)
     valido_hasta = serializers.DateField(required=False)
 
+    tipo_turno = serializers.CharField()
+
+    def validate_tipo_turno(self, value):
+        v = (value or "").strip().lower()
+        mapping = {
+            "individual": "x1", "x1": "x1",
+            "2 personas": "x2", "x2": "x2",
+            "3 personas": "x3", "x3": "x3",
+            "4 personas": "x4", "x4": "x4",
+        }
+        code = mapping.get(v)
+        if code not in {"x1", "x2", "x3", "x4"}:
+            raise serializers.ValidationError("tipo_turno inválido (usar x1/x2/x3/x4 o nombres estándar).")
+        return code
+
     def validate_usuario_id(self, value):
         User = get_user_model()
         if not User.objects.filter(id=value).exists():
@@ -411,3 +446,4 @@ class CrearTurnoBonificadoSerializer(serializers.Serializer):
             valido_hasta=valido_hasta,
             tipo_turno=tipo_turno,
         )
+

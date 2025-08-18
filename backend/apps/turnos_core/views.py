@@ -3,7 +3,7 @@
 # Built-in
 from datetime import datetime
 
-from apps.turnos_core.services.bonificaciones import emitir_bonificacion_automatica
+from apps.turnos_core.services.bonificaciones import emitir_bonificacion_automatica, bonificaciones_vigentes
 from rest_framework.exceptions import PermissionDenied as DRFPermissionDenied
 
 
@@ -73,8 +73,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-
-
+from apps.turnos_padel.models import TipoClasePadel
 
 class TurnoListView(ListAPIView):
     authentication_classes = [JWTAuthentication]
@@ -201,7 +200,6 @@ class LugarViewSet(viewsets.ModelViewSet):
             serializer.save(cliente=user.cliente)
         else:
             raise DRFPermissionDenied("No tenés cliente asociado.")
-
 
 class BloqueoTurnosViewSet(viewsets.ModelViewSet):
     queryset = BloqueoTurnos.objects.all()
@@ -552,28 +550,77 @@ class CancelarTurnoView(APIView):
         }, status=200)
 
 
+def _tipo_code_y_aliases(tipo_clase_id: int):
+    """
+    Devuelve (code, aliases_set) para el tipo_clase dado.
+    code ∈ {"x1","x2","x3","x4"}.
+    aliases incluye formas históricas ("individual", "2 personas", etc.).
+    """
+    try:
+        tc = TipoClasePadel.objects.get(pk=tipo_clase_id)
+    except TipoClasePadel.DoesNotExist:
+        return None, set()
 
+    code = getattr(tc, "code", None)
+    nombre_norm = (tc.nombre or "").strip().lower()
+
+    mapping = {
+        "individual": "x1", "x1": "x1",
+        "2 personas": "x2", "x2": "x2",
+        "3 personas": "x3", "x3": "x3",
+        "4 personas": "x4", "x4": "x4",
+    }
+    if not code:
+        code = mapping.get(nombre_norm)
+
+    # sinónimos históricos; incluimos ambas formas
+    inv_aliases = {
+        "x1": {"individual"},
+        "x2": {"2 personas"},
+        "x3": {"3 personas"},
+        "x4": {"4 personas"},
+    }
+    aliases = set(a.lower() for a in inv_aliases.get(code, set()))
+    return code, aliases
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
-def bonificaciones_mias(request):
-    usuario = request.user
-    bonificaciones = usuario.turnos_bonificados.filter(usado=False)
+def bonificaciones_mias(request, tipo_clase_id=None):
+    user = request.user
+
+    # Base: SOLO vigentes (respeta valido_hasta) y sin usar
+    qs = bonificaciones_vigentes(user).order_by("fecha_creacion")
+
+    # tipo_clase_id puede venir por path o query
+    tipo_clase_id = tipo_clase_id or request.query_params.get("tipo_clase_id")
+    if tipo_clase_id:
+        code, aliases = _tipo_code_y_aliases(int(tipo_clase_id))
+        if code:
+            cond = Q(tipo_turno__iexact=code)
+            for alt in aliases:
+                cond |= Q(tipo_turno__iexact=alt)
+            qs = qs.filter(cond)
+            logger.info(
+                "[bonos.mios][filter] user=%s tipo_clase_id=%s code=%s aliases=%s count=%s",
+                user.id, tipo_clase_id, code, list(aliases), qs.count()
+            )
+        else:
+            logger.warning(
+                "[bonos.mios][tipo_clase_sin_code] user=%s tipo_clase_id=%s",
+                user.id, tipo_clase_id
+            )
 
     data = [
         {
             "id": b.id,
             "motivo": b.motivo,
-            "tipo_turno": b.tipo_turno,          # << ADD
+            "tipo_turno": b.tipo_turno,
             "fecha_creacion": b.fecha_creacion,
             "valido_hasta": b.valido_hasta,
         }
-        for b in bonificaciones
+        for b in qs
     ]
-
-
     return Response(data)
-
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
