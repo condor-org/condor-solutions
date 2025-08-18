@@ -15,7 +15,10 @@ import {
   Divider,
   FormControl,
   FormLabel,
-  FormErrorMessage
+  FormErrorMessage,
+  Select,
+  Alert,
+  AlertIcon
 } from "@chakra-ui/react";
 import { axiosAuth } from "../../utils/axiosAuth";
 import { AuthContext } from "../../auth/AuthContext";
@@ -28,7 +31,22 @@ import {
   useMutedText
 } from "../../components/theme/tokens";
 
+const ABONO_OPCIONES = [
+  { codigo: "x1", nombre: "Abono Individual" },
+  { codigo: "x2", nombre: "Abono 2 Personas" },
+  { codigo: "x3", nombre: "Abono 3 Personas" },
+  { codigo: "x4", nombre: "Abono 4 Personas" },
+];
+
+const CLASE_OPCIONES = [
+  { codigo: "x1", nombre: "Individual" },
+  { codigo: "x2", nombre: "2 Personas" },
+  { codigo: "x3", nombre: "3 Personas" },
+  { codigo: "x4", nombre: "4 Personas" },
+];
+
 const SedesPage = () => {
+  
   const { accessToken } = useContext(AuthContext);
 
   const [sedes, setSedes] = useState([]);
@@ -36,8 +54,8 @@ const SedesPage = () => {
   const [editingId, setEditingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
 
-  const [config, setConfig] = useState({ alias: "", cbu: "", tiposClase: [] });
-  const [errors, setErrors] = useState({ alias: "", cbu: "", tiposClase: {} });
+  const [config, setConfig] = useState({ alias: "", cbu: "", tiposClase: [], tiposAbono: [] });
+  const [errors, setErrors] = useState({ alias: "", cbu: "", tiposClase: {}, tiposAbono: {} });
 
   const bg = useBodyBg();
   const cardColors = useCardColors();
@@ -55,8 +73,8 @@ const SedesPage = () => {
 
   const resetForm = () => {
     setForm({ nombre: "", direccion: "", referente: "", telefono: "" });
-    setConfig({ alias: "", cbu: "", tiposClase: [] });
-    setErrors({ alias: "", cbu: "", tiposClase: {} });
+    setConfig({ alias: "", cbu: "", tiposClase: [], tiposAbono: [] });
+    setErrors({ alias: "", cbu: "", tiposClase: {}, tiposAbono: {} });
     setEditingId(null);
     setShowForm(false);
   };
@@ -83,12 +101,34 @@ const SedesPage = () => {
       });
 
       const conf = sede.configuracion_padel || {};
+
+      // Tipos de Clase: normalizo y agrego nombre legible desde el código
+      const tiposClase = (conf.tipos_clase || []).map(t => ({
+        ...(t.id ? { id: t.id } : {}),
+        codigo: t.codigo,
+        nombre: (CLASE_OPCIONES.find(o => o.codigo === t.codigo)?.nombre) || t.codigo,
+        precio: String(t.precio ?? ""),
+        activo: !!t.activo,
+      }));
+
+      // Tipos de Abono: normalizo y agrego nombre legible desde el código
+      const tiposAbono = (conf.tipos_abono || []).map(t => ({
+        ...(t.id ? { id: t.id } : {}),
+        codigo: t.codigo,
+        nombre: (ABONO_OPCIONES.find(o => o.codigo === t.codigo)?.nombre) || t.codigo,
+        precio: String(t.precio ?? ""),
+        activo: !!t.activo,
+      }));
+
       setConfig({
         alias: conf.alias || "",
         cbu: conf.cbu_cvu || "",
-        tiposClase: conf.tipos_clase || []
+        tiposClase,
+        tiposAbono,
       });
 
+
+      
     } catch {
       toast.error("Error al cargar datos de sede");
     }
@@ -96,27 +136,27 @@ const SedesPage = () => {
 
   const validate = () => {
     let valid = true;
-    const newErrors = { alias: "", cbu: "", tiposClase: {} };
-
-    if (!config.alias.trim()) {
-      newErrors.alias = "El alias es obligatorio";
-      valid = false;
-    }
-    if (!/^\d{22}$/.test(config.cbu)) {
-      newErrors.cbu = "El CBU debe tener 22 dígitos";
-      valid = false;
-    }
-    config.tiposClase.forEach((t, idx) => {
-      if (!t.nombre || (!t.precio && t.precio !== 0) || isNaN(t.precio)) {
-        newErrors.tiposClase[idx] = "Datos inválidos";
-        valid = false;
-      }
+    const newErrors = { alias: "", cbu: "", tiposClase: {}, tiposAbono: {} };
+  
+    if (!config.alias.trim()) { newErrors.alias = "El alias es obligatorio"; valid = false; }
+    if (!/^\d{22}$/.test(config.cbu)) { newErrors.cbu = "El CBU debe tener 22 dígitos"; valid = false; }
+  
+    // Tipos de Clase
+    (config.tiposClase || []).forEach((t, idx) => {
+      const inval = !t?.codigo || t?.precio === "" || isNaN(Number(t?.precio));
+      if (inval) { newErrors.tiposClase[idx] = "Datos inválidos"; valid = false; }
     });
-
+  
+    // Tipos de Abono
+    (config.tiposAbono || []).forEach((t, idx) => {
+      const inval = !t?.codigo || t?.precio === "" || isNaN(Number(t?.precio));
+      if (inval) { newErrors.tiposAbono[idx] = "Datos inválidos"; valid = false; }
+    });
+  
     setErrors(newErrors);
     return valid;
   };
-
+  
   const handleAddTipoClase = () => {
     setConfig(prev => ({
       ...prev,
@@ -144,9 +184,21 @@ const SedesPage = () => {
       configuracion_padel: {
         alias: config.alias,
         cbu_cvu: config.cbu,
-        tipos_clase: config.tiposClase
+        tipos_clase: (config.tiposClase || []).map(t => ({
+          ...(t.id ? { id: t.id } : {}),
+          codigo: t.codigo,
+          precio: t.precio,
+          activo: t.activo ?? true,
+        })),
+        tipos_abono: (config.tiposAbono || []).map(t => ({
+          ...(t.id ? { id: t.id } : {}),
+          codigo: t.codigo,
+          precio: t.precio,
+          activo: t.activo ?? true,
+        })),
       }
     };
+    
   
     const api = axiosAuth(accessToken);
     try {
@@ -225,34 +277,41 @@ const SedesPage = () => {
             <Heading size="sm" mt={4} mb={2}>Tipos de Clase</Heading>
             {config.tiposClase.map((tipo, idx) => (
               <FormControl key={idx} isInvalid={!!errors.tiposClase[idx]} mb={2}>
-                <Flex gap={2}>
-                  <Input
-                    value={tipo.nombre}
-                    flex={2}
-                    placeholder="Nombre tipo"
+                <Flex gap={2} wrap="wrap">
+                  <Select
+                    value={tipo.codigo || ""}
+                    flex="2"
+                    placeholder="Seleccionar tipo de clase"
                     onChange={(e) => {
-                      const nombre = e.target.value;
+                      const codigo = e.target.value;
+                      const opcion = CLASE_OPCIONES.find(o => o.codigo === codigo);
                       setConfig(prev => {
-                        const tipos = [...prev.tiposClase];
-                        tipos[idx] = { ...tipos[idx], nombre };
-                        return { ...prev, tiposClase: tipos };
+                        const arr = [...prev.tiposClase];
+                        arr[idx] = { ...arr[idx], codigo, nombre: opcion?.nombre || "" };
+                        return { ...prev, tiposClase: arr };
                       });
                     }}
-                  />
+                  >
+                    {CLASE_OPCIONES.map(op => (
+                      <option key={op.codigo} value={op.codigo}>{op.nombre}</option>
+                    ))}
+                  </Select>
+
                   <Input
                     type="number"
                     value={tipo.precio}
-                    flex={1}
+                    flex="1"
                     placeholder="Precio"
                     onChange={(e) => {
                       const precio = e.target.value;
                       setConfig(prev => {
-                        const tipos = [...prev.tiposClase];
-                        tipos[idx] = { ...tipos[idx], precio };
-                        return { ...prev, tiposClase: tipos };
+                        const arr = [...prev.tiposClase];
+                        arr[idx] = { ...arr[idx], precio };
+                        return { ...prev, tiposClase: arr };
                       });
                     }}
                   />
+
                   <IconButton
                     icon={<DeleteIcon />}
                     aria-label="Eliminar tipo"
@@ -264,8 +323,108 @@ const SedesPage = () => {
                 {errors.tiposClase[idx] && <FormErrorMessage>{errors.tiposClase[idx]}</FormErrorMessage>}
               </FormControl>
             ))}
-            <Button leftIcon={<AddIcon />} onClick={handleAddTipoClase} size="sm" mt={2}>
+
+            <Button leftIcon={<AddIcon />} onClick={() => {
+              setConfig(prev => ({
+                ...prev,
+                tiposClase: [...prev.tiposClase, { codigo: "", nombre: "", precio: 0, activo: true }]
+              }));
+            }} size="sm" mt={2}>
               Agregar Tipo de Clase
+            </Button>
+
+
+            <Heading size="sm" mt={6} mb={2}>Tipos de Abono</Heading>
+
+            {(config.tiposAbono?.length ?? 0) === 0 && (
+              <Alert status="warning" mb={3} rounded="md">
+                <AlertIcon />
+                Ningún abono configurado. Agregá al menos uno para habilitar la venta de abonos en esta sede.
+              </Alert>
+            )}
+
+            {config.tiposAbono.map((tipo, idx) => (
+              <FormControl key={idx} isInvalid={!!errors.tiposAbono[idx]} mb={2}>
+                <Flex gap={2} wrap="wrap">
+                <Select
+                  value={tipo.codigo || ""}
+                  flex="2"
+                  placeholder="Seleccionar tipo de abono"
+                  onChange={(e) => {
+                    const codigo = e.target.value;
+                    const opcion = ABONO_OPCIONES.find(o => o.codigo === codigo);
+                    setConfig(prev => {
+                      const arr = [...prev.tiposAbono];
+                      arr[idx] = {
+                        ...arr[idx],
+                        codigo,
+                        nombre: opcion?.nombre || "",
+                      };
+                      return { ...prev, tiposAbono: arr };
+                    });
+                  }}
+                >
+                  {ABONO_OPCIONES.map(op => (
+                    <option key={op.codigo} value={op.codigo}>
+                      {op.nombre}
+                    </option>
+                  ))}
+                </Select>
+
+                  <Input
+                    type="number"
+                    value={tipo.precio}
+                    flex="1"
+                    placeholder="Precio mensual del abono"
+                    onChange={(e) => {
+                      const precio = e.target.value;
+                      setConfig(prev => {
+                        const arr = [...prev.tiposAbono];
+                        arr[idx] = { ...arr[idx], precio };
+                        return { ...prev, tiposAbono: arr };
+                      });
+                    }}
+                  />
+                  <Select
+                    value={tipo.activo ? "1" : "0"}
+                    flex="1"
+                    onChange={(e) => {
+                      const activo = e.target.value === "1";
+                      setConfig(prev => {
+                        const arr = [...prev.tiposAbono];
+                        arr[idx] = { ...arr[idx], activo };
+                        return { ...prev, tiposAbono: arr };
+                      });
+                    }}
+                  >
+                    <option value="1">Activo</option>
+                    <option value="0">Inactivo</option>
+                  </Select>
+                  <IconButton
+                    icon={<DeleteIcon />}
+                    aria-label="Eliminar tipo"
+                    colorScheme="red"
+                    size="sm"
+                    onClick={() => {
+                      setConfig(prev => {
+                        const arr = [...prev.tiposAbono];
+                        arr.splice(idx, 1);
+                        return { ...prev, tiposAbono: arr };
+                      });
+                    }}
+                  />
+                </Flex>
+                {errors.tiposAbono[idx] && <FormErrorMessage>{errors.tiposAbono[idx]}</FormErrorMessage>}
+              </FormControl>
+            ))}
+
+            <Button leftIcon={<AddIcon />} onClick={() => {
+              setConfig(prev => ({
+                ...prev,
+                tiposAbono: [...prev.tiposAbono, { codigo: "", nombre: "", precio: 0, activo: true }]
+              }));
+            }} size="sm" mt={2}>
+              Agregar Tipo de Abono
             </Button>
 
             <Flex gap={4} mt={4}>

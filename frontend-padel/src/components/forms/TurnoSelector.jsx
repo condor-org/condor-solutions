@@ -5,6 +5,13 @@ import {
   FormControl, FormLabel, Select, useColorModeValue, Stack
 } from '@chakra-ui/react';
 
+const LABELS = {
+  x1: "Individual",
+  x2: "2 Personas",
+  x3: "3 Personas",
+  x4: "4 Personas",
+};
+
 const TurnoSelector = ({
   sedes = [],
   profesores = [],
@@ -22,6 +29,8 @@ const TurnoSelector = ({
   const textColor = useColorModeValue('gray.800', 'white');
   const mutedText = useColorModeValue('gray.600', 'gray.400');
 
+  const labelTipo = (t) => (t?.nombre /* por si viene del backend */) || LABELS[t?.codigo] || "Tipo";
+
   return (
     <Stack
       direction={{ base: 'column', md: 'row' }}
@@ -37,7 +46,7 @@ const TurnoSelector = ({
           placeholder="Seleccionar sede"
           onChange={(e) => {
             onSedeChange?.(e.target.value);
-            onTipoClaseChange?.(""); // 🔹 Limpia tipo de clase al cambiar sede
+            onTipoClaseChange?.(""); // limpia tipo de clase al cambiar sede
           }}
           bg={inputBg}
           color={textColor}
@@ -58,9 +67,7 @@ const TurnoSelector = ({
         <Select
           value={profesorId}
           placeholder="Seleccionar profesor"
-          onChange={(e) => {
-            onProfesorChange?.(e.target.value);
-          }}
+          onChange={(e) => onProfesorChange?.(e.target.value)}
           bg={inputBg}
           color={textColor}
           borderColor={inputBorder}
@@ -80,9 +87,7 @@ const TurnoSelector = ({
         <Select
           value={tipoClaseId}
           placeholder={tiposClase.length > 0 ? "Seleccionar tipo" : "No hay tipos disponibles"}
-          onChange={(e) => {
-            onTipoClaseChange?.(e.target.value);
-          }}
+          onChange={(e) => onTipoClaseChange?.(e.target.value)}
           bg={inputBg}
           color={textColor}
           borderColor={inputBorder}
@@ -90,7 +95,7 @@ const TurnoSelector = ({
         >
           {tiposClase.map((t) => (
             <option key={t.id} value={String(t.id)}>
-              {t.nombre} - ${t.precio}
+              {labelTipo(t)} - ${t.precio}
             </option>
           ))}
         </Select>

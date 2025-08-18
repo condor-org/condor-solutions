@@ -3,6 +3,16 @@ from django.conf import settings
 from django.db.models import Q
 
 
+
+
+TIPO_CODIGO_CHOICES = [
+    ("x1", "Individual"),
+    ("x2", "2 Personas"),
+    ("x3", "3 Personas"),
+    ("x4", "4 Personas"),
+]
+
+
 class AbonoMes(models.Model):
     ESTADOS = [
         ("pagado", "Pagado"),               # turnos confirmados
@@ -29,6 +39,13 @@ class AbonoMes(models.Model):
         "turnos_padel.TipoClasePadel",
         on_delete=models.PROTECT,
         related_name="abonos"
+    )
+
+    tipo_abono = models.ForeignKey(
+        "turnos_padel.TipoAbonoPadel",
+        on_delete=models.PROTECT,
+        related_name="abonos",
+        null=True, blank=True,   # ← primera migración suave
     )
 
     anio = models.IntegerField()
@@ -100,8 +117,38 @@ class TipoClasePadel(models.Model):
         on_delete=models.CASCADE,
         related_name="tipos_clase"
     )
-    nombre = models.CharField(max_length=50)
+    codigo = models.CharField(max_length=2, choices=TIPO_CODIGO_CHOICES)
     precio = models.DecimalField(max_digits=10, decimal_places=2)
+    activo = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["configuracion_sede", "codigo"],
+                name="uq_tipo_clase_por_sede_codigo",
+            )
+        ]
 
     def __str__(self):
-        return f"{self.nombre} ({self.configuracion_sede.sede.nombre}) - ${self.precio}"
+        return f"{self.get_codigo_display()} ({self.configuracion_sede.sede.nombre}) - ${self.precio}"
+
+class TipoAbonoPadel(models.Model):
+    configuracion_sede = models.ForeignKey(
+        "ConfiguracionSedePadel",
+        on_delete=models.CASCADE,
+        related_name="tipos_abono"
+    )
+    codigo = models.CharField(max_length=2, choices=TIPO_CODIGO_CHOICES)
+    precio = models.DecimalField(max_digits=10, decimal_places=2)  # precio mensual del abono
+    activo = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["configuracion_sede", "codigo"],
+                name="uq_tipo_abono_por_sede_codigo",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.get_codigo_display()} - {self.precio}"

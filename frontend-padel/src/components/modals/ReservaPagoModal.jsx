@@ -1,6 +1,6 @@
 // src/components/modals/ReservaPagoModal.jsx
 
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo } from "react";
 import {
   Box,
   Modal,
@@ -23,14 +23,21 @@ import {
 import { FaCalendarAlt, FaClock, FaTrash } from "react-icons/fa";
 import CountdownClock from "../ui/CountdownClock";
 
+const LABELS = {
+  x1: "Individual",
+  x2: "2 Personas",
+  x3: "3 Personas",
+  x4: "4 Personas",
+};
+
 const ReservaPagoModal = ({
   alias, 
   cbuCvu,
   isOpen,
   onClose,
-  turno,
+  turno,        // Puede venir como evento (con start Date) o como {fecha, hora} (abono)
   configPago,
-  tipoClase,
+  tipoClase,    // {codigo, nombre?, precio}
   archivo,
   onArchivoChange,
   onRemoveArchivo,
@@ -56,10 +63,31 @@ const ReservaPagoModal = ({
       setUsarBonificado(false);
     }
   }, [tieneBonos, usarBonificado, setUsarBonificado]);
-  
 
   const segundos = Number(tiempoRestante || configPago?.tiempo_maximo_minutos * 60 || 180);
 
+  // Normaliza fecha/hora para UI (turno de calendario o abono)
+  const fechaTexto = useMemo(() => {
+    if (!turno) return null;
+    if (turno.start instanceof Date) {
+      return turno.start.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
+    }
+    if (typeof turno.fecha === "string") return turno.fecha; // p.ej. "Mes 8/2025"
+    return null;
+  }, [turno]);
+
+  const horaTexto = useMemo(() => {
+    if (!turno) return null;
+    if (turno.start instanceof Date) {
+      return turno.start.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+    }
+    if (typeof turno.hora === "string") {
+      return (turno.hora || "").slice(0,5); // "08:00"
+    }
+    return null;
+  }, [turno]);
+
+  const nombreTipo = (tipoClase?.nombre) || LABELS[tipoClase?.codigo] || "—";
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} isCentered size="lg" motionPreset="slideInBottom">
@@ -71,7 +99,7 @@ const ReservaPagoModal = ({
         <ModalCloseButton />
 
         <ModalBody>
-          {turno && (
+          {(fechaTexto || horaTexto) && (
             <Box
               mb={5}
               border="2px solid"
@@ -82,36 +110,27 @@ const ReservaPagoModal = ({
               px={4}
               py={3}
             >
-              <Flex align="center" gap={3}>
-                <Icon as={FaCalendarAlt} boxSize={5} />
-                <Text>
-                  <b>Día:</b>{" "}
-                  {turno.start.toLocaleDateString("es-AR", {
-                    weekday: "long",
-                    day: "numeric",
-                    month: "long"
-                  })}
-                </Text>
-              </Flex>
-              <Flex align="center" gap={3} mt={2}>
-                <Icon as={FaClock} boxSize={5} />
-                <Text>
-                  <b>Hora:</b>{" "}
-                  {turno.start.toLocaleTimeString("es-AR", {
-                    hour: "2-digit",
-                    minute: "2-digit"
-                  })}
-                </Text>
-              </Flex>
+              {fechaTexto && (
+                <Flex align="center" gap={3}>
+                  <Icon as={FaCalendarAlt} boxSize={5} />
+                  <Text><b>Día:</b> {fechaTexto}</Text>
+                </Flex>
+              )}
+              {horaTexto && (
+                <Flex align="center" gap={3} mt={2}>
+                  <Icon as={FaClock} boxSize={5} />
+                  <Text><b>Hora:</b> {horaTexto} hs</Text>
+                </Flex>
+              )}
             </Box>
           )}
 
           {tipoClase && (
             <Box mb={6}>
-              <Text><b>Tipo de clase:</b> {tipoClase.nombre}</Text>
-              <Text><b>Monto:</b> ${tipoClase.precio}</Text>
-              <Text><b>Alias:</b> {alias}</Text>
-              <Text><b>CBU/CVU:</b> {cbuCvu}</Text>
+              <Text><b>Tipo de clase:</b> {nombreTipo}</Text>
+              {"precio" in tipoClase && <Text><b>Monto:</b> ${tipoClase.precio}</Text>}
+              {alias && <Text><b>Alias:</b> {alias}</Text>}
+              {cbuCvu && <Text><b>CBU/CVU:</b> {cbuCvu}</Text>}
             </Box>
           )}
 
@@ -204,7 +223,6 @@ const ReservaPagoModal = ({
             Las cancelaciones sólo se permiten con <b>mínimo 24 horas de anticipación</b>.
             Si no se confirma el pago antes del fin del contador, el turno será liberado automáticamente.
           </Text>
-          
         </ModalBody>
 
         <ModalFooter>

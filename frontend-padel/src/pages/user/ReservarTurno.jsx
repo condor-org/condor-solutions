@@ -47,13 +47,15 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
   const card = useCardColors();
   const input = useInputColors();
 
-
   const tipoClaseSeleccionada = tiposClase.find(tc => String(tc.id) === String(tipoClaseId));
-  const nombreTipo = (tipoClaseSeleccionada?.nombre || "").trim().toLowerCase();
+
+
+  const codigoSel = tipoClaseSeleccionada?.codigo;
   const tipoTurnoSeleccionado =
-    /2/.test(nombreTipo) ? "x2" :
-    /3/.test(nombreTipo) ? "x3" :
-    /4/.test(nombreTipo) ? "x4" : "x1";
+    codigoSel === "x2" ? "x2" :
+    codigoSel === "x3" ? "x3" :
+    codigoSel === "x4" ? "x4" : "x1";
+  
 
   // ¿hay bono del mismo tipo?
   const tieneBonoDeEsteTipo = bonificaciones.length > 0;

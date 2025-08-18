@@ -9,17 +9,19 @@ from apps.common.permissions import (
     SoloLecturaUsuariosFinalesYEmpleados
 )
 from apps.turnos_core.models import Lugar, Turno, TurnoBonificado
-from apps.turnos_padel.models import ConfiguracionSedePadel, TipoClasePadel, AbonoMes
+from apps.turnos_padel.models import ConfiguracionSedePadel, TipoClasePadel, AbonoMes, TipoAbonoPadel
 from apps.turnos_padel.serializers import (
     SedePadelSerializer,
     ConfiguracionSedePadelSerializer,
     TipoClasePadelSerializer,
     AbonoMesSerializer,
-    AbonoMesDetailSerializer
+    AbonoMesDetailSerializer,
+    TipoAbonoPadelSerializer
 )
 
 from django.db import transaction
 from calendar import Calendar
+from django.utils import timezone 
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Q
 
@@ -52,27 +54,29 @@ class SedePadelViewSet(viewsets.ModelViewSet):
         return Lugar.objects.none()
 
     def list(self, request, *args, **kwargs):
-        """
-        GET: Lista todas las sedes con configuracion_padel y tipos_clase embebidos.
-        """
         queryset = self.get_queryset()
         for sede in queryset:
-            config, created = ConfiguracionSedePadel.objects.get_or_create(sede=sede, defaults={"alias": "", "cbu_cvu": ""})
+            config, created = ConfiguracionSedePadel.objects.get_or_create(
+                sede=sede, defaults={"alias": "", "cbu_cvu": ""}
+            )
             if created:
-                for nombre in ["Individual", "2 Personas", "3 Personas", "4 Personas"]:
-                    TipoClasePadel.objects.create(configuracion_sede=config, nombre=nombre, precio=0)
+                for codigo in ["x1", "x2", "x3", "x4"]:
+                    TipoClasePadel.objects.create(configuracion_sede=config, codigo=codigo, precio=0, activo=True)
+                for codigo in ["x1", "x2", "x3", "x4"]:
+                    TipoAbonoPadel.objects.create(configuracion_sede=config, codigo=codigo, precio=0, activo=True)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
     def retrieve(self, request, *args, **kwargs):
-        """
-        GET: Garantiza configuración en retrieve.a
-        """
         instance = self.get_object()
-        config, created = ConfiguracionSedePadel.objects.get_or_create(sede=instance, defaults={"alias": "", "cbu_cvu": ""})
+        config, created = ConfiguracionSedePadel.objects.get_or_create(
+            sede=instance, defaults={"alias": "", "cbu_cvu": ""}
+        )
         if created:
-            for nombre in ["Individual", "2 Personas", "3 Personas", "4 Personas"]:
-                TipoClasePadel.objects.create(configuracion_sede=config, nombre=nombre, precio=0)
+            for codigo in ["x1", "x2", "x3", "x4"]:
+                TipoClasePadel.objects.create(configuracion_sede=config, codigo=codigo, precio=0, activo=True)
+            for codigo in ["x1", "x2", "x3", "x4"]:
+                TipoAbonoPadel.objects.create(configuracion_sede=config, codigo=codigo, precio=0, activo=True)
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
@@ -215,6 +219,113 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Parámetros inválidos"}, status=status.HTTP_400_BAD_REQUEST)
 
         hora_filtro = request.query_params.get("hora")  # opcional
+        tipo_codigo = request.query_params.get("tipo_codigo")  # opcional 👈
+
+        # ... (autorización igual)
+
+        # 1) Tipos de clase activos (con filtro opcional por código)
+        tipos_qs = TipoClasePadel.objects.filter(
+            configuracion_sede__sede_id=sede_id,
+            activo=True
+        ).only("id", "codigo", "precio")
+        if tipo_codigo:
+            tipos_qs = tipos_qs.filter(codigo=tipo_codigo)  # 👈 reduce payload y esfuerzo
+
+        tipos_map = [{
+            "id": t.id,
+            "codigo": t.codigo,
+            "nombre": t.get_codigo_display(),
+            "precio": t.precio,
+        } for t in tipos_qs]
+
+        # 2) Fechas del mes actual (solo >= hoy) + todo el mes siguiente
+        def fechas_mes(anio_i, mes_i, dsem):
+            cal = Calendar(firstweekday=0)  # 0 = lunes
+            out = []
+            for week in cal.monthdatescalendar(anio_i, mes_i):
+                for d in week:
+                    if d.month == mes_i and d.weekday() == dsem:
+                        out.append(d)
+            return out
+
+        def proximo_mes(anio_i, mes_i):
+            return (anio_i + 1, 1) if mes_i == 12 else (anio_i, mes_i + 1)
+
+        hoy = timezone.localdate()
+        fechas_actual_todas = fechas_mes(anio, mes, dia_semana)
+        fechas_actual = [d for d in fechas_actual_todas if d >= hoy]  # 👈 clave del fix
+        prox_anio, prox_mes = proximo_mes(anio, mes)
+        fechas_prox = fechas_mes(prox_anio, prox_mes, dia_semana)
+
+        if not fechas_actual and not fechas_prox:
+            logger.info("[abonos.disponibles] sin fechas futuras para el día de semana")
+            return Response([], status=200)
+
+        fechas_total = fechas_actual + fechas_prox
+        logger.debug("[abonos.disponibles] hoy=%s | fechas_actual=%s | fechas_prox=%s | total=%s",
+                     hoy, len(fechas_actual), len(fechas_prox), len(fechas_total))
+
+        # 3) Turnos por hora para TODAS esas fechas (solo futuros)
+        try:
+            ct_prestador = ContentType.objects.get(app_label="turnos_core", model="prestador")
+        except ContentType.DoesNotExist:
+            logger.error("[abonos.disponibles] ContentType prestador no encontrado")
+            return Response({"detail": "Error de configuración (prestador)"}, status=500)
+
+        base_q = Q(lugar_id=sede_id) & Q(content_type=ct_prestador, object_id=prestador_id) & Q(fecha__in=fechas_total)
+
+        turnos_qs = Turno.objects.filter(base_q).only(
+            "id", "fecha", "hora", "estado",
+            "abono_mes_reservado", "abono_mes_prioridad", "lugar_id"
+        )
+        if hora_filtro:
+            turnos_qs = turnos_qs.filter(hora=hora_filtro)
+
+        # 4) Armo mapa por hora y exijo continuidad para TODAS las fechas restantes del mes actual + todo el próximo
+        por_hora = {}
+        for t in turnos_qs:
+            h = t.hora.isoformat()
+            por_hora.setdefault(h, {})[t.fecha] = t
+
+        horas_libres = []
+        for h, mapa in por_hora.items():
+            # Debe existir un turno en cada fecha futura y cumplir condiciones
+            if not all(f in mapa for f in fechas_total):
+                continue
+
+            ok = True
+            for f in fechas_total:
+                t = mapa[f]
+                if t.estado != "disponible":
+                    ok = False; break
+                if getattr(t, "abono_mes_reservado", False) or getattr(t, "abono_mes_prioridad", False):
+                    ok = False; break
+                if hasattr(t, "bloqueado_para_reservas") and getattr(t, "bloqueado_para_reservas", False):
+                    ok = False; break
+
+            if ok:
+                horas_libres.append(h)
+
+        horas_libres.sort()
+        result = [{"hora": h, "tipo_clase": tipo} for h in horas_libres for tipo in tipos_map]
+
+        logger.info(
+            "[abonos.disponibles] sede=%s prestador=%s dsem=%s anio=%s mes=%s -> horas=%s, tipos=%s",
+            sede_id, prestador_id, dia_semana, anio, mes, horas_libres, [t["codigo"] for t in tipos_map]
+        )
+        return Response(result, status=200)
+        logger.info("[abonos.disponibles] params=%s", dict(request.query_params))
+        try:
+            sede_id = int(request.query_params.get("sede_id"))
+            prestador_id = int(request.query_params.get("prestador_id"))
+            dia_semana = int(request.query_params.get("dia_semana"))  # 0..6
+            anio = int(request.query_params.get("anio"))
+            mes = int(request.query_params.get("mes"))
+        except (TypeError, ValueError):
+            logger.warning("[abonos.disponibles] Parámetros inválidos")
+            return Response({"detail": "Parámetros inválidos"}, status=status.HTTP_400_BAD_REQUEST)
+
+        hora_filtro = request.query_params.get("hora")  # opcional
 
         sede = Lugar.objects.select_related("cliente").filter(id=sede_id).first()
         if not sede:
@@ -228,9 +339,17 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
                 return Response({"detail": "No autorizado"}, status=403)
 
         tipos_qs = TipoClasePadel.objects.filter(
-            configuracion_sede__sede_id=sede_id
-        ).only("id", "nombre", "precio")
-        tipos_map = [{"id": t.id, "nombre": t.nombre, "precio": t.precio} for t in tipos_qs]
+            configuracion_sede__sede_id=sede_id, activo=True
+        ).only("id", "codigo", "precio")
+        tipos_map = [
+            {
+                "id": t.id,
+                "codigo": t.codigo,
+                "nombre": t.get_codigo_display(),
+                "precio": t.precio,
+            } for t in tipos_qs
+        ]
+
 
         def fechas_mes(anio_i, mes_i, dsem):
             cal = Calendar(firstweekday=0)
@@ -302,3 +421,21 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             sede_id, prestador_id, dia_semana, anio, mes, horas_libres
         )
         return Response(result, status=200)
+
+class TipoAbonoPadelViewSet(viewsets.ModelViewSet):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [EsAdminDeSuCliente | EsSuperAdmin | SoloLecturaUsuariosFinalesYEmpleados]
+    serializer_class = TipoAbonoPadelSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        sede_id = self.request.query_params.get("sede_id")
+        qs = TipoAbonoPadel.objects.select_related("configuracion_sede__sede")
+
+        if hasattr(user, "cliente") and user.tipo_usuario != "super_admin":
+            qs = qs.filter(configuracion_sede__sede__cliente=user.cliente)
+
+        if sede_id:
+            qs = qs.filter(configuracion_sede__sede_id=sede_id)
+
+        return qs

@@ -19,8 +19,19 @@ const DIAS = [
   { value: 5, label: "Sábado" },
   { value: 6, label: "Domingo" },
 ];
+const LABELS = { x1: "Individual", x2: "2 Personas", x3: "3 Personas", x4: "4 Personas" };
+
+const ABONO_OPCIONES = [
+  { codigo: "x1", nombre: "Individual" },
+  { codigo: "x2", nombre: "2 Personas" },
+  { codigo: "x3", nombre: "3 Personas" },
+  { codigo: "x4", nombre: "4 Personas" },
+];
+
 
 const ReservarAbono = ({ onClose }) => {
+  const [tiposAbono, setTiposAbono] = useState([]);
+
   const { accessToken } = useContext(AuthContext);
   const api = useMemo(() => (accessToken ? axiosAuth(accessToken) : null), [accessToken]);
 
@@ -41,6 +52,7 @@ const ReservarAbono = ({ onClose }) => {
 
   const [configPago, setConfigPago] = useState({ alias: "", cbu_cvu: "" });
 
+  const [tipoAbono, setTipoAbono] = useState(""); // nuevo filtro requerido
   const [abonosLibres, setAbonosLibres] = useState([]);
   const [loadingDisponibles, setLoadingDisponibles] = useState(false);
 
@@ -78,37 +90,53 @@ const ReservarAbono = ({ onClose }) => {
 
   // 4) buscar abonos disponibles cuando haya filtros completos
   useEffect(() => {
-    const ready = api && sedeId && profesorId && (diaSemana !== "");
-    if (!ready) { setAbonosLibres([]); return; }
-
+    const ready = api && sedeId && profesorId && (diaSemana !== "") && tipoAbono; // 👈 exige tipo
+    if (!ready) {
+      console.debug("[ReservarAbono] filtros incompletos", { sedeId, profesorId, diaSemana, tipoAbono });
+      setAbonosLibres([]);
+      return;
+    }
+  
     const params = new URLSearchParams({
       sede_id: String(sedeId),
       prestador_id: String(profesorId),
       dia_semana: String(diaSemana),
       anio: String(anioActual),
       mes: String(mesActual),
+      tipo_codigo: String(tipoAbono), // 👈 si tu API lo soporta
     });
     if (horaFiltro) params.append("hora", horaFiltro);
-
+  
     setLoadingDisponibles(true);
     api.get(`padel/abonos/disponibles/?${params.toString()}`)
       .then(res => {
-        const data = res.data.results || res.data || [];
-        // esperamos items tipo: { hora: "08:00:00", tipo_clase: {id, nombre, precio}, ... }
+        let data = res.data.results || res.data || [];
+        // Filtro por si el backend todavía no filtra por tipo.
+        data = data.filter(d => d?.tipo_clase?.codigo === tipoAbono);
         setAbonosLibres(Array.isArray(data) ? data : []);
       })
       .catch((e) => {
         console.error("[ReservarAbono] Error cargando disponibles:", e);
         setAbonosLibres([]);
-        toast({
-          title: "No se pudieron cargar abonos libres",
-          status: "error",
-          duration: 4000,
-        });
+        toast({ title: "No se pudieron cargar abonos libres", status: "error", duration: 4000 });
       })
       .finally(() => setLoadingDisponibles(false));
-  }, [api, sedeId, profesorId, diaSemana, horaFiltro, anioActual, mesActual, toast]);
+  }, [api, sedeId, profesorId, diaSemana, horaFiltro, tipoAbono, anioActual, mesActual, toast]);
+  
 
+  useEffect(() => {
+    if (!api || !sedeId) { setTiposAbono([]); return; }
+    api.get(`padel/tipos-abono/?sede_id=${sedeId}`)
+      .then(res => setTiposAbono(res.data.results || res.data || []))
+      .catch(() => setTiposAbono([]));
+  }, [api, sedeId]);
+  
+  const precioAbonoPorCodigo = useMemo(() => {
+    const map = {};
+    (tiposAbono || []).forEach(a => { map[a.codigo] = Number(a.precio); });
+    return map;
+  }, [tiposAbono]);
+  
   const abrirPago = (item) => {
     // item esperado: {hora, tipo_clase:{id,nombre,precio}}
     setSeleccion({
@@ -200,6 +228,22 @@ const ReservarAbono = ({ onClose }) => {
             </Select>
           </Box>
           <Box flex={1}>
+            <Text fontSize="sm" mb={1} color={muted}>Tipo de abono</Text>
+            <Select
+              value={tipoAbono}
+              onChange={e => setTipoAbono(e.target.value)}
+              bg={input.bg}
+              borderColor={input.border}
+              isDisabled={!profesorId}
+            >
+              <option value="">Seleccioná</option>
+              {ABONO_OPCIONES.map(op => (
+                <option key={op.codigo} value={op.codigo}>{op.nombre}</option>
+              ))}
+            </Select>
+          </Box>
+
+          <Box flex={1}>
             <Text fontSize="sm" mb={1} color={muted}>Hora (opcional)</Text>
             <Select value={horaFiltro} onChange={e => setHoraFiltro(e.target.value)} bg={input.bg} borderColor={input.border} isDisabled={diaSemana === ""}>
               <option value="">Todas</option>
@@ -217,39 +261,55 @@ const ReservarAbono = ({ onClose }) => {
         <Box>
           <Text fontWeight="semibold" mb={2}>
             Abonos libres {loadingDisponibles ? "— cargando..." : ""}
+            {(sedeId && profesorId && diaSemana !== "" && !tipoAbono) && (
+              <Text color={muted} mb={2}>Elegí un tipo de abono para ver disponibilidad.</Text>
+            )}
+
           </Text>
+          
 
           {!loadingDisponibles && abonosLibres.length === 0 && (sedeId && profesorId && diaSemana !== "") ? (
             <Text color={muted}>No hay abonos libres para los filtros seleccionados.</Text>
           ) : null}
 
           <VStack align="stretch" spacing={3}>
-            {abonosLibres.map((item, idx) => (
-              <Box
-                key={`${item?.hora || "hora"}-${idx}`}
-                p={3}
-                bg={card.bg}
-                rounded="md"
-                borderWidth="1px"
-                borderColor={input.border}
-                _hover={{ boxShadow: "lg", cursor: "pointer", opacity: 0.95 }}
-                onClick={() => abrirPago(item)}
-              >
-                <HStack justify="space-between" align="center">
-                  <Box>
-                    <Text fontWeight="semibold">
-                      {DIAS.find(d => String(d.value) === String(diaSemana))?.label} · {item?.hora?.slice(0,5)} hs
-                    </Text>
-                    <HStack mt={1} spacing={2}>
-                      {item?.tipo_clase?.nombre && <Badge variant="outline">{item.tipo_clase.nombre}</Badge>}
-                      {item?.tipo_clase?.precio && <Badge colorScheme="green">${Number(item.tipo_clase.precio).toLocaleString("es-AR")}</Badge>}
-                    </HStack>
-                  </Box>
-                  <Button variant="primary">Seleccionar</Button>
-                </HStack>
-              </Box>
-            ))}
+            {abonosLibres.map((item, idx) => {
+              // 👇 calcular precio del abono según el código del item
+              const codigo = item?.tipo_clase?.codigo;
+              const pAbono = precioAbonoPorCodigo[codigo];
+
+              return (
+                <Box
+                  key={`${item?.hora || "hora"}-${idx}`}
+                  p={3}
+                  bg={card.bg}
+                  rounded="md"
+                  borderWidth="1px"
+                  borderColor={input.border}
+                  _hover={{ boxShadow: "lg", cursor: "pointer", opacity: 0.95 }}
+                  onClick={() => abrirPago(item)}
+                >
+                  <HStack justify="space-between" align="center">
+                    <Box>
+                      <Text fontWeight="semibold">
+                        {DIAS.find(d => String(d.value) === String(diaSemana))?.label} · {item?.hora?.slice(0,5)} hs
+                      </Text>
+                      <HStack mt={1} spacing={2}>
+                        <Badge variant="outline">
+                          {item?.tipo_clase?.nombre || LABELS[item?.tipo_clase?.codigo] || "Tipo"}
+                        </Badge>
+                        <Badge colorScheme="green">
+                          ${Number(pAbono ?? item?.tipo_clase?.precio ?? 0).toLocaleString("es-AR")}
+                        </Badge>
+                      </HStack>
+                    </Box>
+                    <Button variant="primary">Seleccionar</Button>
+                  </HStack>
+                </Box>
+              );
+            })}
           </VStack>
+
         </Box>
       </VStack>
 

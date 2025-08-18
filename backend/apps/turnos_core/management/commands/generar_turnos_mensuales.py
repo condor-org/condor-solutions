@@ -1,3 +1,4 @@
+# turnos_core/management/commands/generar_turnos_mensuales.py
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from datetime import timedelta, date
@@ -8,7 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class Command(BaseCommand):
-    help = "Genera turnos para todos los prestadores: el mes actual como disponibles y el mes siguiente como reservados (bloqueados)"
+    help = "Genera turnos para todos los prestadores: el mes actual  y el mes siguiente como disponibles"
 
     def handle(self, *args, **kwargs):
         hoy = timezone.localdate()
@@ -17,7 +18,7 @@ class Command(BaseCommand):
         fecha_inicio_actual = hoy
         fecha_fin_actual = _ultimo_dia_del_mes(hoy)
 
-        # Mes siguiente → turnos reservados (bloqueados para abonos)
+        # Mes siguiente → turnos disponibles
         fecha_inicio_siguiente = _proximo_mes(hoy)
         fecha_fin_siguiente = _ultimo_dia_del_mes(fecha_inicio_siguiente)
 
@@ -34,11 +35,6 @@ class Command(BaseCommand):
                 prestador.id, fecha_inicio_siguiente, fecha_fin_siguiente,
                 estado="disponible"  
             )
-
-            # logger.info(
-            #     "[CRON] Prestador %s (%s): %s disponibles (actual), %s reservados (siguiente)",
-            #     prestador.id, prestador, creados_actual, creados_siguiente
-            # )
 
             total_generados += creados_actual + creados_siguiente
 

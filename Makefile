@@ -7,9 +7,10 @@
 #   make migrate           # aplica migraciones
 #   make makemig           # genera migraciones
 #   make plan              # muestra plan de migración
-#   make bootstrap-condor  # corre el management command bootstrap_condor
-#   make init              # clean-db + migrate + bootstrap-condor
-#   make reset-bootstrap   # reset-db + migrate + bootstrap-condor
+#   make bootstrap-condor  # corre el management command bootstrap_condor (con migrate + cron)
+#   make init              # clean-db + bootstrap-condor
+#   make reset-bootstrap   # reset-db + bootstrap-condor
+#   make cron              # corre manualmente generar_turnos_mensuales
 #   make logs              # tail logs backend
 #   make psql              # abre psql dentro del contenedor db
 #   make backend-shell     # shell dentro del contenedor backend
@@ -17,7 +18,7 @@
 
 DC := docker compose
 
-.PHONY: up up-backend down reset-db clean-db wait-db makemig plan migrate bootstrap-condor init reset-bootstrap logs psql backend-shell rebuild
+.PHONY: up up-backend down reset-db clean-db wait-db makemig plan migrate bootstrap-condor bootstrap-condor-skip-migrate init reset-bootstrap cron logs psql backend-shell rebuild
 
 up:
 	$(DC) up -d
@@ -63,12 +64,24 @@ bootstrap-condor: up-backend wait-db
 	  --prof-email "lucas@lucas.com"    --prof-pass "lucas123" \
 	  --user-email "nacho@nacho.com"    --user-pass "nacho123"'
 
+# Variante que saltea migrate (por si ya está aplicada)
+bootstrap-condor-skip-migrate: up-backend wait-db
+	$(DC) exec backend bash -lc 'python manage.py bootstrap_condor --skip-migrate \
+	  --super-email "superadmin@sadmin.com" --super-pass "sadmin123" \
+	  --admin-email "admin@admin.com"   --admin-pass "admin123" \
+	  --prof-email "lucas@lucas.com"    --prof-pass "lucas123" \
+	  --user-email "nacho@nacho.com"    --user-pass "nacho123"'
+
 # setup de cero con schema limpio (sin borrar volúmenes)
-init: clean-db migrate bootstrap-condor
+init: clean-db bootstrap-condor
 
 # setup de cero con volúmenes borrados
-reset-bootstrap: reset-db migrate bootstrap-condor
+reset-bootstrap: reset-db bootstrap-condor
 	@echo "✅ Base de datos reseteada, migraciones aplicadas y datos iniciales cargados"
+
+# corre manualmente el cron real de generación de turnos
+cron: up-backend wait-db
+	$(DC) exec backend bash -lc "python manage.py generar_turnos_mensuales"
 
 logs:
 	$(DC) logs -f backend
