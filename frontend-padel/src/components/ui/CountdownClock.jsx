@@ -8,7 +8,7 @@ import {
 } from "@chakra-ui/react";
 
 const CountdownClock = ({
-  segundosTotales = 180,
+  segundosTotales = 900,
   onFinalizar,
   size = "md",
   showLabel = true,
@@ -16,7 +16,7 @@ const CountdownClock = ({
 }) => {
   const [timeLeft, setTimeLeft] = useState(() => {
     const inicial = Number(segundosTotales);
-    return Number.isFinite(inicial) && inicial >= 0 ? inicial : 180;
+    return Number.isFinite(inicial) && inicial >= 0 ? inicial : 900;
   });
 
   const bg = useColorModeValue("gray.100", "gray.800");

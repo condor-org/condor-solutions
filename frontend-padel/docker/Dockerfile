@@ -1,7 +1,7 @@
 # /frontend-padel/docker/Dockerfile
 
 # Fase de build
-FROM node:20 AS build
+FROM node:20.12.2 AS build
 
 WORKDIR /app
 
@@ -22,7 +22,7 @@ RUN export $(cat frontend.env | grep -v '^#' | xargs) && \
     npm run build
 
 # Imagen final (servidor Nginx)
-FROM nginx:stable-alpine
+FROM nginx:1.25.3-alpine
 
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/build /usr/share/nginx/html

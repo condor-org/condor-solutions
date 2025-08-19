@@ -30,8 +30,33 @@ class Turno(models.Model):
         blank=True
     )
 
+    comprobante_abono = models.ForeignKey(
+        "pagos_core.ComprobanteAbono",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="turnos",
+        help_text="Si el turno pertenece a un AbonoMes pagado, todos comparten este comprobante."
+    )
+
     # Se setea al reservar (no al generar). Mantiene core genérico.
     tipo_turno = models.CharField(max_length=50, null=True, blank=True)
+
+    abono_mes_reservado = models.ForeignKey(
+        "turnos_padel.AbonoMes",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="turnos_reservados_directos"
+    )
+
+    abono_mes_prioridad = models.ForeignKey(
+        "turnos_padel.AbonoMes",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="turnos_prioridad_directos"
+    )
 
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
@@ -136,8 +161,16 @@ class TurnoBonificado(models.Model):
     generado_automaticamente = models.BooleanField(default=False)
     emitido_por = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="bonificaciones_emitidas_manual")
 
-    # NEW: código textual del tipo de turno (obligatorio para atar el bono al tipo)
+
     tipo_turno = models.CharField(max_length=50)
+
+    usado_en_abono = models.ForeignKey(
+        "turnos_padel.AbonoMes",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="bonificaciones_usadas"
+    )
+
 
     usado = models.BooleanField(default=False)
     fecha_creacion = models.DateTimeField(auto_now_add=True)

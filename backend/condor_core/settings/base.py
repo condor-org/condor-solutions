@@ -48,6 +48,7 @@ PROJECT_APPS = [
     'apps.auth_core',
     'apps.clientes_core',
     'apps.turnos_padel',
+    'apps.common',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + PROJECT_APPS

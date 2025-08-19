@@ -1,8 +1,10 @@
+// src/pages/usuario/JugadorDashboard.jsx
 import React, { useContext, useEffect, useState } from "react";
 import { AuthContext } from "../../auth/AuthContext";
 import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import ReservarTurno from "./ReservarTurno";
+import ReservarAbono from "./ReservarAbono"; // ← agregado
 import { FaCalendarCheck, FaCreditCard, FaClock } from "react-icons/fa";
 import {
   Modal,
@@ -65,7 +67,6 @@ const JugadorDashboard = () => {
     setMostrarReserva(modo);
     onOpen();
   };
-  
 
   const closeModal = () => {
     setMostrarReserva(null);
@@ -90,20 +91,25 @@ const JugadorDashboard = () => {
             Reservar turno
           </Button>
           <Button onClick={() => { setMostrarReserva("misTurnos"); onOpen(); }} variant="secondary">
-            Mis turnos
+            Mis Reservas
+          </Button>
+          <Button onClick={() => { setMostrarReserva("abono"); onOpen(); }} variant="secondary">
+            Reservar Abono
           </Button>
         </Flex>
-
 
         <Modal isOpen={isOpen} onClose={closeModal} size="6xl" isCentered>
           <ModalOverlay />
           <ModalContent bg={modal.bg} color={modal.color} maxW="6xl" p={0}>
             <ModalBody>
-            <ReservarTurno
-              onClose={closeModal}
-              defaultMisTurnos={mostrarReserva === "misTurnos"}
-            />
-
+              {mostrarReserva === "abono" ? (
+                <ReservarAbono onClose={closeModal} />
+              ) : (
+                <ReservarTurno
+                  onClose={closeModal}
+                  defaultMisTurnos={mostrarReserva === "misTurnos"}
+                />
+              )}
             </ModalBody>
           </ModalContent>
         </Modal>

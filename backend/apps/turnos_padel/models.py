@@ -1,4 +1,102 @@
 from django.db import models
+from django.conf import settings
+from django.db.models import Q
+
+
+
+
+TIPO_CODIGO_CHOICES = [
+    ("x1", "Individual"),
+    ("x2", "2 Personas"),
+    ("x3", "3 Personas"),
+    ("x4", "4 Personas"),
+]
+
+
+class AbonoMes(models.Model):
+    ESTADOS = [
+        ("pagado", "Pagado"),               # turnos confirmados
+        ("vencido", "No pagado a tiempo"),  # prioridad no usada
+        ("cancelado", "Cancelado"),         # baja manual
+    ]
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="abonos_mensuales"
+    )
+    sede = models.ForeignKey(
+        "turnos_core.Lugar",
+        on_delete=models.CASCADE,
+        related_name="abonos_mensuales"
+    )
+    prestador = models.ForeignKey(
+        "turnos_core.Prestador",
+        on_delete=models.CASCADE,
+        related_name="abonos_mensuales"
+    )
+    tipo_clase = models.ForeignKey(
+        "turnos_padel.TipoClasePadel",
+        on_delete=models.PROTECT,
+        related_name="abonos"
+    )
+
+    tipo_abono = models.ForeignKey(
+        "turnos_padel.TipoAbonoPadel",
+        on_delete=models.PROTECT,
+        related_name="abonos",
+        null=True, blank=True,   # ← primera migración suave
+    )
+
+    anio = models.IntegerField()
+    mes = models.IntegerField()
+    dia_semana = models.IntegerField(choices=[
+        (0, "Lunes"), (1, "Martes"), (2, "Miércoles"), (3, "Jueves"),
+        (4, "Viernes"), (5, "Sábado"), (6, "Domingo")
+    ])
+    hora = models.TimeField()
+
+    monto = models.DecimalField(max_digits=10, decimal_places=2)
+    estado = models.CharField(max_length=20, choices=ESTADOS, default="pagado")
+    
+    renovado = models.BooleanField(
+        default=False,
+        help_text="Se marca True si fue renovado con un abono del mes siguiente"
+    )
+
+    fecha_limite_renovacion = models.DateField(null=True, blank=True)
+
+    turnos_reservados = models.ManyToManyField(
+        "turnos_core.Turno",
+        blank=True,
+        related_name="abonos_confirmados"
+    )
+
+    turnos_prioridad = models.ManyToManyField(
+        "turnos_core.Turno",
+        blank=True,
+        related_name="abonos_prioritarios"
+    )
+
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["sede", "prestador", "anio", "mes", "dia_semana", "hora"],
+                condition=models.Q(estado__in=["pagado"]),
+                name="uq_abono_mes_franja_pagada"
+            )
+        ]
+        indexes = [
+            models.Index(fields=["usuario", "anio", "mes"]),
+            models.Index(fields=["sede", "prestador", "anio", "mes"]),
+        ]
+
+    def __str__(self):
+        return f"AbonoMes {self.usuario_id} {self.anio}-{self.mes:02d} {self.get_dia_semana_display()} {self.hora}"
+
 
 class ConfiguracionSedePadel(models.Model):
     sede = models.OneToOneField(
@@ -15,12 +113,42 @@ class ConfiguracionSedePadel(models.Model):
 
 class TipoClasePadel(models.Model):
     configuracion_sede = models.ForeignKey(
-        ConfiguracionSedePadel,
+        "turnos_padel.ConfiguracionSedePadel",   # ← referencia perezosa por string
         on_delete=models.CASCADE,
         related_name="tipos_clase"
     )
-    nombre = models.CharField(max_length=50)
+    codigo = models.CharField(max_length=2, choices=TIPO_CODIGO_CHOICES)
     precio = models.DecimalField(max_digits=10, decimal_places=2)
+    activo = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["configuracion_sede", "codigo"],
+                name="uq_tipo_clase_por_sede_codigo",
+            )
+        ]
 
     def __str__(self):
-        return f"{self.nombre} ({self.configuracion_sede.sede.nombre}) - ${self.precio}"
+        return f"{self.get_codigo_display()} ({self.configuracion_sede.sede.nombre}) - ${self.precio}"
+
+class TipoAbonoPadel(models.Model):
+    configuracion_sede = models.ForeignKey(
+        "ConfiguracionSedePadel",
+        on_delete=models.CASCADE,
+        related_name="tipos_abono"
+    )
+    codigo = models.CharField(max_length=2, choices=TIPO_CODIGO_CHOICES)
+    precio = models.DecimalField(max_digits=10, decimal_places=2)  # precio mensual del abono
+    activo = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["configuracion_sede", "codigo"],
+                name="uq_tipo_abono_por_sede_codigo",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.get_codigo_display()} - {self.precio}"

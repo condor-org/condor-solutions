@@ -14,9 +14,9 @@ import {
 import { useModalColors, useMutedText, useCardColors, useInputColors } from "../../components/theme/tokens";
 import { CloseIcon } from "@chakra-ui/icons";
 
-import TurnoSelector from "../../components/forms/TurnoSelector";
-import TurnoCalendar from "../../components/calendar/TurnoCalendar";
-import ReservaPagoModal from "../../components/modals/ReservaPagoModal";
+import TurnoSelector from "../../components/forms/TurnoSelector.jsx";
+import TurnoCalendar from "../../components/calendar/TurnoCalendar.jsx";
+import ReservaPagoModal from "../../components/modals/ReservaPagoModal.jsx";
 
 const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
   const { accessToken } = useContext(AuthContext);
@@ -47,17 +47,18 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
   const card = useCardColors();
   const input = useInputColors();
 
-    // --- map tipo_clase.nombre -> tipo_turno ---
-  const mapTipo = { "individual": "individual", "2 personas": "x2", "3 personas": "x3", "4 personas": "x4" };
-
   const tipoClaseSeleccionada = tiposClase.find(tc => String(tc.id) === String(tipoClaseId));
-  const nombreTipo = (tipoClaseSeleccionada?.nombre || "").trim().toLowerCase();
-  const tipoTurnoSeleccionado = mapTipo[nombreTipo] || null;
+
+
+  const codigoSel = tipoClaseSeleccionada?.codigo;
+  const tipoTurnoSeleccionado =
+    codigoSel === "x2" ? "x2" :
+    codigoSel === "x3" ? "x3" :
+    codigoSel === "x4" ? "x4" : "x1";
+  
 
   // ¿hay bono del mismo tipo?
-  const tieneBonoDeEsteTipo = tipoTurnoSeleccionado
-    ? bonificaciones.some(b => b.tipo_turno === tipoTurnoSeleccionado)
-    : false;
+  const tieneBonoDeEsteTipo = bonificaciones.length > 0;
 
   // si cambia el tipo y ya no hay bono, apago el toggle
   useEffect(() => {
@@ -148,15 +149,22 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
 
   }, [sedeId, profesorId, accessToken]);
 
-// cargar Bonificaciones cuando el modal de pago está abierto
+  // cargar Bonificaciones cuando el modal de pago está abierto
   useEffect(() => {
-  if (!pagoDisc.isOpen || !accessToken) return;
+    if (!pagoDisc.isOpen || !accessToken || !tipoClaseId) {
+      setBonificaciones([]); // coherencia visual si cambió el tipo o cerraste el modal
+      return;
+    }
+
     const api = axiosAuth(accessToken);
-    api.get("/turnos/bonificados/mios/")
-      .then(res => setBonificaciones(res.data || []))
-      .catch(() => setBonificaciones([]));
-  }, [pagoDisc.isOpen, accessToken]);
-  
+    api.get("turnos/bonificados/mios/", { params: { tipo_clase_id: tipoClaseId } })
+      .then(res => setBonificaciones(Array.isArray(res.data) ? res.data : (res.data?.bonificaciones || [])))
+      .catch((err) => {
+        console.warn("[bonos.fetch] error", err);
+        setBonificaciones([]);
+      });
+  }, [pagoDisc.isOpen, accessToken, tipoClaseId]); 
+    
 
   const handleEventClick = (info) => {
     const isReservado = info.event.extendedProps.estado === "reservado";
@@ -314,11 +322,10 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
 
       // 🔄 Refrescar bonificaciones
       try {
-        const res = await api.get("/turnos/bonificados/mios/");
-        const nuevasBonos = res.data.bonificaciones || res.data || [];
+        const res = await api.get("turnos/bonificados/mios/", { params: { tipo_clase_id: tipoClaseId } });
+        const nuevasBonos = Array.isArray(res.data) ? res.data : (res.data?.bonificaciones || []);
         setBonificaciones(nuevasBonos);
-
-        // ✅ Opcional: mostrar toast si ya no quedan más bonificaciones
+      
         if (usarBonificado && nuevasBonos.length === 0) {
           toast({
             title: "Sin más bonificaciones",
@@ -474,7 +481,7 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
             onConfirmar={handleReserva}
             loading={loading}
             tiempoRestante={configPago?.tiempo_maximo_minutos ? configPago.tiempo_maximo_minutos * 60 : undefined}
-            bonificaciones={bonificaciones.filter(b => b.tipo_turno === tipoTurnoSeleccionado)}
+            bonificaciones={bonificaciones}
             usarBonificado={usarBonificado}
             setUsarBonificado={setUsarBonificado}
             alias={configPago.alias}
