@@ -21,7 +21,7 @@ import {
   FormLabel
 } from "@chakra-ui/react";
 import { FaCalendarAlt, FaClock, FaTrash } from "react-icons/fa";
-import CountdownClock from "../ui/CountdownClock";
+import CountdownClock from "../ui/CountdownClock.jsx";
 
 const LABELS = {
   x1: "Individual",

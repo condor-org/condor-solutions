@@ -161,8 +161,16 @@ class TurnoBonificado(models.Model):
     generado_automaticamente = models.BooleanField(default=False)
     emitido_por = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="bonificaciones_emitidas_manual")
 
-    # NEW: código textual del tipo de turno (obligatorio para atar el bono al tipo)
+
     tipo_turno = models.CharField(max_length=50)
+
+    usado_en_abono = models.ForeignKey(
+        "turnos_padel.AbonoMes",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="bonificaciones_usadas"
+    )
+
 
     usado = models.BooleanField(default=False)
     fecha_creacion = models.DateTimeField(auto_now_add=True)

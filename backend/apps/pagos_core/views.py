@@ -1,6 +1,6 @@
 # apps/pagos_core/views.py
 
-from rest_framework import status
+from rest_framework import status, serializers
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated, BasePermission, SAFE_METHODS
@@ -27,7 +27,13 @@ from django.db import transaction
 
 from apps.turnos_padel.models import AbonoMes
 from apps.turnos_core.models import Turno, TurnoBonificado
-from apps.turnos_padel.services.abonos import reservar_abono_mes_actual_y_prioridad
+from apps.turnos_padel.services.abonos import confirmar_y_reservar_abono
+
+from decimal import Decimal, InvalidOperation
+from apps.turnos_padel.serializers import AbonoMesSerializer
+from apps.turnos_core.services.bonificaciones import bonificaciones_vigentes
+
+logger = logging.getLogger(__name__)
 
 
 class ComprobanteView(ListCreateAPIView):
@@ -311,47 +317,131 @@ class ComprobanteAbonoView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
-    def post(self, request, *args, **kwargs):
-        logger = logging.getLogger(__name__)
-
-        ser = ComprobanteAbonoUploadSerializer(data=request.data, context={"request": request})
-        ser.is_valid(raise_exception=True)
-        comprobante = ser.save()
-        abono = comprobante.abono_mes
-
-        logger.info(
-            "[abono.comprobante.upload] abono=%s user=%s sede=%s prestador=%s %s-%02d %s@%s",
-            abono.id, request.user.id, abono.sede_id, abono.prestador_id,
-            abono.anio, abono.mes, abono.get_dia_semana_display(), abono.hora
-        )
-
-        # 🔒 Reservar mes actual (pagado, con comprobante) + mes siguiente (prioridad, sin comprobante)
+    def _cleanup_abono_si_corresponde(self, user, abono_id, reason=""):
         try:
-            from apps.turnos_padel.services.abonos import reservar_abono_mes_actual_y_prioridad
-            reservar_abono_mes_actual_y_prioridad(abono, comprobante_abono=comprobante)
+            with transaction.atomic():
+                abono = AbonoMes.objects.filter(
+                    id=abono_id, usuario=user
+                ).first()
+                if abono and abono.turnos_reservados.count() == 0 and abono.turnos_prioridad.count() == 0:
+                    logger.info("[abono.cleanup] Eliminando abono %s (motivo: %s)", abono_id, reason)
+                    abono.delete()
         except Exception as e:
-            # Rollback coherente: si falla la reserva, eliminamos intento y comprobante
-            PagoIntento.objects.filter(
-                content_type__model="comprobanteabono",
-                object_id=comprobante.id
-            ).delete()
-            comprobante.delete()
-            logger.exception("[abono.reserve][fail] abono=%s err=%s", abono.id, str(e))
+            logger.warning("[abono.cleanup] No se pudo eliminar abono %s: %s", abono_id, str(e))
+
+    def post(self, request, *args, **kwargs):
+        abono_id = request.data.get("abono_mes_id")
+        if not abono_id:
+            raise serializers.ValidationError({"abono_mes_id": "Este campo es obligatorio."})
+
+        # bonificaciones_ids vienen como múltiples keys en multipart (no JSON):
+        raw_ids = request.data.getlist("bonificaciones_ids")
+        bono_ids = []
+        for x in raw_ids:
+            s = (str(x) or "").strip()
+            if not s:
+                continue
+            try:
+                bono_ids.append(int(s))
+            except ValueError:
+                raise serializers.ValidationError({"bonificaciones_ids": f"Valor inválido: {x}"})
+
+        archivo = request.FILES.get("archivo")  # puede ser None si neto == 0
+
+        try:
+            with transaction.atomic():
+                # Bloqueamos el abono
+                try:
+                    abono = (
+                        AbonoMes.objects
+                        .select_for_update()
+                        .select_related("tipo_abono", "tipo_clase", "sede", "prestador", "usuario")
+                        .get(id=abono_id, usuario=request.user)
+                    )
+                except AbonoMes.DoesNotExist:
+                    raise serializers.ValidationError({"abono_mes_id": "Abono no encontrado para este usuario."})
+
+                if abono.estado in ("pagado", "pendiente_validacion"):
+                    return Response(
+                        {"detalle": "Este abono ya fue procesado."},
+                        status=status.HTTP_200_OK
+                    )
+
+                # Precios
+                precio_abono = getattr(abono.tipo_abono or abono.tipo_clase, "precio", None)
+                precio_clase = getattr(abono.tipo_clase, "precio", None)
+                try:
+                    precio_abono = Decimal(precio_abono)
+                    precio_clase = Decimal(precio_clase)
+                except (InvalidOperation, TypeError):
+                    raise serializers.ValidationError({"precio": "Precios inválidos en la configuración."})
+
+                # Bonificaciones elegibles por tipo (x1/x2/x3/x4 + alias históricos)
+                tipo_code = (getattr(abono.tipo_clase, "codigo", "") or "").strip().lower()
+                alias_map = {
+                    "x1": {"x1", "individual"},
+                    "x2": {"x2", "2 personas"},
+                    "x3": {"x3", "3 personas"},
+                    "x4": {"x4", "4 personas"},
+                }
+                aliases = alias_map.get(tipo_code, {tipo_code})
+
+                bonos_qs = bonificaciones_vigentes(request.user).filter(tipo_turno__in=list(aliases))
+                if bono_ids:
+                    bonos_qs = bonos_qs.filter(id__in=bono_ids)
+                bonos = list(bonos_qs.order_by("fecha_creacion"))
+                bonos_count = len(bonos)
+
+                # Neto = precio_abono - (bonos * precio_clase)
+                neto = precio_abono - (precio_clase * bonos_count)
+                if neto < 0:
+                    neto = Decimal("0")
+
+                # Si hay saldo, exigir comprobante
+                if neto > 0 and not archivo:
+                    raise serializers.ValidationError({"archivo": "El comprobante es obligatorio si queda saldo a pagar."})
+
+                logger.info(
+                    "[abono.confirm] abono=%s user=%s precio_abono=%s bonos=%s precio_clase=%s neto=%s",
+                    abono.id, request.user.id, precio_abono, bonos_count, precio_clase, neto
+                )
+   
+                # Aplicar bonificaciones a turnos del mes actual (en orden cronológico)
+                turnos_actual = list(
+                    abono.turnos_reservados.select_related("lugar").order_by("fecha", "hora", "id")
+                )
+                aplicados = []
+                for bono, turno in zip(bonos, turnos_actual):
+                    bono.marcar_usado(turno)
+                    aplicados.append(bono.id)
+
+                # Estado final
+                abono.estado = "pagado" if neto == 0 else "pendiente_validacion"
+                abono.monto = precio_abono
+                abono.save(update_fields=["estado", "monto"])
+
+                data_abono = AbonoMesSerializer(abono).data
+                data_abono["monto_sugerido"] = float(precio_abono)
+
+                return Response({
+                    "mensaje": "✅ Abono confirmado.",
+                    "abono": data_abono,
+                    "resumen": {
+                        **resumen,
+                        "bonos_aplicados": aplicados,
+                        "neto": float(neto),
+                        "comprobante_subido": bool(archivo),
+                    }
+                }, status=status.HTTP_201_CREATED)
+
+        except serializers.ValidationError as e:
+            # Cleanup: si falló la confirmación y el abono no reservó nada, lo borramos
+            self._cleanup_abono_si_corresponde(request.user, abono_id, reason="validación")
+            return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.exception("[abono.confirm] Error inesperado abono=%s: %s", abono_id, str(e))
+            self._cleanup_abono_si_corresponde(request.user, abono_id, reason="excepción")
             return Response(
-                {"detail": f"No se pudo reservar el abono: {str(e)}"},
-                status=status.HTTP_409_CONFLICT
+                {"detalle": "Ocurrió un error al confirmar el abono."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
-        logger.info(
-            "[abono.reserve][ok] abono=%s reservados=%s prioridad=%s vence=%s",
-            abono.id, abono.turnos_reservados.count(), abono.turnos_prioridad.count(), abono.fecha_limite_renovacion
-        )
-
-        return Response({
-            "mensaje": "✅ Comprobante de abono recibido. Turnos reservados para este mes y prioridad para el próximo.",
-            "abono_mes_id": abono.id,
-            "comprobante_abono_id": comprobante.id,
-            "reservados": abono.turnos_reservados.count(),
-            "prioridad": abono.turnos_prioridad.count(),
-            "vence": str(abono.fecha_limite_renovacion),
-        }, status=status.HTTP_201_CREATED)

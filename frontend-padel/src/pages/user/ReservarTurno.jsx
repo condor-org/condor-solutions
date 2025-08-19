@@ -14,9 +14,9 @@ import {
 import { useModalColors, useMutedText, useCardColors, useInputColors } from "../../components/theme/tokens";
 import { CloseIcon } from "@chakra-ui/icons";
 
-import TurnoSelector from "../../components/forms/TurnoSelector";
-import TurnoCalendar from "../../components/calendar/TurnoCalendar";
-import ReservaPagoModal from "../../components/modals/ReservaPagoModal";
+import TurnoSelector from "../../components/forms/TurnoSelector.jsx";
+import TurnoCalendar from "../../components/calendar/TurnoCalendar.jsx";
+import ReservaPagoModal from "../../components/modals/ReservaPagoModal.jsx";
 
 const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
   const { accessToken } = useContext(AuthContext);

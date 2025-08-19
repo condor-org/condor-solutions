@@ -554,26 +554,16 @@ def _tipo_code_y_aliases(tipo_clase_id: int):
     """
     Devuelve (code, aliases_set) para el tipo_clase dado.
     code ∈ {"x1","x2","x3","x4"}.
-    aliases incluye formas históricas ("individual", "2 personas", etc.).
     """
     try:
         tc = TipoClasePadel.objects.get(pk=tipo_clase_id)
     except TipoClasePadel.DoesNotExist:
         return None, set()
 
-    code = getattr(tc, "code", None)
-    nombre_norm = (tc.nombre or "").strip().lower()
+    code = (getattr(tc, "codigo", "") or "").strip().lower()
+    if code not in {"x1", "x2", "x3", "x4"}:
+        code = None
 
-    mapping = {
-        "individual": "x1", "x1": "x1",
-        "2 personas": "x2", "x2": "x2",
-        "3 personas": "x3", "x3": "x3",
-        "4 personas": "x4", "x4": "x4",
-    }
-    if not code:
-        code = mapping.get(nombre_norm)
-
-    # sinónimos históricos; incluimos ambas formas
     inv_aliases = {
         "x1": {"individual"},
         "x2": {"2 personas"},
@@ -582,6 +572,7 @@ def _tipo_code_y_aliases(tipo_clase_id: int):
     }
     aliases = set(a.lower() for a in inv_aliases.get(code, set()))
     return code, aliases
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])

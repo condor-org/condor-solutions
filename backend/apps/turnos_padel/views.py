@@ -8,6 +8,9 @@ from apps.common.permissions import (
     EsSuperAdmin,
     SoloLecturaUsuariosFinalesYEmpleados
 )
+
+from rest_framework import serializers
+
 from apps.turnos_core.models import Lugar, Turno, TurnoBonificado
 from apps.turnos_padel.models import ConfiguracionSedePadel, TipoClasePadel, AbonoMes, TipoAbonoPadel
 from apps.turnos_padel.serializers import (
@@ -32,7 +35,10 @@ from rest_framework.request import Request
 from rest_framework.parsers import JSONParser
 from io import BytesIO
 import json
-from apps.turnos_padel.services.abonos import reservar_abono_mes_actual_y_prioridad
+from apps.turnos_padel.services.abonos import confirmar_y_reservar_abono
+from apps.turnos_padel.services.abonos import validar_y_confirmar_abono  # NUEVA función que vas a crear
+
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -170,40 +176,31 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         logger.info("[AbonoMesViewSet:create] Usuario: %s (%s)", user.id, user.tipo_usuario)
         logger.debug("[AbonoMesViewSet:create] Data original: %s", request.data)
 
-        # Si es usuario final, fuerza su propio ID como usuario
         data = request.data.copy()
+
         if user.tipo_usuario == "usuario_final":
             usuario_id = data.get("usuario")
             if usuario_id and int(usuario_id) != user.id:
                 return Response({"detail": "No podés crear abonos para otro usuario."}, status=403)
             data["usuario"] = user.id
 
-        serializer = self.get_serializer(data=data)
-        serializer.is_valid(raise_exception=True)
-        logger.debug("[AbonoMesViewSet:create] Serializer validado: %s", serializer.validated_data)
+        # Extraemos bonificaciones y archivo
+        bonificaciones_ids = data.getlist("bonificaciones_ids") if hasattr(data, "getlist") else data.get("bonificaciones_ids", [])
+        archivo = data.get("archivo")
 
-        abono, resumen = self.perform_create(serializer)
+        # Validamos, confirmamos y reservamos todo en un solo paso
+        try:
+            abono, resumen = validar_y_confirmar_abono(data=data, bonificaciones_ids=bonificaciones_ids, archivo=archivo, request=request)
+        except serializers.ValidationError as e:
+            return Response(e.detail, status=400)
 
-        # Serializamos de nuevo para incluir relaciones y campos calculados
         resp_serializer = self.get_serializer(abono)
         payload = resp_serializer.data
         payload["resumen"] = resumen
         payload["monto_sugerido"] = resumen.get("monto_sugerido")
 
-        logger.info("[AbonoMesViewSet:create] Abono creado exitosamente con turnos")
-        return Response(payload, status=status.HTTP_201_CREATED, headers=self.get_success_headers(payload))
-
-    @transaction.atomic
-    def perform_create(self, serializer):
-        abono = serializer.save()
-        logger.info("[AbonoMesViewSet:perform_create] Abono ID %s creado", abono.id)
-
-        try:
-            abono, resumen = reservar_abono_mes_actual_y_prioridad(abono)
-            return abono, resumen
-        except ValueError as e:
-            logger.warning("[AbonoMesViewSet:perform_create] Error al reservar turnos: %s", str(e))
-            raise serializers.ValidationError({"detalle": str(e)})
+        logger.info("[AbonoMesViewSet:create] Abono creado y reservado correctamente")
+        return Response(payload, status=201)
 
     @action(detail=False, methods=["GET"], url_path="disponibles")
     def disponibles(self, request):
@@ -218,10 +215,20 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             logger.warning("[abonos.disponibles] Parámetros inválidos")
             return Response({"detail": "Parámetros inválidos"}, status=status.HTTP_400_BAD_REQUEST)
 
-        hora_filtro = request.query_params.get("hora")  # opcional
-        tipo_codigo = request.query_params.get("tipo_codigo")  # opcional 👈
+        hora_filtro = request.query_params.get("hora")        # opcional
+        tipo_codigo = request.query_params.get("tipo_codigo") # opcional
 
-        # ... (autorización igual)
+        # --- autorización por cliente/sede ---
+        sede = Lugar.objects.select_related("cliente").filter(id=sede_id).first()
+        if not sede:
+            return Response({"detail": "Sede no encontrada"}, status=404)
+
+        user = request.user
+        if user.tipo_usuario == "admin_cliente" and sede.cliente_id != getattr(user, "cliente_id", None):
+            return Response({"detail": "No autorizado para esta sede"}, status=403)
+        if user.tipo_usuario not in ("super_admin", "admin_cliente"):
+            if getattr(user, "cliente_id", None) != sede.cliente_id:
+                return Response({"detail": "No autorizado"}, status=403)
 
         # 1) Tipos de clase activos (con filtro opcional por código)
         tipos_qs = TipoClasePadel.objects.filter(
@@ -229,7 +236,7 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             activo=True
         ).only("id", "codigo", "precio")
         if tipo_codigo:
-            tipos_qs = tipos_qs.filter(codigo=tipo_codigo)  # 👈 reduce payload y esfuerzo
+            tipos_qs = tipos_qs.filter(codigo=tipo_codigo)
 
         tipos_map = [{
             "id": t.id,
@@ -253,7 +260,7 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
 
         hoy = timezone.localdate()
         fechas_actual_todas = fechas_mes(anio, mes, dia_semana)
-        fechas_actual = [d for d in fechas_actual_todas if d >= hoy]  # 👈 clave del fix
+        fechas_actual = [d for d in fechas_actual_todas if d >= hoy]
         prox_anio, prox_mes = proximo_mes(anio, mes)
         fechas_prox = fechas_mes(prox_anio, prox_mes, dia_semana)
 
@@ -281,7 +288,6 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         if hora_filtro:
             turnos_qs = turnos_qs.filter(hora=hora_filtro)
 
-        # 4) Armo mapa por hora y exijo continuidad para TODAS las fechas restantes del mes actual + todo el próximo
         por_hora = {}
         for t in turnos_qs:
             h = t.hora.isoformat()
@@ -289,10 +295,8 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
 
         horas_libres = []
         for h, mapa in por_hora.items():
-            # Debe existir un turno en cada fecha futura y cumplir condiciones
             if not all(f in mapa for f in fechas_total):
                 continue
-
             ok = True
             for f in fechas_total:
                 t = mapa[f]
@@ -302,7 +306,6 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
                     ok = False; break
                 if hasattr(t, "bloqueado_para_reservas") and getattr(t, "bloqueado_para_reservas", False):
                     ok = False; break
-
             if ok:
                 horas_libres.append(h)
 
@@ -314,114 +317,35 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             sede_id, prestador_id, dia_semana, anio, mes, horas_libres, [t["codigo"] for t in tipos_map]
         )
         return Response(result, status=200)
-        logger.info("[abonos.disponibles] params=%s", dict(request.query_params))
-        try:
-            sede_id = int(request.query_params.get("sede_id"))
-            prestador_id = int(request.query_params.get("prestador_id"))
-            dia_semana = int(request.query_params.get("dia_semana"))  # 0..6
-            anio = int(request.query_params.get("anio"))
-            mes = int(request.query_params.get("mes"))
-        except (TypeError, ValueError):
-            logger.warning("[abonos.disponibles] Parámetros inválidos")
-            return Response({"detail": "Parámetros inválidos"}, status=status.HTTP_400_BAD_REQUEST)
 
-        hora_filtro = request.query_params.get("hora")  # opcional
-
-        sede = Lugar.objects.select_related("cliente").filter(id=sede_id).first()
-        if not sede:
-            return Response({"detail": "Sede no encontrada"}, status=404)
-
+    @action(detail=False, methods=["post"], url_path="reservar")
+    def reservar(self, request):
+        """
+        Endpoint alternativo para reservar abonos en un solo paso.
+        """
         user = request.user
-        if user.tipo_usuario == "admin_cliente" and sede.cliente_id != getattr(user, "cliente_id", None):
-            return Response({"detail": "No autorizado para esta sede"}, status=403)
-        if user.tipo_usuario not in ("super_admin", "admin_cliente"):
-            if getattr(user, "cliente_id", None) != sede.cliente_id:
-                return Response({"detail": "No autorizado"}, status=403)
+        data = request.data.copy()
 
-        tipos_qs = TipoClasePadel.objects.filter(
-            configuracion_sede__sede_id=sede_id, activo=True
-        ).only("id", "codigo", "precio")
-        tipos_map = [
-            {
-                "id": t.id,
-                "codigo": t.codigo,
-                "nombre": t.get_codigo_display(),
-                "precio": t.precio,
-            } for t in tipos_qs
-        ]
+        if user.tipo_usuario == "usuario_final":
+            usuario_id = data.get("usuario")
+            if usuario_id and int(usuario_id) != user.id:
+                return Response({"detail": "No podés crear abonos para otro usuario."}, status=403)
+            data["usuario"] = user.id
 
-
-        def fechas_mes(anio_i, mes_i, dsem):
-            cal = Calendar(firstweekday=0)
-            out = []
-            for week in cal.monthdatescalendar(anio_i, mes_i):
-                for d in week:
-                    if d.month == mes_i and d.weekday() == dsem:
-                        out.append(d)
-            return out
-
-        def proximo_mes(anio_i, mes_i):
-            return (anio_i + 1, 1) if mes_i == 12 else (anio_i, mes_i + 1)
-
-        fechas_actual = fechas_mes(anio, mes, dia_semana)
-        prox_anio, prox_mes = proximo_mes(anio, mes)
-        fechas_prox = fechas_mes(prox_anio, prox_mes, dia_semana)
-        if not fechas_actual and not fechas_prox:
-            logger.info("[abonos.disponibles] sin fechas para el día de semana")
-            return Response([], status=200)
-
-        fechas_total = fechas_actual + fechas_prox
+        bonificaciones_ids = data.getlist("bonificaciones_ids") if hasattr(data, "getlist") else data.get("bonificaciones_ids", [])
+        archivo = data.get("archivo")
 
         try:
-            ct_prestador = ContentType.objects.get(app_label="turnos_core", model="prestador")
-        except ContentType.DoesNotExist:
-            logger.error("[abonos.disponibles] ContentType prestador no encontrado")
-            return Response({"detail": "Error de configuración (prestador)"}, status=500)
+            abono, resumen = validar_y_confirmar_abono(data=data, bonificaciones_ids=bonificaciones_ids, archivo=archivo, request=request)
+        except serializers.ValidationError as e:
+            return Response(e.detail, status=400)
 
-        base_q = Q(lugar_id=sede_id) & Q(content_type=ct_prestador, object_id=prestador_id) & Q(fecha__in=fechas_total)
+        serializer = self.get_serializer(abono)
+        payload = serializer.data
+        payload["resumen"] = resumen
+        payload["monto_sugerido"] = resumen.get("monto_sugerido")
 
-        turnos_qs = Turno.objects.filter(base_q).only(
-            "id", "fecha", "hora", "estado",
-            "abono_mes_reservado", "abono_mes_prioridad", "lugar_id"
-        )
-        if hora_filtro:
-            turnos_qs = turnos_qs.filter(hora=hora_filtro)
-
-        por_hora = {}
-        for t in turnos_qs:
-            # t.hora es time -> to_str
-            h = t.hora.isoformat()
-            por_hora.setdefault(h, {})[t.fecha] = t
-
-        horas_libres = []
-        for h, mapa in por_hora.items():
-            if not all(f in mapa for f in fechas_total):
-                continue
-            ok = True
-            for f in fechas_total:
-                t = mapa[f]
-                if t.estado != "disponible":
-                    ok = False; break
-                if getattr(t, "abono_mes_reservado", False) or getattr(t, "abono_mes_prioridad", False):
-                    ok = False; break
-                if hasattr(t, "bloqueado_para_reservas") and getattr(t, "bloqueado_para_reservas", False):
-                    ok = False; break
-            if ok:
-                horas_libres.append(h)
-
-        horas_libres.sort()
-
-        result = []
-        for h in horas_libres:
-            for tipo in tipos_map:
-                result.append({"hora": h, "tipo_clase": tipo})
-
-        logger.info(
-            "[abonos.disponibles] sede=%s prestador=%s dsem=%s anio=%s mes=%s -> horas=%s",
-            sede_id, prestador_id, dia_semana, anio, mes, horas_libres
-        )
-        return Response(result, status=200)
-
+        return Response(payload, status=201)
 class TipoAbonoPadelViewSet(viewsets.ModelViewSet):
     authentication_classes = [JWTAuthentication]
     permission_classes = [EsAdminDeSuCliente | EsSuperAdmin | SoloLecturaUsuariosFinalesYEmpleados]

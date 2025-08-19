@@ -235,15 +235,30 @@ class ConfiguracionPagoSerializer(LoggedModelSerializer):
 
 class ComprobanteAbonoUploadSerializer(serializers.Serializer):
     abono_mes_id = serializers.IntegerField()
-    archivo = serializers.FileField()
-    monto_esperado = serializers.DecimalField(max_digits=10, decimal_places=2)
+    archivo = serializers.FileField(required=False)  # sólo si monto > 0
+    bonificaciones_ids = serializers.ListField(
+        child=serializers.IntegerField(), required=False, allow_empty=True
+    )
+
+    def validate(self, attrs):
+        user = self.context["request"].user
+        try:
+            abono = AbonoMes.objects.select_related("sede__cliente").get(pk=attrs["abono_mes_id"])
+        except AbonoMes.DoesNotExist:
+            raise serializers.ValidationError({"abono_mes_id": "Abono no encontrado"})
+
+        if abono.sede.cliente_id != getattr(user, "cliente_id", None):
+            raise serializers.ValidationError({"abono_mes_id": "No tenés permiso sobre este abono"})
+
+        return attrs
 
     def create(self, validated_data):
+        from apps.pagos_core.services.comprobantes import ComprobanteService
         usuario = self.context["request"].user
         return ComprobanteService.upload_comprobante_abono(
             abono_mes_id=validated_data["abono_mes_id"],
-            file_obj=validated_data["archivo"],
+            file_obj=validated_data.get("archivo"),
             usuario=usuario,
             cliente=getattr(usuario, "cliente", None),
-            monto_esperado=validated_data["monto_esperado"],
+            bonificaciones_ids=validated_data.get("bonificaciones_ids") or [],
         )

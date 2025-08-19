@@ -4,7 +4,6 @@ import hashlib
 import re
 from datetime import datetime
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
 from django.utils import timezone
 from apps.turnos_core.models import Turno
 from PyPDF2 import PdfReader
@@ -13,11 +12,12 @@ from PIL import Image
 import pytesseract
 import logging
 from apps.turnos_padel.models import AbonoMes
-from apps.common.permissions import EsSuperAdmin, EsAdminDeSuCliente
 from apps.pagos_core.models import ComprobantePago, ConfiguracionPago, PagoIntento, ComprobanteAbono
 
 from django.contrib.contenttypes.models import ContentType
 from apps.turnos_core.models import Prestador
+
+from django.db import transaction
 
 logger = logging.getLogger(__name__)
 
@@ -31,75 +31,6 @@ ANTIGUEDAD_MAXIMA_DE_COMPROBANTE_EN_MINUTOS = 150000
 
 
 class ComprobanteService:
-
-    @classmethod
-    @transaction.atomic
-    def upload_comprobante_abono(
-        cls,
-        abono_mes_id: int,
-        file_obj,
-        usuario,
-        cliente=None,
-        alias=None,
-        cbu_cvu=None,
-        monto_esperado=None,
-        ip_cliente=None,
-        user_agent=None,
-    ) -> ComprobanteAbono:
-        # 1) cargar AbonoMes y validar pertenencia
-        try:
-            abono = AbonoMes.objects.select_related("sede__cliente","tipo_clase__configuracion_sede").get(pk=abono_mes_id)
-        except AbonoMes.DoesNotExist:
-            raise ValidationError("AbonoMes no existe.")
-
-        cliente = cliente or usuario.cliente
-        if abono.sede.cliente_id != cliente.id:
-            raise PermissionDenied("No tenés acceso a este AbonoMes.")
-
-        # 2) validar duplicado
-        checksum = cls._generate_hash(file_obj)
-        if ComprobanteAbono.objects.filter(hash_archivo=checksum).exists():
-            raise ValidationError("Comprobante duplicado.")
-
-        # 3) datos de validación
-        alias = alias or abono.tipo_clase.configuracion_sede.alias
-        cbu_cvu = cbu_cvu or abono.tipo_clase.configuracion_sede.cbu_cvu
-        if monto_esperado is None:
-            raise ValidationError("Debe indicarse el monto esperado para el abono.")
-
-        config_data = {
-            "cbu": cbu_cvu,
-            "alias": alias,
-            "monto_esperado": float(monto_esperado),
-            "tiempo_maximo_minutos": ANTIGUEDAD_MAXIMA_DE_COMPROBANTE_EN_MINUTOS,
-        }
-
-        datos = cls._parse_and_validate(file_obj, config_data)
-
-        # 4) crear ComprobanteAbono
-        comprobante = ComprobanteAbono.objects.create(
-            cliente=cliente,
-            abono_mes=abono,
-            archivo=file_obj,
-            hash_archivo=checksum,
-            datos_extraidos=datos,
-        )
-
-        # 5) crear PagoIntento
-        PagoIntento.objects.create(
-            cliente=cliente,
-            usuario=usuario,
-            estado="pre_aprobado",
-            monto_esperado=datos.get("monto", config_data["monto_esperado"]),
-            moneda="ARS",
-            alias_destino=datos.get("alias") or f"Usando CBU/CVU {datos.get('cbu_destino')}",
-            cbu_destino=datos.get("cbu_destino") or f"Usando alias {datos.get('alias')}",
-            origen=comprobante,
-            tiempo_expiracion=timezone.now() + timezone.timedelta(minutes=config_data["tiempo_maximo_minutos"]),
-        )
-
-        logger.info("[abono.comprobante.upload] abono=%s monto_esp=%s hash=%s", abono.id, monto_esperado, checksum)
-        return comprobante
 
     @staticmethod
     def download_comprobante(comprobante_id: int, usuario) -> ComprobantePago:
@@ -137,7 +68,62 @@ class ComprobanteService:
         except ConfiguracionPago.DoesNotExist:
             raise ValidationError("No hay ConfiguracionPago definida para este cliente.")
 
+    @classmethod
+    @transaction.atomic
+    def validar_y_crear_comprobante_abono(cls, abono, file_obj, usuario, monto_esperado: float):
+        """
+        Valida el comprobante contra alias/CBU de la sede y el monto_esperado (restante).
+        Crea ComprobanteAbono y un PagoIntento. No modifica turnos ni bonificaciones.
+        """
+        if not file_obj:
+            raise ValidationError("Debés subir comprobante.")
 
+        # hash para evitar duplicados
+        checksum = cls._generate_hash(file_obj)
+        if ComprobanteAbono.objects.filter(hash_archivo=checksum).exists():
+            raise ValidationError("Comprobante duplicado.")
+
+        # Datos de la sede (alias/cbu)
+        alias = abono.tipo_clase.configuracion_sede.alias
+        cbu_cvu = abono.tipo_clase.configuracion_sede.cbu_cvu
+        if not (alias or cbu_cvu):
+            raise ValidationError("Alias/CBU no configurados para la sede.")
+
+        config_data = {
+            "cbu": cbu_cvu,
+            "alias": alias,
+            "monto_esperado": float(monto_esperado),
+            "tiempo_maximo_minutos": ANTIGUEDAD_MAXIMA_DE_COMPROBANTE_EN_MINUTOS,
+        }
+
+        # Validación OCR/parseo
+        datos = cls._parse_and_validate(file_obj, config_data)
+
+        # Crear ComprobanteAbono
+        comprobante = ComprobanteAbono.objects.create(
+            cliente=usuario.cliente,
+            abono_mes=abono,
+            archivo=file_obj,
+            hash_archivo=checksum,
+            datos_extraidos=datos,
+        )
+
+        # Intento de pago
+        alias_dest = datos.get("alias") or (f"Usando CBU/CVU {datos.get('cbu_destino')}" if datos.get("cbu_destino") else "")
+        cbu_dest = datos.get("cbu_destino") or (f"Usando alias {datos.get('alias')}" if datos.get("alias") else "")
+        PagoIntento.objects.create(
+            cliente=usuario.cliente,
+            usuario=usuario,
+            estado="pre_aprobado",
+            monto_esperado=datos.get("monto", float(monto_esperado)),
+            moneda="ARS",
+            alias_destino=alias_dest,
+            cbu_destino=cbu_dest,
+            origen=comprobante,
+            tiempo_expiracion=timezone.now() + timezone.timedelta(minutes=config_data["tiempo_maximo_minutos"]),
+        )
+
+        return comprobante
     @staticmethod
     def _extract_text(file_obj) -> str:
         ext = file_obj.name.rsplit(".", 1)[-1].lower()
@@ -164,7 +150,6 @@ class ComprobanteService:
 
     @staticmethod
     def _extract_monto(texto: str, monto_esperado=None):
-        import re
 
         def normalizar_monto(monto_str):
             monto_str = monto_str.strip()

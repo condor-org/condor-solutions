@@ -13,6 +13,9 @@ from apps.turnos_padel.utils import proximo_mes
 import logging
 logger = logging.getLogger(__name__)
 
+from django.utils import timezone
+
+
 class TipoClasePadelSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False)
 
@@ -206,8 +209,12 @@ class AbonoMesSerializer(serializers.ModelSerializer):
             "tipo_clase", "tipo_abono", "monto", "estado", "creado_en", "actualizado_en", "fecha_limite_renovacion"
         ]
         read_only_fields = ["estado", "creado_en", "actualizado_en", "fecha_limite_renovacion"]
-        # 🔒 Evitamos que DRF genere UniqueTogetherValidator que ignora la condición del constraint:
+        # Evitamos UniqueTogetherValidator implícito
         validators = []
+        # No exigir 'monto' en el payload; lo calculamos nosotros
+        extra_kwargs = {
+            "monto": {"required": False, "allow_null": True}
+        }
 
     def validate(self, attrs):
         usuario = attrs["usuario"]
@@ -232,7 +239,7 @@ class AbonoMesSerializer(serializers.ModelSerializer):
                 "franja": "Ya existe un abono pagado para esa franja (sede, prestador, día y hora)."
             })
 
-        # 1) Validar que todo sea del mismo cliente
+        # 1) Todo del mismo cliente
         cliente_id = sede.cliente_id
         if not (
             getattr(usuario, "cliente_id", None) == cliente_id and
@@ -249,19 +256,32 @@ class AbonoMesSerializer(serializers.ModelSerializer):
             )
             raise serializers.ValidationError("Todos los elementos del abono deben pertenecer al mismo cliente.")
 
-        # 2) tipo_clase debe ser de la sede seleccionada
+        # 2) tipo_clase pertenece a la sede
         if tipo_clase.configuracion_sede.sede_id != sede.id:
             raise serializers.ValidationError({
                 "tipo_clase": "El tipo de clase no pertenece a la sede seleccionada."
             })
 
-        # 3) Validar existencia de todos los turnos requeridos (mes actual y próximo)
-        fechas_actual = self._fechas_del_mes_por_dia_semana(anio, mes, dia_semana)
-        if not fechas_actual:
-            raise serializers.ValidationError("No hay fechas válidas en el mes para ese día de semana.")
+        # Helpers
+        def _proximo_mes(anio_i, mes_i):
+            return (anio_i + 1, 1) if mes_i == 12 else (anio_i, mes_i + 1)
 
-        prox_anio, prox_mes = proximo_mes(anio, mes)
+        # 3) Validar existencia de turnos requeridos
+        # Mes actual -> SOLO fechas >= hoy
+        hoy = timezone.localdate()
+        fechas_actual_todas = self._fechas_del_mes_por_dia_semana(anio, mes, dia_semana)
+        fechas_actual = [d for d in fechas_actual_todas if d >= hoy]
+
+        prox_anio, prox_mes = _proximo_mes(anio, mes)
         fechas_prox = self._fechas_del_mes_por_dia_semana(prox_anio, prox_mes, dia_semana)
+
+        logger.debug(
+            "[abonos.validate] hoy=%s anio=%s mes=%s dsem=%s -> actual_total=%s actual_fut=%s prox=%s",
+            hoy, anio, mes, dia_semana, len(fechas_actual_todas), len(fechas_actual), len(fechas_prox)
+        )
+
+        if not fechas_actual and not fechas_prox:
+            raise serializers.ValidationError("No hay fechas futuras para ese día de semana en este ni en el próximo mes.")
 
         def _chequear_mes(fechas, etiqueta):
             qs = Turno.objects.filter(
@@ -272,23 +292,31 @@ class AbonoMesSerializer(serializers.ModelSerializer):
 
             faltantes = [f for f in fechas if f not in turnos_map]
             if faltantes:
+                logger.warning(
+                    "[abonos.validate][faltantes] etiqueta=%s faltan=%s ej=%s",
+                    etiqueta, len(faltantes), faltantes[:3]
+                )
                 raise serializers.ValidationError({
                     etiqueta: f"Faltan turnos generados para {len(faltantes)} fecha(s)."
                 })
 
             reservados = [t for t in turnos_map.values() if t.estado == "reservado"]
             if reservados:
+                logger.warning(
+                    "[abonos.validate][reservados] etiqueta=%s count=%s",
+                    etiqueta, len(reservados)
+                )
                 raise serializers.ValidationError({
                     etiqueta: "Hay turnos ya reservados en la franja; no se puede crear el abono."
                 })
 
-        _chequear_mes(fechas_actual, "mes_actual")
+        if fechas_actual:
+            _chequear_mes(fechas_actual, "mes_actual")
         if fechas_prox:
             _chequear_mes(fechas_prox, "mes_siguiente")
 
-        # tipo_abono debe pertenecer a la sede
+        # 4) tipo_abono debe pertenecer a la sede (si viene)
         tipo_abono = attrs.get("tipo_abono")
-        sede = attrs["sede"]
         if tipo_abono and tipo_abono.configuracion_sede.sede_id != sede.id:
             raise serializers.ValidationError({
                 "tipo_abono": "El tipo de abono no pertenece a la sede seleccionada."
@@ -305,3 +333,41 @@ class AbonoMesSerializer(serializers.ModelSerializer):
                 if d.month == mes and d.weekday() == dia_semana:
                     fechas.append(d)
         return fechas
+
+    # Calculamos 'monto' automáticamente si no viene en el request
+    def create(self, validated_data):
+        tipo_abono = validated_data.get("tipo_abono") or validated_data.get("tipo_clase")
+        monto_in = validated_data.get("monto", None)
+
+        if monto_in in (None, ""):
+            precio = getattr(tipo_abono, "precio", None)
+            if precio is None:
+                logger.warning(
+                    "[abonos.create][no_precio] tipo_abono=%s tipo_clase=%s -> monto=0",
+                    getattr(validated_data.get("tipo_abono"), "id", None),
+                    getattr(validated_data.get("tipo_clase"), "id", None),
+                )
+                validated_data["monto"] = 0
+            else:
+                validated_data["monto"] = precio
+
+        logger.info(
+            "[abonos.create] usuario=%s sede=%s prestador=%s dsem=%s hora=%s anio=%s mes=%s tipo=%s monto=%s",
+            getattr(validated_data.get("usuario"), "id", None),
+            getattr(validated_data.get("sede"), "id", None),
+            getattr(validated_data.get("prestador"), "id", None),
+            validated_data.get("dia_semana"),
+            validated_data.get("hora"),
+            validated_data.get("anio"),
+            validated_data.get("mes"),
+            getattr(tipo_abono, "id", None),
+            validated_data.get("monto"),
+        )
+        return super().create(validated_data)
+
+    # Añadimos 'monto_sugerido' en la respuesta (útil para el front)
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        tipo_ref = getattr(instance, "tipo_abono", None) or getattr(instance, "tipo_clase", None)
+        data["monto_sugerido"] = getattr(tipo_ref, "precio", None) if tipo_ref else None
+        return data

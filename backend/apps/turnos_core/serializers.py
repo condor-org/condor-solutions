@@ -18,6 +18,9 @@ from apps.turnos_core.services.bonificaciones import (
 
 from apps.turnos_padel.models import TipoClasePadel
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 Usuario = get_user_model()
@@ -85,9 +88,22 @@ class TurnoReservaSerializer(serializers.Serializer):
         archivo = validated_data.get("archivo")
 
         # --- Resolver code canónico para tipo_turno (x1/x2/x3/x4) ---
-        tipo_turno = getattr(tipo_clase, "code", None)
+        # 1) directo por atributos (code/codigo)
+        tipo_turno = getattr(tipo_clase, "code", None) or getattr(tipo_clase, "codigo", None)
+
+        # 2) si no, inferir desde display del choice o 'nombre' si existiera
         if not tipo_turno:
-            nombre_norm = (tipo_clase.nombre or "").strip().lower()
+            try:
+                display = tipo_clase.get_codigo_display() if hasattr(tipo_clase, "get_codigo_display") else ""
+            except Exception:
+                display = ""
+            nombre_norm = (
+                getattr(tipo_clase, "nombre", None)   # puede no existir en tu modelo actual
+                or display
+                or getattr(tipo_clase, "codigo", "")
+            )
+            nombre_norm = str(nombre_norm).strip().lower()
+
             mapping = {
                 "individual": "x1", "x1": "x1",
                 "2 personas": "x2", "x2": "x2",
@@ -95,6 +111,16 @@ class TurnoReservaSerializer(serializers.Serializer):
                 "4 personas": "x4", "x4": "x4",
             }
             tipo_turno = mapping.get(nombre_norm)
+
+        logger.debug(
+            "[TurnoReservaSerializer.create] user=%s turno=%s tipo_clase(id=%s) -> {code:%s,codigo:%s,display:%s} => tipo_turno=%s",
+            user.id, turno.id, getattr(tipo_clase, "id", None),
+            getattr(tipo_clase, "code", None),
+            getattr(tipo_clase, "codigo", None),
+            (tipo_clase.get_codigo_display() if hasattr(tipo_clase, "get_codigo_display") else None),
+            tipo_turno,
+        )
+
         if not tipo_turno:
             raise DRFValidationError({"tipo_clase_id": "Tipo de clase inválido para la reserva."})
 
@@ -113,9 +139,23 @@ class TurnoReservaSerializer(serializers.Serializer):
             ).order_by("fecha_creacion")
 
             bono = qs.first()
+
+            # Descripción amigable del tipo para el mensaje
+            try:
+                desc = tipo_clase.get_codigo_display() if hasattr(tipo_clase, "get_codigo_display") else ""
+            except Exception:
+                desc = ""
+            if not desc:
+                desc = getattr(tipo_clase, "codigo", "") or "esta clase"
+
+            logger.info(
+                "[turno.reservar][bono] user=%s turno=%s tipo=%s disponibles=%s elegido=%s",
+                user.id, turno.id, tipo_turno, qs.count(), (getattr(bono, "id", None) if bono else None)
+            )
+
             if not bono:
                 raise DRFValidationError({
-                    "usar_bonificado": f"No tenés bonificaciones disponibles para {tipo_clase.nombre}."
+                    "usar_bonificado": f"No tenés bonificaciones disponibles para {desc}."
                 })
 
             # Marcar bono usado en este turno
@@ -138,15 +178,20 @@ class TurnoReservaSerializer(serializers.Serializer):
                     alias=tipo_clase.configuracion_sede.alias,
                     monto=tipo_clase.precio
                 )
+                logger.info(
+                    "[turno.reservar][comprobante] user=%s turno=%s comp_id=%s monto=%s",
+                    user.id, turno.id, getattr(comprobante, "id", None), tipo_clase.precio
+                )
             except DjangoValidationError as e:
                 mensaje = e.messages[0] if hasattr(e, "messages") else str(e)
                 raise DRFValidationError({"error": f"Comprobante inválido: {mensaje}"})
             except DjangoPermissionDenied as e:
                 raise DRFPermissionDenied({"error": str(e)})
             except Exception as e:
+                logger.exception("[turno.reservar][comprobante][fail] user=%s turno=%s err=%s", user.id, turno.id, str(e))
                 raise DRFValidationError({"error": f"Error inesperado: {str(e)}"})
 
-            PagoIntento.objects.create(
+            pi = PagoIntento.objects.create(
                 cliente=user.cliente,
                 usuario=user,
                 estado="pre_aprobado",
@@ -158,14 +203,22 @@ class TurnoReservaSerializer(serializers.Serializer):
                 object_id=comprobante.id,
                 tiempo_expiracion=timezone.now() + timezone.timedelta(minutes=60),
             )
+            logger.info(
+                "[turno.reservar][pago_intento] user=%s turno=%s intento_id=%s monto_esperado=%s",
+                user.id, turno.id, getattr(pi, "id", None), tipo_clase.precio
+            )
 
         # --- Confirmar reserva y setear tipo_turno en el turno ---
         turno.usuario = user
         turno.estado = "reservado"
         turno.tipo_turno = tipo_turno
         turno.save(update_fields=["usuario", "estado", "tipo_turno"])
-        return turno
 
+        logger.info(
+            "[turno.reservar][ok] user=%s turno=%s estado=%s tipo_turno=%s",
+            user.id, turno.id, turno.estado, turno.tipo_turno
+        )
+        return turno
 
 class CancelarTurnoSerializer(serializers.Serializer):
     turno_id = serializers.IntegerField()
