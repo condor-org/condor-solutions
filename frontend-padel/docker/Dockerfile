@@ -8,7 +8,12 @@ WORKDIR /app
 # Copiar package.json y dependencias
 COPY ../package.json ../package-lock.json ./
 
-RUN npm install
+# 👇 Nuevo: mover la cache fuera de /root y limpiar antes de instalar
+ENV NPM_CONFIG_CACHE=/tmp/.npm
+RUN mkdir -p $NPM_CONFIG_CACHE \
+ && npm cache clean --force \
+ && rm -rf /root/.npm || true \
+ && npm ci --no-audit --no-fund
 
 # Copiar el código del proyecto
 COPY ../public ./public

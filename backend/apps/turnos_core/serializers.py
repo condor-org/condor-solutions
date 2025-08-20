@@ -31,17 +31,42 @@ class TurnoSerializer(LoggedModelSerializer):
     recurso = serializers.SerializerMethodField()
     usuario = serializers.CharField(source="usuario.username", read_only=True)
     lugar = serializers.CharField(source="lugar.nombre", read_only=True)
+    prestador_nombre = serializers.SerializerMethodField(read_only=True)
+
 
     class Meta:
         model = Turno
         fields = [
-            "id", "fecha", "hora", "estado", "servicio", "recurso", "usuario", "lugar", "tipo_turno",
+            "id", "fecha", "hora", "estado", "servicio", "recurso", "usuario", "lugar", "tipo_turno", "prestador_nombre",
         ]
 
     def get_recurso(self, obj):
         if hasattr(obj, "recurso"):
             return str(obj.recurso)
         return None
+
+    def get_prestador_nombre(self, obj):
+        """
+        Si el recurso del turno es un Prestador, devolvemos su nombre público.
+        Si el recurso es de otro tipo, devolvemos None.
+        No modifica el modelo; usa el GenericForeignKey ya existente.
+        """
+        try:
+            recurso = getattr(obj, "recurso", None)
+            if recurso is None:
+                return None
+            # Import local para evitar ciclos
+            from apps.turnos_core.models import Prestador
+            if isinstance(recurso, Prestador):
+                # Prioridad: nombre_publico -> email del user -> str(recurso)
+                return (
+                    getattr(recurso, "nombre_publico", None)
+                    or getattr(getattr(recurso, "user", None), "email", None)
+                    or str(recurso)
+                )
+            return None
+        except Exception:
+            return None
 
 class TurnoReservaSerializer(serializers.Serializer):
     turno_id = serializers.IntegerField()
