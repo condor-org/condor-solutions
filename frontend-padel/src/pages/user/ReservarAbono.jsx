@@ -320,7 +320,6 @@ const ReservarAbono = ({ onClose }) => {
     <Box w="100%" maxW="1000px" mx="auto" mt={8} p={6} bg={card.bg} color={card.color} rounded="xl" boxShadow="2xl">
       <HStack justify="space-between" mb={4} align="end">
         <Text fontSize="2xl" fontWeight="bold">Reservar Abono Mensual</Text>
-        <Button variant="secondary" onClick={onClose}>Cerrar</Button>
       </HStack>
 
       <VStack align="stretch" spacing={3}>

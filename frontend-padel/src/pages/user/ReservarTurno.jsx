@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useContext } from "react";
+import React, { useEffect, useState, useContext, useRef } from "react";
 import { AuthContext } from "../../auth/AuthContext";
 import { axiosAuth } from "../../utils/axiosAuth";
 import FullCalendar from "@fullcalendar/react";
@@ -8,7 +8,9 @@ import interactionPlugin from "@fullcalendar/interaction";
 import {
   Box, Button, Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter,
   ModalCloseButton, Input, Text, useDisclosure, useToast, Select,
-  VStack, HStack, Divider, IconButton, Badge, useBreakpointValue
+  VStack, HStack, Divider, IconButton, Badge, useBreakpointValue,
+  AlertDialog, AlertDialogOverlay, AlertDialogContent, AlertDialogHeader,
+  AlertDialogBody, AlertDialogFooter
 } from "@chakra-ui/react";
 
 import { useModalColors, useMutedText, useCardColors, useInputColors } from "../../components/theme/tokens";
@@ -17,6 +19,57 @@ import { CloseIcon } from "@chakra-ui/icons";
 import TurnoSelector from "../../components/forms/TurnoSelector.jsx";
 import TurnoCalendar from "../../components/calendar/TurnoCalendar.jsx";
 import ReservaPagoModal from "../../components/modals/ReservaPagoModal.jsx";
+
+// Helper genérico para traer todas las páginas de un endpoint DRF
+async function fetchAllPages(api, url, { params = {}, maxPages = 50, pageSize = 100, logTag = "fetchAllPages" } = {}) {
+  const items = [];
+  let nextUrl = url;
+  let page = 0;
+  let currentParams = { ...params, limit: params.limit ?? pageSize, offset: params.offset ?? 0 };
+
+  try {
+    let res = await api.get(nextUrl, { params: currentParams });
+    let data = res.data;
+
+    if (!("results" in data) && !("next" in data)) {
+      console.debug(`[${logTag}] Respuesta no paginada. Normalizando.`, { url: nextUrl });
+      const arr = Array.isArray(data) ? data : (data?.results || []);
+      return arr;
+    }
+
+    while (true) {
+      page += 1;
+      const results = data?.results ?? [];
+      items.push(...results);
+
+      console.debug(`[${logTag}] Página ${page} | acumulados=${items.length} | next=${data?.next ?? "null"}`);
+
+      if (!data?.next) break;
+      if (results.length === 0) {
+        console.warn(`[${logTag}] Corte por results.length === 0 en página ${page}.`);
+        break;
+      }
+      if (page >= maxPages) {
+        console.error(`[${logTag}] Corte por maxPages=${maxPages}.`, { url });
+        break;
+      }
+
+      const isAbsolute = typeof data.next === "string" && /^https?:\/\//i.test(data.next);
+      if (isAbsolute) {
+        res = await api.get(data.next);
+      } else {
+        const nextOffset = (currentParams.offset ?? 0) + (currentParams.limit ?? pageSize);
+        currentParams = { ...currentParams, offset: nextOffset };
+        res = await api.get(nextUrl, { params: currentParams });
+      }
+      data = res.data;
+    }
+  } catch (err) {
+    console.error(`[${logTag}] Error al paginar`, { url, params, err });
+  }
+  return items;
+}
+
 
 const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
   const { accessToken } = useContext(AuthContext);
@@ -46,6 +99,10 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
   const [configPago, setConfigPago] = useState({});
   const card = useCardColors();
   const input = useInputColors();
+  // Confirmación de cancelación (reemplaza window.confirm)
+  const [confirmCancel, setConfirmCancel] = useState({ open: false, turno: null });
+  const cancelDialogRef = useRef();
+
 
   const tipoClaseSeleccionada = tiposClase.find(tc => String(tc.id) === String(tipoClaseId));
 
@@ -195,12 +252,7 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
   };
   
   const handleCancelarTurno = async (turno) => {
-    const fechaLegible = new Date(`${turno.fecha}T${turno.hora}`).toLocaleString("es-AR", {
-      weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit"
-    });
-  
-    if (!window.confirm(`¿Cancelar el turno del ${fechaLegible}?`)) return;
-  
+     
     setCancelandoId(turno.id);
     try {
       const api = axiosAuth(accessToken);
@@ -236,12 +288,19 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
     if (!accessToken) return;
     setLoadingMisTurnos(true);
     const api = axiosAuth(accessToken);
+  
     try {
-      // solo próximos y reservados
-      const res = await api.get("turnos/?estado=reservado&upcoming=1");
-      const data = res.data.results || res.data || [];
-      setMisTurnos(Array.isArray(data) ? data : []);
-    } catch {
+      // Traer TODAS las páginas de mis turnos (próximos + reservados)
+      const turnos = await fetchAllPages(api, "turnos/", {
+        params: { estado: "reservado", upcoming: 1 },
+        pageSize: 100,
+        logTag: "mis-reservas"
+      });
+  
+      setMisTurnos(Array.isArray(turnos) ? turnos : []);
+      console.debug("[mis-reservas] total turnos:", turnos.length);
+    } catch (e) {
+      console.error("[mis-reservas] error", e);
       toast({ title: "Error", description: "No se pudieron cargar tus turnos.", status: "error" });
       setMisTurnos([]);
     } finally {
@@ -250,10 +309,26 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
   };
   
   
+  
   const abrirMisTurnos = () => {
     misTurnosDisc.onOpen();
     cargarMisTurnos();
   };
+  const abrirConfirmacionCancelacion = (turno) => {
+    setConfirmCancel({ open: true, turno });
+  };
+  
+  const cerrarConfirmacionCancelacion = () => {
+    setConfirmCancel({ open: false, turno: null });
+  };
+  
+  const confirmarCancelacion = async () => {
+    const t = confirmCancel.turno;
+    if (!t) return;
+    await handleCancelarTurno(t);   // reutiliza el handler existente
+    cerrarConfirmacionCancelacion();
+  };
+  
   
   const handleReserva = async () => {
   if (!turnoSeleccionado || !tipoClaseId) {
@@ -397,12 +472,7 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
   return (
     <Box w="100%" maxW="1000px" mx="auto" mt={8} p={6} bg={card.bg} color={card.color} rounded="xl" boxShadow="2xl">
       {defaultMisTurnos ? (
-        <>
-          <HStack justify="space-between" mb={4}>
-            <Text fontSize="2xl" fontWeight="bold">Mis turnos</Text>
-            <Button variant="secondary" onClick={onClose}>Cerrar</Button>
-          </HStack>
-  
+        <>  
           {loadingMisTurnos ? (
             <Text color={muted}>Cargando...</Text>
           ) : misTurnos.length === 0 ? (
@@ -415,6 +485,7 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
                     <Box>
                       <Text fontWeight="semibold">{t.lugar_nombre || t.lugar || "Sede"}</Text>
                       <Text fontSize="sm" color={muted}>{t.fecha} · {t.hora?.slice(0,5)}</Text>
+                      <Text fontSize="sm" color={muted}> Profesor: {t.prestador_nombre || "N/D"}</Text>
                       <HStack mt={2} spacing={2}>
                         <Badge colorScheme="green">reservado</Badge>
                         {t.prestador_nombre && <Badge variant="outline">{t.prestador_nombre}</Badge>}
@@ -424,7 +495,7 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
                       size="sm"
                       variant="danger"            // o tu variant custom
                       isLoading={cancelandoId === t.id}
-                      onClick={() => handleCancelarTurno(t)}
+                      onClick={() => abrirConfirmacionCancelacion(t)}
                     >
                       Cancelar
                     </Button>
@@ -511,7 +582,7 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
                             size="sm"
                             variant="danger"
                             isLoading={cancelandoId === t.id}
-                            onClick={() => handleCancelarTurno(t)}
+                            onClick={() => abrirConfirmacionCancelacion(t)}
                           >
                             Cancelar
                           </Button>
@@ -528,6 +599,64 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
           </Modal>
         </>
       )}
+      {/* Confirmación de cancelación */}
+      <AlertDialog
+        isOpen={confirmCancel.open}
+        leastDestructiveRef={cancelDialogRef}
+        onClose={cerrarConfirmacionCancelacion}
+        isCentered
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent bg={modal.bg} color={modal.color}>
+            <AlertDialogHeader fontWeight="bold">
+              Confirmar cancelación
+            </AlertDialogHeader>
+
+            <AlertDialogBody>
+              {(() => {
+                const t = confirmCancel.turno;
+                const fechaLegible = t
+                  ? new Date(`${t.fecha}T${t.hora}`).toLocaleString("es-AR", {
+                      weekday: "long",
+                      day: "numeric",
+                      month: "long",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : "";
+                return (
+                  <>
+                    ¿Querés cancelar el turno del <b>{fechaLegible}</b>?
+                    <br />
+                    <br />
+                    <Badge colorScheme="yellow" variant="subtle">Importante</Badge>{" "}
+                    Si este turno fue reservado usando una <b>bonificación</b>, <b>no se emitirá una nueva bonificación</b> al cancelarlo.
+                  </>
+                );
+              })()}
+            </AlertDialogBody>
+
+            <AlertDialogFooter>
+              <Button
+                ref={cancelDialogRef}
+                variant="secondary"
+                onClick={cerrarConfirmacionCancelacion}
+              >
+                Volver
+              </Button>
+              <Button
+                ml={3}
+                variant="danger"
+                onClick={confirmarCancelacion}
+                isLoading={!!(confirmCancel.turno && cancelandoId === confirmCancel.turno.id)}
+              >
+                Cancelar turno
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
+
     </Box>
   );
   
