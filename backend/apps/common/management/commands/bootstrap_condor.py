@@ -8,13 +8,40 @@ import logging, random, string
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
-def _alias_random(n=10): return ''.join(random.choices(string.ascii_uppercase + string.digits, k=n))
-def _cbu_random(): return ''.join(random.choices('0123456789', k=22))
+
+def _alias_random(n=10):
+    """Generate a random alphanumeric alias.
+
+    Args:
+        n (int, optional): Length of the alias. Defaults to ``10``.
+
+    Returns:
+        str: Random string of uppercase letters and digits.
+    """
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=n))
+
+
+def _cbu_random():
+    """Generate a random 22-digit CBU value.
+
+    Returns:
+        str: Random numeric string representing a CBU.
+    """
+    return ''.join(random.choices('0123456789', k=22))
 
 class Command(BaseCommand):
-    help = "Bootstrap Condor: usuarios base, cliente/sedes/config, tipos, prestador/disponibilidades y generación de turnos via cron real."
+    """Management command to bootstrap Condor with sample data."""
+
+    help = (
+        "Bootstrap Condor: usuarios base, cliente/sedes/config, tipos, prestador/disponibilidades y generación de turnos via cron real."
+    )
 
     def add_arguments(self, parser):
+        """Register command-line arguments for the bootstrap process.
+
+        Args:
+            parser (ArgumentParser): Parser used to add command options.
+        """
         parser.add_argument("--super-email", default="superadmin@sadmin.com")
         parser.add_argument("--super-pass", default="sadmin123")
         parser.add_argument("--cliente-nombre", default="Lucas Padel")
@@ -24,9 +51,20 @@ class Command(BaseCommand):
         parser.add_argument("--prof-pass", default="lucas123")
         parser.add_argument("--user-email", default="nacho@nacho.com")
         parser.add_argument("--user-pass", default="nacho123")
-        parser.add_argument("--skip-migrate", action="store_true", help="No ejecutar 'migrate' antes del bootstrap.")
+        parser.add_argument(
+            "--skip-migrate", action="store_true", help="No ejecutar 'migrate' antes del bootstrap."
+        )
 
     def handle(self, *args, **opts):
+        """Execute bootstrap operations creating base entities and data.
+
+        Args:
+            *args: Positional arguments provided to the command.
+            **opts: Parsed command-line options.
+
+        Side Effects:
+            Writes progress to stdout and creates database records.
+        """
         # 0) Migraciones (fuera de transacciones)
         if not opts["skip_migrate"]:
             self.stdout.write(self.style.WARNING("[bootstrap] Ejecutando 'migrate'..."))
@@ -77,6 +115,14 @@ class Command(BaseCommand):
             precios_tipo_abono = {"x1": 70000, "x2": 120000, "x3": 160000, "x4": 200000}
 
             def ensure_sede(nombre_sede: str):
+                """Ensure a site and its configuration exist for the given name.
+
+                Args:
+                    nombre_sede (str): Name of the site to create or fetch.
+
+                Returns:
+                    Lugar: The site instance corresponding to ``nombre_sede``.
+                """
                 sede, created_s = Lugar.objects.get_or_create(
                     cliente=cliente, nombre=nombre_sede,
                     defaults={"direccion": "", "referente": "", "telefono": ""}
@@ -87,9 +133,14 @@ class Command(BaseCommand):
                     sede=sede, defaults={"alias": _alias_random(10), "cbu_cvu": _cbu_random()}
                 )
                 changed = False
-                if not config.alias: config.alias = _alias_random(10); changed = True
-                if not config.cbu_cvu: config.cbu_cvu = _cbu_random(); changed = True
-                if changed: config.save(update_fields=["alias", "cbu_cvu"])
+                if not config.alias:
+                    config.alias = _alias_random(10)
+                    changed = True
+                if not config.cbu_cvu:
+                    config.cbu_cvu = _cbu_random()
+                    changed = True
+                if changed:
+                    config.save(update_fields=["alias", "cbu_cvu"])
                 logger.info("[bootstrap]   Config: alias=%s cbu=%s", config.alias, config.cbu_cvu)
 
                 for codigo, precio in precios_tipo_clase.items():
@@ -97,16 +148,24 @@ class Command(BaseCommand):
                         configuracion_sede=config, codigo=codigo, defaults={"precio": precio, "activo": True}
                     )
                     if not created_tc and obj.precio != precio:
-                        obj.precio = precio; obj.save(update_fields=["precio"])
-                    logger.info("[bootstrap]   TipoClase %s $%s (%s)", obj.get_codigo_display(), obj.precio, "creado" if created_tc else "existente")
+                        obj.precio = precio
+                        obj.save(update_fields=["precio"])
+                    logger.info(
+                        "[bootstrap]   TipoClase %s $%s (%s)",
+                        obj.get_codigo_display(), obj.precio, "creado" if created_tc else "existente"
+                    )
 
                 for codigo, precio in precios_tipo_abono.items():
                     obj, created_ta = TipoAbonoPadel.objects.get_or_create(
                         configuracion_sede=config, codigo=codigo, defaults={"precio": precio, "activo": True}
                     )
                     if not created_ta and obj.precio != precio:
-                        obj.precio = precio; obj.save(update_fields=["precio"])
-                    logger.info("[bootstrap]   TipoAbono %s $%s (%s)", obj.get_codigo_display(), obj.precio, "creado" if created_ta else "existente")
+                        obj.precio = precio
+                        obj.save(update_fields=["precio"])
+                    logger.info(
+                        "[bootstrap]   TipoAbono %s $%s (%s)",
+                        obj.get_codigo_display(), obj.precio, "creado" if created_ta else "existente"
+                    )
                 return sede
 
             sede_belgrano = ensure_sede("Belgrano")
