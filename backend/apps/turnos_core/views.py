@@ -75,6 +75,9 @@ logger = logging.getLogger(__name__)
 
 from apps.turnos_padel.models import TipoClasePadel
 
+from apps.turnos_core.services.cancelaciones_admin import cancelar_turnos_admin
+
+
 class TurnoListView(ListAPIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -116,6 +119,42 @@ class TurnoReservaView(CreateAPIView):
         serializer = self.get_serializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         turno = serializer.save()
+        # al final de create(), antes del return
+        try:
+            from apps.notificaciones_core.services import publish_event, notify_inapp, TYPE_RESERVA_TURNO
+            turno = serializer.instance  # o la variable 'turno' si la tenés
+            cliente_id = getattr(request.user, "cliente_id", None)
+            ev = publish_event(
+                topic="turnos.reserva_confirmada",
+                actor=request.user,
+                cliente_id=cliente_id,
+                metadata={
+                    "turno_id": turno.id,
+                    "fecha": str(turno.fecha),
+                    "hora": str(turno.hora)[:5],
+                    "sede_id": turno.lugar_id,
+                    "usuario": getattr(request.user, "email", None),
+                },
+            )
+            # admins del cliente
+            from django.contrib.auth import get_user_model
+            Usuario = get_user_model()
+            admins = Usuario.objects.filter(
+                cliente_id=cliente_id, tipo_usuario__in=["admin_cliente", "super_admin"]
+            ).only("id", "cliente_id")
+            ctx = {
+                a.id: {
+                    "usuario": getattr(request.user, "email", None),
+                    "fecha": str(turno.fecha),
+                    "hora": str(turno.hora)[:5],
+                    "sede_nombre": getattr(turno.lugar, "nombre", None),
+                    "prestador": getattr(getattr(turno, "recurso", None), "nombre_publico", None),
+                } for a in admins
+            }
+            notify_inapp(event=ev, recipients=admins, notif_type=TYPE_RESERVA_TURNO, context_by_user=ctx, severity="info")
+        except Exception:
+            logger.exception("[notif][turno_reserva][fail]")
+
         return Response({"message": "Turno reservado exitosamente", "turno_id": turno.id})
 
 @extend_schema(
@@ -549,6 +588,86 @@ class CancelarTurnoView(APIView):
             "bonificacion_creada": bono_creado
         }, status=200)
 
+class CancelarPorSedeAdminView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente)]
+
+    def post(self, request):
+        data = request.data
+        try:
+            sede_id = int(data.get("sede_id"))
+            fecha_inicio = parse_date(data.get("fecha_inicio"))
+            fecha_fin = parse_date(data.get("fecha_fin"))
+            if not (sede_id and fecha_inicio and fecha_fin):
+                raise ValueError()
+        except Exception:
+            return Response({"detail": "Parámetros inválidos (sede_id, fecha_inicio, fecha_fin)"}, status=400)
+
+        # tenant check
+        sede = Lugar.objects.filter(id=sede_id).select_related("cliente").first()
+        if not sede:
+            return Response({"detail": "Sede no encontrada"}, status=404)
+        if request.user.tipo_usuario == "admin_cliente" and sede.cliente_id != request.user.cliente_id:
+            return Response({"detail": "No autorizado para esta sede"}, status=403)
+
+        prestador_ids = data.get("prestador_ids") or []
+        if isinstance(prestador_ids, str):
+            try:
+                # "1,2,3"
+                prestador_ids = [int(x) for x in prestador_ids.split(",") if x.strip()]
+            except Exception:
+                prestador_ids = []
+
+        resumen = cancelar_turnos_admin(
+            accion_por=request.user,
+            cliente_id=sede.cliente_id,
+            sede_id=sede_id,
+            prestador_ids=prestador_ids or None,
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+            hora_inicio=data.get("hora_inicio"),
+            hora_fin=data.get("hora_fin"),
+            motivo=(data.get("motivo") or "Cancelación administrativa"),
+            dry_run=bool(data.get("dry_run", False)),
+        )
+        return Response(resumen, status=200)
+
+class CancelarPorPrestadorAdminView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente)]
+
+    def post(self, request, prestador_id: int):
+        data = request.data
+        fecha_inicio = parse_date(data.get("fecha_inicio"))
+        fecha_fin = parse_date(data.get("fecha_fin"))
+        if not (fecha_inicio and fecha_fin):
+            return Response({"detail": "fecha_inicio y fecha_fin son requeridos"}, status=400)
+
+        # Si se acota a sede, validar tenant
+        sede_id = data.get("sede_id")
+        cliente_id = request.user.cliente_id
+        if sede_id:
+            sede = Lugar.objects.filter(id=sede_id).first()
+            if not sede:
+                return Response({"detail": "Sede no encontrada"}, status=404)
+            cliente_id = sede.cliente_id
+            if request.user.tipo_usuario == "admin_cliente" and cliente_id != request.user.cliente_id:
+                return Response({"detail": "No autorizado para esta sede"}, status=403)
+
+        resumen = cancelar_turnos_admin(
+            accion_por=request.user,
+            cliente_id=cliente_id,
+            sede_id=int(sede_id) if sede_id else None,
+            prestador_ids=[int(prestador_id)],
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+            hora_inicio=data.get("hora_inicio"),
+            hora_fin=data.get("hora_fin"),
+            motivo=(data.get("motivo") or "Cancelación administrativa"),
+            dry_run=bool(data.get("dry_run", False)),
+        )
+        return Response(resumen, status=200)
+
 
 def _tipo_code_y_aliases(tipo_clase_id: int):
     """
@@ -572,7 +691,6 @@ def _tipo_code_y_aliases(tipo_clase_id: int):
     }
     aliases = set(a.lower() for a in inv_aliases.get(code, set()))
     return code, aliases
-
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])

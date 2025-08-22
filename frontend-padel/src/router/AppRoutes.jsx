@@ -10,12 +10,11 @@ import LoginPage from "../pages/auth/LoginPage";
 import RegistroPage from "../pages/auth/RegistroPage";
 
 import DashboardPage from "../pages/admin/DashboardPage";
-import ConfiguracionPagoPage from "../pages/admin/ConfiguracionPagoPage";
 import SedesPage from "../pages/admin/SedesPage";
 import ProfesoresPage from "../pages/admin/ProfesoresPage";
 import UsuariosPage from "../pages/admin/UsuariosPage";
 import PagosPreaprobadosPage from "../pages/admin/PagosPreaprobadosPage";
-
+import CancelacionesPage from "../pages/admin/CancelacionesPage";
 import JugadorDashboard from "../pages/user/JugadorDashboard";
 import PerfilPage from "../pages/user/PerfilPage";
 import ReservarTurno from "../pages/user/ReservarTurno";
@@ -25,6 +24,7 @@ import NotFoundPage from "../pages/NotFoundPage";
 import MainLayout from "../components/layout/MainLayout";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import NotificacionesPage from "../pages/user/NotificacionesPage";
 
 const AppRoutes = () => {
   const { user } = useContext(AuthContext);
@@ -66,12 +66,12 @@ const AppRoutes = () => {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/admin/configuracion-pago"
+         <Route
+          path="/admin/cancelaciones"
           element={
             <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
               <MainLayout>
-                <ConfiguracionPagoPage />
+                <CancelacionesPage />
               </MainLayout>
             </ProtectedRoute>
           }
@@ -118,6 +118,16 @@ const AppRoutes = () => {
         />
 
         {/* Jugador */}
+        <Route
+          path="/notificaciones"
+          element={
+            <ProtectedRoute allowedRoles={["usuario_final"]}>
+              <MainLayout>
+                <NotificacionesPage />
+              </MainLayout>
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/jugador"
           element={

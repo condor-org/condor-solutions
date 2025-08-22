@@ -15,6 +15,8 @@ from apps.turnos_core.views import (
     CrearBonificacionManualView,
     bonificaciones_mias,
     CancelarTurnoView,
+    CancelarPorSedeAdminView,
+    CancelarPorPrestadorAdminView,
 )
 
 
@@ -35,4 +37,7 @@ urlpatterns = [
     path("prestador/mio/", prestador_actual),
     path("cancelar/", CancelarTurnoView.as_view(), name="cancelar-turno"),
     path("", include(router.urls)),
+    path("admin/cancelar_por_sede/", CancelarPorSedeAdminView.as_view(), name="cancelar-por-sede"),
+    path("prestadores/<int:prestador_id>/cancelar_en_rango/", CancelarPorPrestadorAdminView.as_view(), name="cancelar-por-prestador"),
+
 ]

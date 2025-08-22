@@ -6,6 +6,8 @@ from django.contrib.contenttypes.models import ContentType
 from django.conf import settings
 from apps.clientes_core.models import Cliente
 from django.utils import timezone
+import uuid
+
 
 class Turno(models.Model):
     ESTADOS = [
@@ -196,3 +198,25 @@ class TurnoBonificado(models.Model):
     def __str__(self):
         estado = "usado" if self.usado else "activo"
         return f"Bono {self.tipo_turno} para {self.usuario} ({estado})"
+
+class CancelacionAdmin(models.Model):
+    turno = models.OneToOneField("Turno", on_delete=models.CASCADE, related_name="cancelacion_admin")
+    accion_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="+"
+    )
+    usuario_afectado_id = models.IntegerField(null=True, blank=True)
+    motivo = models.CharField(max_length=200, blank=True)
+    event_id = models.UUIDField(default=uuid.uuid4, db_index=True)
+    bonificacion_emitida = models.BooleanField(default=False)
+    bonificacion_id = models.IntegerField(null=True, blank=True)
+    tipo_turno_usado = models.CharField(max_length=20, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    creado_en = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["event_id", "creado_en"]),
+        ]
+
+    def __str__(self):
+        return f"CancelaciónAdmin turno={self.turno_id} event={self.event_id}"

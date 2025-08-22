@@ -15,7 +15,7 @@ import ConfiguracionPagoPage from "./pages/admin/ConfiguracionPagoPage";
 import SedesPage from "./pages/admin/SedesPage";
 import ProfesoresPage from "./pages/admin/ProfesoresPage";
 import UsuariosPage from "./pages/admin/UsuariosPage";
-import PagosPreaprobadosPage from "./pages/admin/PagosPreaprobadosPage"; // <-- NUEVO
+import PagosPreaprobadosPage from "./pages/admin/PagosPreaprobadosPage";
 import JugadorDashboard from "./pages/user/JugadorDashboard";
 import PerfilPage from "./pages/user/PerfilPage";
 import ReservarTurno from "./pages/user/ReservarTurno";

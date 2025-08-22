@@ -408,7 +408,7 @@ const ProfesoresPage = () => {
             { label: "Sedes", path: "/admin/sedes" },
             { label: "Profesores", path: "/admin/profesores" },
             { label: "Usuarios", path: "/admin/usuarios" },
-            { label: "Configuración Pago", path: "/admin/configuracion-pago" },
+            { label: "Cancelaciones", path: "/admin/cancelaciones" },
             { label: "Pagos Preaprobados", path: "/admin/pagos-preaprobados" },
           ]}
         />
