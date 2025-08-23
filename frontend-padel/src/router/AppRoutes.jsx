@@ -25,6 +25,7 @@ import MainLayout from "../components/layout/MainLayout";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import NotificacionesPage from "../pages/user/NotificacionesPage";
+import NotificacionesAdminPage from '../pages/admin/NotificacionesAdminPage';
 
 const AppRoutes = () => {
   const { user } = useContext(AuthContext);
@@ -116,7 +117,16 @@ const AppRoutes = () => {
             </ProtectedRoute>
           }
         />
-
+        <Route
+          path="/admin/notificaciones"
+          element={
+            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
+              <MainLayout>
+                <NotificacionesAdminPage />
+              </MainLayout>
+            </ProtectedRoute>
+          }
+        />
         {/* Jugador */}
         <Route
           path="/notificaciones"

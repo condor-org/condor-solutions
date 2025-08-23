@@ -1,4 +1,5 @@
-import React, { useEffect } from 'react';
+// src/components/layout/Navbar.jsx
+import React, { useEffect, useContext } from 'react';
 import {
   Box,
   Flex,
@@ -9,7 +10,7 @@ import {
   useToast,
 } from '@chakra-ui/react';
 import { MoonIcon, SunIcon } from '@chakra-ui/icons';
-import { useAuth } from '../../auth/AuthContext';
+import { AuthContext, useAuth } from '../../auth/AuthContext';
 import { useNavbarTokens } from '../theme/tokens';
 import Button from '../ui/Button';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
@@ -20,6 +21,7 @@ import { useUnreadCount } from '../../hooks/useUnreadCount';
 const Navbar = () => {
   const { colorMode, toggleColorMode } = useColorMode();
   const { user, logout } = useAuth();
+  const { accessToken } = useContext(AuthContext); // ✅ para el contador
   const navigate = useNavigate();
   const toast = useToast();
 
@@ -27,22 +29,18 @@ const Navbar = () => {
     bg, borderColor, color, iconColor, hoverColor, textColor, emailOpacity,
   } = useNavbarTokens();
 
-  // 🔔 contador de no leídas (polling liviano + refresh por event bus si lo tenés)
-  const { count: unread } = useUnreadCount(
-    // accessToken lo toma internamente desde axiosAuth si así lo definiste;
-    // si tu hook requiere el token explícito, pásalo desde el AuthContext
-    // p.ej: useUnreadCount(accessToken, { pollMs: 60000 })
-    undefined,
-    { pollMs: 60000 }
-  );
+  // 🔔 contador de no leídas (usa token)
+  const { count: unread } = useUnreadCount(accessToken, { pollMs: 60000 });
 
-  const titulo = (user?.tipo_usuario === 'super_admin' || user?.tipo_usuario === 'admin_cliente')
-    ? 'AdminPadel'
-    : 'Padel App';
+  const isAdmin = user?.tipo_usuario === 'super_admin' || user?.tipo_usuario === 'admin_cliente';
+  const titulo = isAdmin ? 'AdminPadel' : 'Padel App';
 
+  // 🧭 ir a la vista correcta según rol
+  const goToNotifications = () => {
+    navigate(isAdmin ? '/admin/notificaciones' : '/notificaciones');
+  };
 
-
-  // 🍞 Mostrar toast “Tenés X sin leer” solo una vez por sesión (por usuario)
+  // 🍞 Toast “Tenés X sin leer” una vez por sesión
   useEffect(() => {
     if (!user?.id) return;
     const key = `notif_toast_shown:${user.id}`;
@@ -58,8 +56,6 @@ const Navbar = () => {
       sessionStorage.setItem(key, String(Date.now()));
     }
   }, [unread, user?.id, toast]);
-
-  const goToNotifications = () => navigate('/notificaciones');
 
   return (
     <Box
@@ -85,7 +81,7 @@ const Navbar = () => {
             {user?.email}
           </Text>
 
-          {/* 🔔 Campanita con contador y navegación */}
+          {/* 🔔 Campanita con contador y navegación por rol */}
           <NotificationBellInline count={unread} onClick={goToNotifications} />
 
           {user?.tipo_usuario === "empleado_cliente" && (

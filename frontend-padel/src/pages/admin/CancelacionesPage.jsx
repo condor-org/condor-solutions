@@ -28,7 +28,8 @@ import {
   AlertDialogContent,
   AlertDialogHeader,
   AlertDialogBody,
-  AlertDialogFooter
+  AlertDialogFooter,
+  Switch,
 } from "@chakra-ui/react";
 
 import Sidebar from "../../components/layout/Sidebar";
@@ -82,10 +83,26 @@ async function fetchAllPages(
   return items;
 }
 
-const toLocalDate = (t) => {
-  if (!t?.fecha || !t?.hora) return null;
-  const dt = new Date(`${t.fecha}T${t.hora}`);
-  return isNaN(dt) ? null : dt;
+const toISO = (v) => {
+  if (!v) return "";
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(v)) {
+    const [d, m, y] = v.split("/").map(Number);
+    return `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  }
+  return String(v);
+};
+
+const mapFromDetalleMuestra = (data) => {
+  const det = Array.isArray(data?.detalle_muestra) ? data.detalle_muestra : [];
+  return det.map(d => ({
+    id: d.turno_id,
+    estado_previo: d.estado_previo,
+    usuario_id: d.usuario_id,
+    emitio_bono: d.emitio_bono,
+    bono_id: d.bono_id,
+    razon_skip: d.razon_skip
+  }));
 };
 
 /* ========= Page ========= */
@@ -103,7 +120,10 @@ const CancelacionesPage = () => {
   const [profesorId, setProfesorId] = useState("");
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
+  const [horaDesde, setHoraDesde] = useState("");   // 🕒 NUEVO
+  const [horaHasta, setHoraHasta] = useState("");   // 🕒 NUEVO
   const [motivo, setMotivo] = useState("");
+  const [dryRun, setDryRun] = useState(false);      // 🎚️ NUEVO (por defecto cancela real)
 
   // Datos
   const [sedes, setSedes] = useState([]);
@@ -112,6 +132,7 @@ const CancelacionesPage = () => {
   // Preview
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [coincidencias, setCoincidencias] = useState([]);
+  const [resumen, setResumen] = useState(null);
 
   // Confirm
   const confirmDlg = useDisclosure();
@@ -137,83 +158,127 @@ const CancelacionesPage = () => {
       .catch(() => setProfesores([]));
   }, [api, sedeId]);
 
-  const aplicarFiltrosLocales = useCallback((turnos) => {
-    let out = Array.isArray(turnos) ? [...turnos] : [];
-
-    if (sedeId) out = out.filter(t => String(t.lugar_id) === String(sedeId));
-    if (modo === "profesor" && profesorId) out = out.filter(t => String(t.prestador_id) === String(profesorId));
-    if (desde) out = out.filter(t => (t.fecha ?? "") >= desde);
-    if (hasta) out = out.filter(t => (t.fecha ?? "") <= hasta);
-
-    const ahora = new Date();
-    out = out
-      .map(t => ({ ...t, _dt: toLocalDate(t) }))
-      .filter(t => t._dt && t._dt >= ahora)
-      .sort((a, b) => a._dt - b._dt);
-
-    return out;
-  }, [sedeId, profesorId, modo, desde, hasta]);
-
+  /* Buscar (dry-run SIEMPRE para preview) */
   const preview = useCallback(async () => {
     if (!api) return;
-    if (!sedeId) return toast({ title: "Elegí una sede", status: "warning" });
-    if (modo === "profesor" && !profesorId) return toast({ title: "Elegí un profesor", status: "warning" });
+
+    if (modo === "masiva") {
+      if (!sedeId) return toast({ title: "Elegí una sede", status: "warning" });
+      if (!desde || !hasta) return toast({ title: "Completá el rango de fechas", status: "warning" });
+    } else {
+      if (!profesorId) return toast({ title: "Elegí un profesor", status: "warning" });
+      if (!desde || !hasta) return toast({ title: "Completá el rango de fechas", status: "warning" });
+    }
 
     setLoadingPreview(true);
     setCoincidencias([]);
+    setResumen(null);
+
     try {
-      // ✅ Igual que en usuario: reservados + próximos (+ filtros opcionales)
-      const params = { estado: "reservado", upcoming: 1 };
-      if (sedeId) params.lugar_id = sedeId;
-      if (modo === "profesor" && profesorId) params.prestador_id = profesorId;
+      let res;
+      if (modo === "profesor") {
+        const body = {
+          fecha_inicio: toISO(desde),
+          fecha_fin: toISO(hasta),
+          ...(sedeId ? { sede_id: Number(sedeId) } : {}),
+          ...(horaDesde ? { hora_inicio: horaDesde } : {}),  // 🕒 NUEVO
+          ...(horaHasta ? { hora_fin: horaHasta } : {}),     // 🕒 NUEVO
+          dry_run: true
+        };
+        res = await api.post(`turnos/prestadores/${Number(profesorId)}/cancelar_en_rango/`, body);
+      } else {
+        const body = {
+          sede_id: Number(sedeId),
+          fecha_inicio: toISO(desde),
+          fecha_fin: toISO(hasta),
+          ...(horaDesde ? { hora_inicio: horaDesde } : {}),  // 🕒 NUEVO
+          ...(horaHasta ? { hora_fin: horaHasta } : {}),     // 🕒 NUEVO
+          dry_run: true
+        };
+        res = await api.post("turnos/admin/cancelar_por_sede/", body);
+      }
 
-      const turnos = await fetchAllPages(api, "turnos/", {
-        params,
-        pageSize: 200,
-        logTag: "admin-cancelaciones"
-      });
+      setResumen(res.data || null);
 
-      const lista = aplicarFiltrosLocales(turnos);
+      let lista = mapFromDetalleMuestra(res.data);
+
+      if (lista.some(x => x.estado_previo === "reservado")) {
+        try {
+          const reservados = await fetchAllPages(api, "turnos/", {
+            params: { estado: "reservado", upcoming: 1 },
+            pageSize: 400,
+            logTag: "admin-cancel-preview-lookup"
+          });
+          const byId = new Map(reservados.map(t => [t.id, t]));
+          lista = lista.map(x => (byId.has(x.id) ? { ...x, ...byId.get(x.id) } : x));
+        } catch (e) {
+          console.warn("[preview][lookup turnos] no se pudo enriquecer", e);
+        }
+      }
+
       setCoincidencias(lista);
       if (lista.length === 0) {
-        toast({ title: "No hay turnos para cancelar con esos filtros", status: "info" });
+        toast({ title: "No hay turnos coincidentes para ese rango.", status: "info" });
       }
     } catch (e) {
-      console.error("[preview] error", e);
+      console.error("[cancelaciones.preview] error", e?.response?.data || e);
       toast({ title: "Error al buscar turnos", status: "error" });
     } finally {
       setLoadingPreview(false);
     }
-  }, [api, sedeId, profesorId, modo, aplicarFiltrosLocales, toast]);
+  }, [api, modo, profesorId, sedeId, desde, hasta, horaDesde, horaHasta, toast]);
 
+  /* Ejecutar cancelación real o simulada (según toggle) */
   const runCancel = async () => {
-    if (!api || coincidencias.length === 0) return;
+    if (!api) return;
+    if (!coincidencias.length) return;
+
     setCancelling(true);
-
-    let ok = 0, fail = 0;
-    for (const t of coincidencias) {
-      try {
-        await api.post("turnos/cancelar/", {
-          turno_id: t.id,
-          motivo_admin: motivo || "Cancelación masiva por administración"
-        });
-        ok += 1;
-      } catch (e) {
-        fail += 1;
+    try {
+      let res;
+      if (modo === "profesor") {
+        const body = {
+          fecha_inicio: toISO(desde),
+          fecha_fin: toISO(hasta),
+          ...(sedeId ? { sede_id: Number(sedeId) } : {}),
+          ...(horaDesde ? { hora_inicio: horaDesde } : {}),  // 🕒 NUEVO
+          ...(horaHasta ? { hora_fin: horaHasta } : {}),     // 🕒 NUEVO
+          ...(motivo ? { motivo } : {}),
+          dry_run: !!dryRun                                  // 🎚️ NUEVO
+        };
+        res = await api.post(`turnos/prestadores/${Number(profesorId)}/cancelar_en_rango/`, body);
+      } else {
+        const body = {
+          sede_id: Number(sedeId),
+          fecha_inicio: toISO(desde),
+          fecha_fin: toISO(hasta),
+          ...(horaDesde ? { hora_inicio: horaDesde } : {}),  // 🕒 NUEVO
+          ...(horaHasta ? { hora_fin: horaHasta } : {}),     // 🕒 NUEVO
+          ...(motivo ? { motivo } : {}),
+          dry_run: !!dryRun                                   // 🎚️ NUEVO
+        };
+        res = await api.post("turnos/admin/cancelar_por_sede/", body);
       }
+
+      const tot = res?.data?.totales;
+      toast({
+        title: dryRun ? "Simulación ejecutada" : "Cancelación realizada",
+        description: tot
+          ? `Cancelados: ${tot.cancelados} · Reservados en el rango: ${tot.reservados} · Bonos emitidos: ${tot.bonificaciones_emitidas}`
+          : (dryRun ? "Simulación finalizada" : "Cancelación finalizada"),
+        status: "success",
+        duration: 6000
+      });
+
+      setResumen(res.data || null);
+      confirmDlg.onClose();
+      await preview(); // refrescar previsualización
+    } catch (e) {
+      console.error("[cancelaciones.runCancel] error", e?.response?.data || e);
+      toast({ title: "Error al cancelar turnos", status: "error" });
+    } finally {
+      setCancelling(false);
     }
-    setCancelling(false);
-    confirmDlg.onClose();
-
-    toast({
-      title: "Cancelación masiva finalizada",
-      description: `Cancelados: ${ok} · Fallidos: ${fail}`,
-      status: fail > 0 ? "warning" : "success",
-      duration: 6000
-    });
-
-    // refresco
-    preview();
   };
 
   return (
@@ -248,7 +313,7 @@ const CancelacionesPage = () => {
               <RadioGroup value={modo} onChange={setModo}>
                 <HStack spacing={6}>
                   <Radio value="profesor">Por profesor</Radio>
-                  <Radio value="masiva">Masiva (por rango)</Radio>
+                  <Radio value="masiva">Masiva (por sede)</Radio>
                 </HStack>
               </RadioGroup>
             </Box>
@@ -270,13 +335,11 @@ const CancelacionesPage = () => {
             <Box>
               <Text fontWeight="semibold" mb={1}>Desde (fecha)</Text>
               <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
-              <Text fontSize="xs" color={muted} mt={1}>Opcional (filtro local).</Text>
             </Box>
 
             <Box>
               <Text fontWeight="semibold" mb={1}>Hasta (fecha)</Text>
               <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
-              <Text fontSize="xs" color={muted} mt={1}>Opcional (filtro local).</Text>
             </Box>
 
             <Box>
@@ -288,18 +351,48 @@ const CancelacionesPage = () => {
                 onChange={(e) => setMotivo(e.target.value)}
               />
             </Box>
+
+            {/* 🕒 NUEVO: RANGO HORARIO */}
+            <Box>
+              <Text fontWeight="semibold" mb={1}>Desde (hora)</Text>
+              <Input type="time" value={horaDesde} onChange={(e) => setHoraDesde(e.target.value)} />
+            </Box>
+            <Box>
+              <Text fontWeight="semibold" mb={1}>Hasta (hora)</Text>
+              <Input type="time" value={horaHasta} onChange={(e) => setHoraHasta(e.target.value)} />
+            </Box>
           </SimpleGrid>
 
-          <HStack mt={6} spacing={3}>
-            <Button onClick={preview} variant="primary">Buscar turnos</Button>
-            <Button
-              variant="danger"
-              onClick={confirmDlg.onOpen}
-              isDisabled={coincidencias.length === 0}
-            >
-              Cancelar seleccionados ({coincidencias.length})
-            </Button>
+          <HStack mt={6} spacing={6} align="center">
+            {/* 🎚️ NUEVO: Toggle de simulación */}
+            <HStack>
+              <Switch id="dry-run" isChecked={dryRun} onChange={(e) => setDryRun(e.target.checked)} />
+              <Text htmlFor="dry-run">Sólo simular (no cancela)</Text>
+            </HStack>
+
+            <HStack spacing={3}>
+              <Button onClick={preview} variant="primary">Buscar turnos</Button>
+              <Button
+                variant={dryRun ? "secondary" : "danger"}
+                onClick={confirmDlg.onOpen}
+                isDisabled={coincidencias.length === 0}
+              >
+                {dryRun ? "Simular cancelación" : `Cancelar seleccionados (${coincidencias.length})`}
+              </Button>
+            </HStack>
           </HStack>
+
+          {resumen?.totales && (
+            <Box mt={6} p={3} borderWidth="1px" rounded="md">
+              <Text fontWeight="semibold" mb={2}>Totales (vista previa)</Text>
+              <HStack spacing={3} wrap="wrap">
+                <Badge>En rango: {resumen.totales.en_rango}</Badge>
+                <Badge colorScheme="green">Reservados: {resumen.totales.reservados}</Badge>
+                <Badge colorScheme="red">Cancelarían: {resumen.totales.cancelados}</Badge>
+                <Badge>Bonos emitidos: {resumen.totales.bonificaciones_emitidas}</Badge>
+              </HStack>
+            </Box>
+          )}
 
           <Heading size="sm" mt={8} mb={3}>Previsualización</Heading>
 
@@ -313,23 +406,35 @@ const CancelacionesPage = () => {
             <Text color={muted}>No hay turnos para mostrar.</Text>
           ) : (
             <VStack align="stretch" spacing={3}>
-              {coincidencias.map((t) => (
-                <Box key={t.id} p={3} bg={card.bg} rounded="md" borderWidth="1px">
-                  <HStack justify="space-between" align="start">
-                    <Box>
-                      <Text fontWeight="semibold">{t.lugar_nombre || t.lugar || "Sede"}</Text>
-                      <Text fontSize="sm" color={muted}>
-                        {t.fecha} · {t.hora?.slice(0, 5)} {t.prestador_nombre ? `· ${t.prestador_nombre}` : ""}
-                      </Text>
-                      <HStack mt={2} spacing={2}>
-                        <Badge colorScheme="green" variant="subtle">reservado</Badge>
-                        {t.prestador_nombre && <Badge variant="outline">{t.prestador_nombre}</Badge>}
-                      </HStack>
-                    </Box>
-                    <Badge variant="subtle">#{t.id}</Badge>
-                  </HStack>
-                </Box>
-              ))}
+              {coincidencias.map((t) => {
+                const isPretty = t.fecha && t.hora; // enriquecido
+                return (
+                  <Box key={t.id} p={3} bg={card.bg} rounded="md" borderWidth="1px">
+                    <HStack justify="space-between" align="start">
+                      <Box>
+                        <Text fontWeight="semibold">
+                          {isPretty
+                            ? (t.lugar_nombre || t.lugar || "Sede")
+                            : `Turno #${t.id}`}
+                        </Text>
+                        <Text fontSize="sm" color={muted}>
+                          {isPretty
+                            ? `${t.fecha} · ${t.hora?.slice(0,5)}${t.prestador_nombre ? ` · ${t.prestador_nombre}` : ""}`
+                            : `Estado previo: ${t.estado_previo}${t.usuario_id ? ` · usuario: ${t.usuario_id}` : ""}`
+                          }
+                        </Text>
+                        <HStack mt={2} spacing={2}>
+                          <Badge colorScheme={t.estado_previo === "reservado" ? "green" : "gray"} variant="subtle">
+                            {t.estado_previo}
+                          </Badge>
+                          {t.prestador_nombre && <Badge variant="outline">{t.prestador_nombre}</Badge>}
+                        </HStack>
+                      </Box>
+                      <Badge variant="subtle">#{t.id}</Badge>
+                    </HStack>
+                  </Box>
+                );
+              })}
             </VStack>
           )}
         </Box>
@@ -339,9 +444,15 @@ const CancelacionesPage = () => {
       <AlertDialog isOpen={confirmDlg.isOpen} onClose={confirmDlg.onClose} isCentered>
         <AlertDialogOverlay />
         <AlertDialogContent bg={card.bg} color={card.color}>
-          <AlertDialogHeader fontWeight="bold">Confirmar cancelación</AlertDialogHeader>
+          <AlertDialogHeader fontWeight="bold">
+            {dryRun ? "Confirmar simulación" : "Confirmar cancelación"}
+          </AlertDialogHeader>
           <AlertDialogBody>
-            Vas a cancelar <b>{coincidencias.length}</b> turno(s).
+            {dryRun ? (
+              <>Se ejecutará una <b>simulación</b> (no se modifican turnos).</>
+            ) : (
+              <>Vas a cancelar <b>{coincidencias.length}</b> turno(s).</>
+            )}
             {modo === "profesor" && profesorId ? (
               <>
                 <br />
@@ -351,7 +462,13 @@ const CancelacionesPage = () => {
             {(desde || hasta) && (
               <>
                 <br />
-                Rango: <b>{desde || "—"}</b> a <b>{hasta || "—"}</b>
+                Rango fecha: <b>{desde || "—"}</b> a <b>{hasta || "—"}</b>
+              </>
+            )}
+            {(horaDesde || horaHasta) && (
+              <>
+                <br />
+                Rango hora: <b>{horaDesde || "—"}</b> a <b>{horaHasta || "—"}</b>
               </>
             )}
             {motivo && (
@@ -367,8 +484,8 @@ const CancelacionesPage = () => {
           </AlertDialogBody>
           <AlertDialogFooter>
             <Button variant="secondary" onClick={confirmDlg.onClose}>Volver</Button>
-            <Button ml={3} variant="danger" onClick={runCancel} isLoading={cancelling}>
-              Confirmar
+            <Button ml={3} variant={dryRun ? "secondary" : "danger"} onClick={runCancel} isLoading={cancelling}>
+              {dryRun ? "Simular" : "Confirmar"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -219,3 +219,6 @@ LOGGING = {
         "level": LOG_LEVEL if LOGGING_ENABLED else "CRITICAL",
     },
 }
+
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+

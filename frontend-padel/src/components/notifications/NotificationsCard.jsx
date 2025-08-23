@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { useContext, useEffect, useMemo, useState } from "react";
 import {
   Box, HStack, VStack, Text, IconButton, Badge, Button, Divider, Tooltip, Skeleton, Link,
 } from "@chakra-ui/react";
@@ -8,6 +8,7 @@ import { axiosAuth } from "../../utils/axiosAuth";
 import { CheckIcon, RepeatIcon } from "@chakra-ui/icons";
 import { FaBell, FaExternalLinkAlt, FaEnvelopeOpenText } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
+import { emitNotificationsRefresh } from "../../utils/notificationsBus";
 
 const severityToScheme = (sev) => {
   switch (sev) {
@@ -21,11 +22,14 @@ const formatWhen = (iso) => {
 };
 
 const NotificationsCard = ({ limit = 5, pollMs = 60000, anchorId }) => {
-  const { accessToken } = useContext(AuthContext);
+  const { accessToken, user } = useContext(AuthContext);
   const api = useMemo(() => (accessToken ? axiosAuth(accessToken) : null), [accessToken]);
   const card = useCardColors();
   const muted = useMutedText();
   const navigate = useNavigate();
+
+  const isAdmin = ["super_admin", "admin_cliente"].includes(user?.tipo_usuario);
+  const goAll = () => navigate(isAdmin ? "/admin/notificaciones?from=card" : "/notificaciones?from=card");
 
   const [items, setItems] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -64,6 +68,7 @@ const NotificationsCard = ({ limit = 5, pollMs = 60000, anchorId }) => {
     setUnreadCount((c) => Math.max(0, c + (nextUnread ? +1 : -1)));
     try {
       await api.patch(`notificaciones/${n.id}/read/`, { unread: nextUnread });
+      emitNotificationsRefresh(); // sincroniza campanita
     } catch (err) {
       setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, unread: !nextUnread } : x)));
       setUnreadCount((c) => Math.max(0, c + (nextUnread ? -1 : +1)));
@@ -76,6 +81,7 @@ const NotificationsCard = ({ limit = 5, pollMs = 60000, anchorId }) => {
     setBusy(true);
     try {
       await api.post("notificaciones/read_all/");
+      emitNotificationsRefresh(); // sincroniza campanita
       await load();
     } catch (err) {
       console.error("[NotificationsCard] markAll failed", err);
@@ -109,7 +115,7 @@ const NotificationsCard = ({ limit = 5, pollMs = 60000, anchorId }) => {
         </HStack>
 
         <HStack spacing={3}>
-          <Link fontSize="sm" onClick={() => navigate("/notificaciones")}>
+          <Link fontSize="sm" onClick={goAll}>
             Ver todas
           </Link>
           <Tooltip label="Marcar todas como leídas">

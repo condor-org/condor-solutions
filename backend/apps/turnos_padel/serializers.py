@@ -7,7 +7,7 @@ from apps.turnos_padel.models import (
     TipoClasePadel,
     TipoAbonoPadel,
     AbonoMes,
-    TIPO_CODIGO_CHOICES,  # si no lo usás, podés quitarlo sin problema
+    TIPO_CODIGO_CHOICES,  
 )
 from apps.turnos_padel.utils import proximo_mes
 import logging
@@ -29,7 +29,6 @@ class TipoAbonoPadelSerializer(serializers.ModelSerializer):
     class Meta:
         model = TipoAbonoPadel
         fields = ["id", "codigo", "precio", "activo"]
-
 
 class ConfiguracionSedePadelSerializer(serializers.ModelSerializer):
     tipos_clase = TipoClasePadelSerializer(many=True)
@@ -96,7 +95,6 @@ class ConfiguracionSedePadelSerializer(serializers.ModelSerializer):
 
         instance.tipos_abono.exclude(id__in=list(vistos_ids)).delete()
         return instance
-
 
 class SedePadelSerializer(serializers.ModelSerializer):
     configuracion_padel = ConfiguracionSedePadelSerializer()

@@ -525,3 +525,35 @@ class CrearTurnoBonificadoSerializer(serializers.Serializer):
             tipo_turno=tipo_turno,
         )
 
+class _CancelacionAdminBaseSerializer(serializers.Serializer):
+    fecha_inicio = serializers.DateField()
+    fecha_fin = serializers.DateField()
+    hora_inicio = serializers.TimeField(required=False, allow_null=True)
+    hora_fin = serializers.TimeField(required=False, allow_null=True)
+    motivo = serializers.CharField(required=False, allow_blank=True, default="Cancelación administrativa")
+    dry_run = serializers.BooleanField(required=False, default=True)
+    def validate(self, data):
+        if data["fecha_fin"] < data["fecha_inicio"]:
+            raise serializers.ValidationError({"fecha_fin": "Debe ser >= fecha_inicio"})
+        hi, hf = data.get("hora_inicio"), data.get("hora_fin")
+        if hi and hf and hf <= hi:
+            raise serializers.ValidationError({"hora_fin": "Debe ser > hora_inicio"})
+        return data
+
+    def validate(self, data):
+        if data["fecha_fin"] < data["fecha_inicio"]:
+            raise serializers.ValidationError({"fecha_fin": "Debe ser >= fecha_inicio"})
+        return data
+
+class CancelacionPorSedeSerializer(_CancelacionAdminBaseSerializer):
+    sede_id = serializers.IntegerField()
+    # opcional: restringir a algunos profes de esa sede
+    prestador_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=True
+    )
+
+class CancelacionPorPrestadorSerializer(_CancelacionAdminBaseSerializer):
+    # opcional: acotar a una sede
+    sede_id = serializers.IntegerField(required=False, allow_null=True)

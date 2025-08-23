@@ -123,21 +123,22 @@ const BonificacionesList = () => {
   return (
     <VStack align="stretch" spacing={3}>
       {items.map((b) => {
-        const titulo =
-          b.nombre ||
-          b.titulo ||
-          b.tipo_clase_nombre ||
-          b.tipo_nombre ||
-          `Bonificación | Clase: ${b.tipo_turno}`;
+        // Campos provenientes del backend
+        const motivo = b.motivo || "Bonificación";
+        const tipoTurno = b.tipo_turno || "-";
+        const creada = fmtFecha(b.fecha_creacion);
+        const vence = b.valido_hasta ? fmtFecha(b.valido_hasta) : "Sin vencimiento";
 
-        const vence = fmtFecha(b.vigencia_hasta || b.expira_el || b.expires_at);
-        const tipo = b.tipo_clase_nombre || b.tipo_nombre || b.tipo || null;
-        const subtitulo = [tipo, vence ? `Vence: ${vence}` : null]
-          .filter(Boolean)
-          .join(" · ");
+        // Título y subtítulo más amigables
+        const titulo = `Bonificación por: ${motivo}`;
+        const subtitulo = [
+          `Clase: ${tipoTurno}`,
+          creada ? `Emitida: ${creada}` : null,
+          `Vence: ${vence}`
+        ].filter(Boolean).join(" · ");
 
-        const saldo =
-          b.saldo ?? b.creditos ?? b.cantidad_restante ?? b.restante ?? null;
+        // Mantengo compatibilidad por si en el futuro mandás más campos
+        const saldo = b.saldo ?? b.creditos ?? b.cantidad_restante ?? b.restante ?? null;
         const porcentaje = b.porcentaje ?? b.descuento ?? null;
         const estado = b.estado || b.status || null;
 
@@ -146,11 +147,8 @@ const BonificacionesList = () => {
             <HStack justify="space-between" align="start">
               <Box>
                 <Text fontWeight="semibold">{titulo}</Text>
-                {subtitulo && (
-                  <Text fontSize="sm" color={muted}>
-                    {subtitulo}
-                  </Text>
-                )}
+                <Text fontSize="sm" color={muted}>{subtitulo}</Text>
+
                 <HStack mt={2} spacing={2}>
                   {saldo !== null && (
                     <Badge colorScheme="green" variant="subtle">
@@ -174,6 +172,7 @@ const BonificacionesList = () => {
     </VStack>
   );
 };
+
 
 /* ========= Página ========= */
 const JugadorDashboard = () => {

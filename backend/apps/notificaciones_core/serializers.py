@@ -5,9 +5,17 @@ class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
         fields = [
-            "id", "type", "severity", "title", "body", "deeplink_path",
-            "unread", "created_at", "metadata"
+            "id",
+            "type",
+            "severity",
+            "title",
+            "body",
+            "deeplink_path",
+            "metadata",
+            "unread",
+            "created_at",
         ]
+        read_only_fields = fields
 
 class NotificationMarkReadSerializer(serializers.Serializer):
     unread = serializers.BooleanField(required=True)

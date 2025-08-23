@@ -1,8 +1,11 @@
 const EVT = "notifications:refresh";
 
-/** Emitir un refresh global (lo usa la card, la campanita, etc.) */
+/** Emitir un refresh global (lo usa la page, la card, la campanita, etc.) */
 export function emitNotificationsRefresh() {
-  window.dispatchEvent(new CustomEvent(EVT));
+  // microtask: asegura que listeners montados inmediatamente después también reciban el evento
+  queueMicrotask(() => {
+    window.dispatchEvent(new CustomEvent(EVT));
+  });
 }
 
 /** Escuchar refresh global; devuelve un "off" para desuscribirse */
