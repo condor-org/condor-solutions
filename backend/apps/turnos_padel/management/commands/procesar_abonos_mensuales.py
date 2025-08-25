@@ -1,51 +1,80 @@
+# apps/turnos_padel/management/commands/procesar_abonos_mensuales.py
 from django.core.management.base import BaseCommand
 from django.utils import timezone
+from django.db import models
+import logging
+
 from apps.turnos_padel.models import AbonoMes
 from apps.turnos_padel.services.abonos import (
-    reservar_abono_mes_actual_y_prioridad,
-    liberar_abono_por_vencimiento,
-    procesar_renovacion_de_abono
+    confirmar_y_reservar_abono,
+    procesar_renovacion_de_abono,
 )
-import logging
 
 logger = logging.getLogger(__name__)
 
+
+def _mes_anterior(fecha):
+    if fecha.month == 1:
+        return fecha.year - 1, 12
+    return fecha.year, fecha.month - 1
+
+
 class Command(BaseCommand):
-    help = "Procesa abonos: crea nuevos por renovación o libera los vencidos"
+    help = (
+        "Procesa abonos mensuales:\n"
+        " - Aplica (reserva/prioridad) los abonos del mes actual que aún no se aplicaron.\n"
+        " - En el cambio de mes, renueva o libera los abonos del mes anterior."
+    )
 
     def handle(self, *args, **kwargs):
         hoy = timezone.localdate()
-        anio, mes = hoy.year, hoy.month
-        logger.info("[ABONOS] Iniciando procesamiento de abonos para %04d-%02d", anio, mes)
+        anio_prev, mes_prev = _mes_anterior(hoy)
 
-        # Paso 1: Procesar abonos del MES ANTERIOR
-        anterior_anio, anterior_mes = _mes_anterior(anio, mes)
-        abonos_anteriores = AbonoMes.objects.filter(anio=anterior_anio, mes=anterior_mes)
+        resumen = {
+            "aplicados_mes_actual": 0,
+            "renovados": 0,
+            "liberados": 0,
+            "errores": 0,
+        }
 
-        renovados = 0
-        vencidos = 0
-        errores = 0
+        # A) Abonos del MES ACTUAL sin aplicar (sin M2M): aplicar reservas/prioridad
+        pendientes = (
+            AbonoMes.objects.filter(anio=hoy.year, mes=hoy.month, estado="pagado")
+            .filter(turnos_reservados__isnull=True, turnos_prioridad__isnull=True)
+            .distinct()
+        )
+        logger.info(
+            "[CRON ABONOS] Abonos pendientes de aplicar (mes actual %04d-%02d): %s",
+            hoy.year, hoy.month, pendientes.count()
+        )
 
-        for abono in abonos_anteriores:
+        for ab in pendientes:
             try:
-                if abono.estado == "pagado" and getattr(abono, "renovado", False):
-                    logger.info("[ABONOS] Renovando abono %s → creando nuevo abono y promoviendo turnos", abono.id)
-                    procesar_renovacion_de_abono(abono)
-                    renovados += 1
+                confirmar_y_reservar_abono(ab)
+                resumen["aplicados_mes_actual"] += 1
+                logger.info("[CRON ABONOS] aplicado abono=%s user=%s", ab.id, ab.usuario_id)
+            except Exception:
+                resumen["errores"] += 1
+                logger.exception("[CRON ABONOS] fallo al aplicar abono=%s", ab.id)
+
+        # B) Abonos del MES ANTERIOR: renovar (si renovado=True) o liberar prioridades
+        anteriores = AbonoMes.objects.filter(anio=anio_prev, mes=mes_prev, estado="pagado")
+        logger.info(
+            "[CRON ABONOS] Abonos del mes anterior a procesar (%04d-%02d): %s",
+            anio_prev, mes_prev, anteriores.count()
+        )
+
+        for ab in anteriores:
+            try:
+                renovaba = bool(getattr(ab, "renovado", False))
+                procesar_renovacion_de_abono(ab)
+                if renovaba:
+                    resumen["renovados"] += 1
                 else:
-                    logger.info("[ABONOS] Vencido sin renovación: liberando prioridad del abono %s", abono.id)
-                    liberar_abono_por_vencimiento(abono)
-                    vencidos += 1
-            except Exception as e:
-                logger.exception("[ABONOS] Error procesando abono anterior %s: %s", abono.id, str(e))
-                errores += 1
+                    resumen["liberados"] += 1
+            except Exception:
+                resumen["errores"] += 1
+                logger.exception("[CRON ABONOS] fallo al procesar abono=%s", ab.id)
 
-        logger.info("[ABONOS] Abonos anteriores: %s renovados, %s vencidos, %s errores", renovados, vencidos, errores)
-
-        logger.info("[ABONOS] Finalizado: total errores: %s", errores)
-
-
-def _mes_anterior(anio, mes):
-    if mes == 1:
-        return anio - 1, 12
-    return anio, mes - 1
+        logger.info("[CRON ABONOS] Resumen final: %s", resumen)
+        return resumen

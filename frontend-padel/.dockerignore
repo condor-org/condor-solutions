@@ -1,0 +1,16 @@
+node_modules
+build
+dist
+.cache
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+*.log
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+coverage
+.vscode
+.idea

@@ -13,6 +13,7 @@ from django.db import models, transaction
 from django.db.models import Q
 from django.utils.dateparse import parse_date
 from django.utils.timezone import now, localtime 
+from django.contrib.auth import get_user_model
 
 
 # Django REST Framework
@@ -64,6 +65,8 @@ from apps.turnos_core.serializers import (
     TurnoSerializer,
     CrearTurnoBonificadoSerializer,
     CancelarTurnoSerializer,
+    CancelacionPorSedeSerializer,
+    CancelacionPorPrestadorSerializer,
 )
 
 # App imports - Servicios
@@ -74,6 +77,10 @@ logger = logging.getLogger(__name__)
 
 
 from apps.turnos_padel.models import TipoClasePadel
+
+from apps.turnos_core.services.cancelaciones_admin import cancelar_turnos_admin
+from apps.notificaciones_core.services import publish_event, notify_inapp, TYPE_CANCELACION_TURNO
+
 
 class TurnoListView(ListAPIView):
     authentication_classes = [JWTAuthentication]
@@ -116,6 +123,55 @@ class TurnoReservaView(CreateAPIView):
         serializer = self.get_serializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         turno = serializer.save()
+        # al final de create(), antes del return
+        try:
+            from apps.notificaciones_core.services import publish_event, notify_inapp, TYPE_RESERVA_TURNO
+            from django.contrib.auth import get_user_model
+            Usuario = get_user_model()
+
+            turno = serializer.instance
+            cliente_id = getattr(request.user, "cliente_id", None)
+
+            ev = publish_event(
+                topic="turnos.reserva_confirmada",
+                actor=request.user,
+                cliente_id=cliente_id,
+                metadata={
+                    "turno_id": turno.id,
+                    "fecha": str(turno.fecha),
+                    "hora": str(turno.hora)[:5],
+                    "sede_id": turno.lugar_id,
+                    "usuario": getattr(request.user, "email", None),
+                },
+            )
+
+            # 🔹 Solo admins del cliente (sin superadmin)
+            admins = Usuario.objects.filter(
+                cliente_id=cliente_id,
+                tipo_usuario="admin_cliente",
+            ).only("id", "cliente_id")
+
+            ctx = {
+                a.id: {
+                    "usuario": getattr(request.user, "email", None),
+                    "fecha": str(turno.fecha),
+                    "hora": str(turno.hora)[:5],
+                    "sede_nombre": getattr(turno.lugar, "nombre", None),
+                    "prestador": getattr(getattr(turno, "recurso", None), "nombre_publico", None),
+                } for a in admins
+            }
+
+            notify_inapp(
+                event=ev,
+                recipients=admins,
+                notif_type=TYPE_RESERVA_TURNO,
+                context_by_user=ctx,
+                severity="info",
+            )
+        except Exception:
+            logger.exception("[notif][turno_reserva][fail]")
+
+
         return Response({"message": "Turno reservado exitosamente", "turno_id": turno.id})
 
 @extend_schema(
@@ -486,9 +542,74 @@ class CrearBonificacionManualView(APIView):
         return Response({"message": "Bonificación creada correctamente."}, status=201)
 
 
+def _notify_cancelacion_usuario(turno, actor):
+    """
+    Notifica a los admin_cliente del cliente dueño de la sede del turno que el USUARIO canceló.
+    No incluye super_admin (por pedido explícito).
+    """
+    logger.info(
+        "[notif.turno_cancelado_usuario][start] turno=%s actor=%s sede=%s",
+        getattr(turno, "id", None), getattr(actor, "id", None), getattr(turno, "lugar_id", None)
+    )
+    try:
+        Usuario = get_user_model()
+        cliente_id = getattr(getattr(turno, "lugar", None), "cliente_id", None)
+        if not cliente_id:
+            logger.warning("[notif.turno_cancelado_usuario][skip] turno=%s sin cliente_id en lugar", getattr(turno, "id", None))
+            return 0
+
+        ev = publish_event(
+            topic="turnos.cancelacion_usuario",
+            actor=actor,
+            cliente_id=cliente_id,
+            metadata={
+                "turno_id": turno.id,
+                "fecha": str(turno.fecha),
+                "hora": str(turno.hora)[:5],
+                "sede_id": turno.lugar_id,
+                "usuario": getattr(actor, "email", None),
+                "reservado_con_bono": bool(
+                    getattr(turno, "bonificacion_usada", None) is not None
+                    or False
+                ),
+            },
+        )
+
+        # Solo admin_cliente (excluye super_admin)
+        admins = Usuario.objects.filter(
+            cliente_id=cliente_id,
+            tipo_usuario="admin_cliente"
+        ).only("id", "cliente_id")
+
+        # Contexto personalizado por admin (si querés sumar más campos, acá)
+        ctx = {
+            a.id: {
+                "usuario": getattr(actor, "email", None),
+                "fecha": str(turno.fecha),
+                "hora": str(turno.hora)[:5],
+                "sede_nombre": getattr(turno.lugar, "nombre", None),
+                "prestador": getattr(getattr(turno, "recurso", None), "nombre_publico", None),
+            } for a in admins
+        }
+
+        creadas = notify_inapp(
+            event=ev,
+            recipients=admins,
+            notif_type=TYPE_CANCELACION_TURNO,
+            context_by_user=ctx,
+            severity="info",
+        )
+        logger.info(
+            "[notif.turno_cancelado_usuario][ok] event=%s turno=%s created=%s recipients=%s",
+            getattr(ev, "id", None), getattr(turno, "id", None), creadas, admins.count()
+        )
+        return creadas
+    except Exception:
+        logger.exception("[notif.turno_cancelado_usuario][fail]")
+        return 0
+
 class CancelarTurnoView(APIView):
     permission_classes = [IsAuthenticated]
-
     def post(self, request):
         ser = CancelarTurnoSerializer(data=request.data, context={"request": request})
         if not ser.is_valid():
@@ -505,10 +626,19 @@ class CancelarTurnoView(APIView):
             if turno.estado != "reservado":
                 return Response({"turno_id": ["El turno ya no está reservado."]}, status=400)
 
+            # Guardamos el usuario al que hay que devolver el crédito si aplica
+            usuario_original = turno.usuario
+
+            # ¿quién cancela?
+            tipo = getattr(request.user, "tipo_usuario", None)
+            es_admin = tipo in ("admin_cliente", "super_admin")
+
             # ¿fue reservado con bonificación?
-            bonificacion = TurnoBonificado.objects.filter(usado_en_turno=turno).first()
-            # Si tu modelo usa otro esquema, usar:
-            # bonificacion = TurnoBonificado.objects.filter(turno=turno, usado=True).first()
+            bonificacion_usada = (
+                TurnoBonificado.objects
+                .filter(usado_en_turno=turno)  # ajustá este filtro si tu esquema es distinto
+                .first()
+            )
 
             # 🔓 Liberar el slot
             turno.usuario = None
@@ -516,38 +646,111 @@ class CancelarTurnoView(APIView):
             turno.save(update_fields=["usuario", "estado"])
 
             bono_creado = False
-            if not bonificacion:
-                if not turno.tipo_turno:
-                    logger.error("[turnos.cancelar][sin_tipo_turno] user=%s turno_id=%s", request.user.id, turno.id)
-                else:
-                    try:
+            # 🎯 Reglas de emisión:
+            try:
+                if bonificacion_usada:
+                    # Si se reservó con bono:
+                    # - Usuario cancela => NO emitir
+                    # - Admin cancela => SÍ emitir (devolución)
+                    if es_admin and usuario_original:
                         emitir_bonificacion_automatica(
-                            usuario=request.user,
+                            usuario=usuario_original,
+                            turno_original=turno,
+                            motivo="Cancelación administrativa (devolución de bono)",
+                        )
+                        bono_creado = True
+                else:
+                    # Si NO se reservó con bono: se aplica la política general previa
+                    # (el serializer ya debió validar la política)
+                    if usuario_original:
+                        emitir_bonificacion_automatica(
+                            usuario=usuario_original,
                             turno_original=turno,
                             motivo="Cancelación con política cumplida",
                         )
                         bono_creado = True
-                    except Exception as e:
-                        logger.exception(
-                            "[turnos.cancelar][bono][fail] user=%s turno_id=%s err=%s",
-                            request.user.id, turno.id, str(e)
-                        )
-
-            # (Opcional) Anular intentos de pago asociados al comprobante de este turno:
-            # try:
-            #     from apps.pagos_core.models import PagoIntento
-            #     PagoIntento.objects.filter(
-            #         usuario=request.user,
-            #         estado__in=["pre_aprobado", "pendiente"],
-            #         object_id=<ID_DEL_COMPROBANTE_SI_LO TENÉS>,
-            #     ).update(estado="anulado")
-            # except Exception:
-            #     logger.exception("[turnos.cancelar][pago_intento][anular][fail] turno_id=%s", turno.id)
+            except Exception as e:
+                logger.exception(
+                    "[turnos.cancelar][bono][fail] actor=%s turno_id=%s err=%s",
+                    request.user.id, turno.id, str(e)
+                )
+        try:
+            # Solo si la cancelación fue iniciada por el usuario final o empleado_cliente actuando sobre su propio turno.
+            if not es_admin:
+                _notify_cancelacion_usuario(turno=turno, actor=request.user)
+        except Exception:
+            logger.exception("[turnos.cancelar][notif_admin][fail] turno=%s", turno.id)
 
         return Response({
             "message": "Turno cancelado y liberado.",
             "bonificacion_creada": bono_creado
         }, status=200)
+
+class CancelarPorSedeAdminView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente)]
+
+    def post(self, request):
+        ser = CancelacionPorSedeSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        vd = ser.validated_data
+
+        sede_id = vd["sede_id"]
+        sede = Lugar.objects.filter(id=sede_id).select_related("cliente").first()
+        if not sede:
+            return Response({"detail": "Sede no encontrada"}, status=404)
+        if request.user.tipo_usuario == "admin_cliente" and sede.cliente_id != request.user.cliente_id:
+            return Response({"detail": "No autorizado para esta sede"}, status=403)
+
+        resumen = cancelar_turnos_admin(
+            accion_por=request.user,
+            cliente_id=sede.cliente_id,
+            sede_id=sede_id,
+            prestador_ids=vd.get("prestador_ids") or None,
+            fecha_inicio=vd["fecha_inicio"],
+            fecha_fin=vd["fecha_fin"],
+            hora_inicio=vd.get("hora_inicio"),
+            hora_fin=vd.get("hora_fin"),
+            motivo=vd.get("motivo") or "Cancelación administrativa",
+            dry_run=vd.get("dry_run", True),   # ← ahora sí respeta el boolean
+        )
+        return Response(resumen, status=200)
+
+class CancelarPorPrestadorAdminView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente)]
+    def post(self, request, prestador_id: int):
+        ser = CancelacionPorPrestadorSerializer(data=request.data); ser.is_valid(raise_exception=True); vd = ser.validated_data
+        cliente_id = request.user.cliente_id
+        if vd.get("sede_id"):
+            sede = Lugar.objects.filter(id=vd["sede_id"]).first()
+            if not sede: return Response({"detail": "Sede no encontrada"}, status=404)
+            cliente_id = sede.cliente_id
+            if request.user.tipo_usuario == "admin_cliente" and cliente_id != request.user.cliente_id:
+                return Response({"detail": "No autorizado para esta sede"}, status=403)
+        else:
+            # Validar tenancy por prestador si no hay sede_id
+            from apps.turnos_core.models import Prestador
+            prest = Prestador.objects.select_related("cliente").filter(id=prestador_id).first()
+            if not prest: return Response({"detail": "Prestador no encontrado"}, status=404)
+            cliente_id = prest.cliente_id
+            if request.user.tipo_usuario == "admin_cliente" and prest.cliente_id != request.user.cliente_id:
+                return Response({"detail": "No autorizado para este prestador"}, status=403)
+        logger.info("[CancelacionPorPrestador] user=%s prestador=%s sede=%s rango=%s..%s horas=%s..%s dry_run=%s", request.user.id, prestador_id, vd.get("sede_id"), vd["fecha_inicio"], vd["fecha_fin"], vd.get("hora_inicio"), vd.get("hora_fin"), vd.get("dry_run", True))
+        resumen = cancelar_turnos_admin(
+            accion_por=request.user,
+            cliente_id=cliente_id,
+            sede_id=vd.get("sede_id"),
+            prestador_ids=[int(prestador_id)],
+            fecha_inicio=vd["fecha_inicio"],
+            fecha_fin=vd["fecha_fin"],
+            hora_inicio=vd.get("hora_inicio"),
+            hora_fin=vd.get("hora_fin"),
+            motivo=vd.get("motivo") or "Cancelación administrativa",
+            dry_run=vd.get("dry_run", True),
+        )
+        return Response(resumen, status=200)
+
 
 
 def _tipo_code_y_aliases(tipo_clase_id: int):
@@ -572,7 +775,6 @@ def _tipo_code_y_aliases(tipo_clase_id: int):
     }
     aliases = set(a.lower() for a in inv_aliases.get(code, set()))
     return code, aliases
-
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])

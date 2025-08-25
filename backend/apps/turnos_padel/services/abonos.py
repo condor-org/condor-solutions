@@ -18,6 +18,15 @@ from rest_framework import serializers
 
 logger = logging.getLogger(__name__)
 
+from apps.notificaciones_core.services import (
+    publish_event,
+    notify_inapp,
+    TYPE_RESERVA_ABONO,   
+    TYPE_ABONO_RENOVADO,  
+)
+from django.contrib.auth import get_user_model
+
+
 
 def _tipo_code(tipo_clase) -> str:
     """
@@ -80,6 +89,64 @@ def _resumen_precio_abono(abono: AbonoMes) -> float:
     """
     ref = getattr(abono, "tipo_abono", None) or getattr(abono, "tipo_clase", None)
     return float(getattr(ref, "precio", 0) or 0)
+
+def _notify_abono_admin(abono, actor, evento="creado", extra=None):
+    """
+    evento: 'creado' | 'renovado'
+    Notifica a admin_cliente y super_admin del cliente dueño de la sede del abono.
+    """
+    logger.info("[notif.abono] evento=%s abono=%s", evento, getattr(abono, "id", None))
+    try:
+        Usuario = get_user_model()
+        cliente_id = getattr(abono.sede, "cliente_id", None)
+        tipo_code = _tipo_code(abono.tipo_clase)
+        hora_txt = str(abono.hora)[:5] if abono.hora else None
+        DSEM = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
+
+        ev = publish_event(
+            topic="abonos.reserva_confirmada" if evento == "creado" else "abonos.renovado",
+            actor=actor,
+            cliente_id=cliente_id,
+            metadata={
+                "abono_id": abono.id,
+                "usuario": getattr(abono.usuario, "email", None),
+                "sede_id": abono.sede_id,
+                "prestador_id": abono.prestador_id,
+                "anio": abono.anio, "mes": abono.mes, "dia_semana": abono.dia_semana,
+                "hora": hora_txt,
+                "tipo": tipo_code,
+                "monto": abono.monto,
+                **(extra or {}),
+            },
+        )
+
+        admins = Usuario.objects.filter(
+            cliente_id=cliente_id,
+            tipo_usuario__in=["admin_cliente", "super_admin"]  # incluimos ambos
+        ).only("id", "cliente_id")
+
+        ctx = {
+            a.id: {
+                "abono_id": abono.id,
+                "usuario": getattr(abono.usuario, "email", None),
+                "tipo": tipo_code,
+                "sede_nombre": getattr(abono.sede, "nombre", None),
+                "prestador": getattr(abono.prestador, "nombre_publico", None) or getattr(abono.prestador, "nombre", None),
+                "hora": hora_txt,
+                "dia_semana_text": DSEM[abono.dia_semana] if 0 <= abono.dia_semana <= 6 else "",
+                **(extra or {}),
+            } for a in admins
+        }
+
+        notify_inapp(
+            event=ev,
+            recipients=admins,
+            notif_type=TYPE_RESERVA_ABONO if evento == "creado" else TYPE_ABONO_RENOVADO,
+            context_by_user=ctx,
+            severity="info",
+        )
+    except Exception:
+        logger.exception("[notif][abono][%s][fail]", evento)
 
 
 def precheck_abono_franja(abono: AbonoMes) -> Dict:

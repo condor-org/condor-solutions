@@ -36,7 +36,8 @@ from rest_framework.parsers import JSONParser
 from io import BytesIO
 import json
 from apps.turnos_padel.services.abonos import confirmar_y_reservar_abono
-from apps.turnos_padel.services.abonos import validar_y_confirmar_abono  # NUEVA función que vas a crear
+from apps.turnos_padel.services.abonos import validar_y_confirmar_abono, _notify_abono_admin
+
 
 
 import logging
@@ -190,7 +191,12 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
 
         # Validamos, confirmamos y reservamos todo en un solo paso
         try:
-            abono, resumen = validar_y_confirmar_abono(data=data, bonificaciones_ids=bonificaciones_ids, archivo=archivo, request=request)
+            abono, resumen = validar_y_confirmar_abono(
+                data=data,
+                bonificaciones_ids=bonificaciones_ids,
+                archivo=archivo,
+                request=request
+            )
         except serializers.ValidationError as e:
             return Response(e.detail, status=400)
 
@@ -199,8 +205,69 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         payload["resumen"] = resumen
         payload["monto_sugerido"] = resumen.get("monto_sugerido")
 
+        # --- Notificación a admin_cliente (excluye super_admin) con cliente tomado de la SEDE ---
+        try:
+            from apps.notificaciones_core.services import publish_event, notify_inapp, TYPE_RESERVA_ABONO
+            from django.contrib.auth import get_user_model
+
+            Usuario = get_user_model()
+            cliente_id = getattr(abono.sede, "cliente_id", None)  # <- CLAVE
+
+            DSEM = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+            sede_nombre = getattr(abono.sede, "nombre", None)
+            prestador_nombre = getattr(abono.prestador, "nombre_publico", None)
+            hora_txt = str(abono.hora)[:5]
+            dia_semana_text = DSEM[abono.dia_semana] if 0 <= abono.dia_semana <= 6 else ""
+
+            ev = publish_event(
+                topic="abonos.reserva_confirmada",
+                actor=request.user,
+                cliente_id=cliente_id,
+                metadata={
+                    "abono_id": abono.id,
+                    "usuario": getattr(request.user, "email", None),
+                    "sede_id": getattr(abono.sede, "id", None),
+                    "prestador_id": getattr(abono.prestador, "id", None),
+                    "anio": abono.anio, "mes": abono.mes, "dia_semana": abono.dia_semana,
+                    "hora": hora_txt,
+                    "tipo": getattr(abono.tipo_clase, "codigo", None),
+                    "monto": abono.monto,
+                },
+            )
+
+            admins = Usuario.objects.filter(
+                cliente_id=cliente_id,
+                tipo_usuario="admin_cliente"
+            ).only("id", "cliente_id")
+
+            ctx = {
+                a.id: {
+                    "abono_id": abono.id,
+                    "usuario": getattr(request.user, "email", None),
+                    "tipo": getattr(abono.tipo_clase, "codigo", None),
+                    "sede_nombre": sede_nombre,
+                    "prestador": prestador_nombre,
+                    "hora": hora_txt,
+                    "dia_semana_text": dia_semana_text,
+                    "reservados_mes_actual": resumen.get("reservados_mes_actual", 0),
+                    "prioridad_mes_siguiente": resumen.get("prioridad_mes_siguiente", 0),
+                } for a in admins
+            }
+
+            notify_inapp(
+                event=ev,
+                recipients=admins,
+                notif_type=TYPE_RESERVA_ABONO,
+                context_by_user=ctx,
+                severity="info",
+            )
+            logger.info("[abonos.notif] create -> admins=%s", admins.count())
+        except Exception:
+            logger.exception("[notif][abono_reserva][fail]")
+
         logger.info("[AbonoMesViewSet:create] Abono creado y reservado correctamente")
         return Response(payload, status=201)
+
 
     @action(detail=False, methods=["GET"], url_path="disponibles")
     def disponibles(self, request):
@@ -319,9 +386,11 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         return Response(result, status=200)
 
     @action(detail=False, methods=["post"], url_path="reservar")
+    @transaction.atomic
     def reservar(self, request):
         """
         Endpoint alternativo para reservar abonos en un solo paso.
+        Ahora también notifica a admins del cliente (cliente desde la sede).
         """
         user = request.user
         data = request.data.copy()
@@ -336,7 +405,12 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         archivo = data.get("archivo")
 
         try:
-            abono, resumen = validar_y_confirmar_abono(data=data, bonificaciones_ids=bonificaciones_ids, archivo=archivo, request=request)
+            abono, resumen = validar_y_confirmar_abono(
+                data=data,
+                bonificaciones_ids=bonificaciones_ids,
+                archivo=archivo,
+                request=request
+            )
         except serializers.ValidationError as e:
             return Response(e.detail, status=400)
 
@@ -345,7 +419,68 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         payload["resumen"] = resumen
         payload["monto_sugerido"] = resumen.get("monto_sugerido")
 
+        # --- Notificación a admin_cliente (excluye super_admin) con cliente desde la SEDE ---
+        try:
+            from apps.notificaciones_core.services import publish_event, notify_inapp, TYPE_RESERVA_ABONO
+            from django.contrib.auth import get_user_model
+
+            Usuario = get_user_model()
+            cliente_id = getattr(abono.sede, "cliente_id", None)  # <- CLAVE
+
+            DSEM = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+            sede_nombre = getattr(abono.sede, "nombre", None)
+            prestador_nombre = getattr(abono.prestador, "nombre_publico", None)
+            hora_txt = str(abono.hora)[:5]
+            dia_semana_text = DSEM[abono.dia_semana] if 0 <= abono.dia_semana <= 6 else ""
+
+            ev = publish_event(
+                topic="abonos.reserva_confirmada",
+                actor=request.user,
+                cliente_id=cliente_id,
+                metadata={
+                    "abono_id": abono.id,
+                    "usuario": getattr(request.user, "email", None),
+                    "sede_id": getattr(abono.sede, "id", None),
+                    "prestador_id": getattr(abono.prestador, "id", None),
+                    "anio": abono.anio, "mes": abono.mes, "dia_semana": abono.dia_semana,
+                    "hora": hora_txt,
+                    "tipo": getattr(abono.tipo_clase, "codigo", None),
+                    "monto": abono.monto,
+                },
+            )
+
+            admins = Usuario.objects.filter(
+                cliente_id=cliente_id,
+                tipo_usuario="admin_cliente"
+            ).only("id", "cliente_id")
+
+            ctx = {
+                a.id: {
+                    "abono_id": abono.id,
+                    "usuario": getattr(request.user, "email", None),
+                    "tipo": getattr(abono.tipo_clase, "codigo", None),
+                    "sede_nombre": sede_nombre,
+                    "prestador": prestador_nombre,
+                    "hora": hora_txt,
+                    "dia_semana_text": dia_semana_text,
+                    "reservados_mes_actual": resumen.get("reservados_mes_actual", 0),
+                    "prioridad_mes_siguiente": resumen.get("prioridad_mes_siguiente", 0),
+                } for a in admins
+            }
+
+            notify_inapp(
+                event=ev,
+                recipients=admins,
+                notif_type=TYPE_RESERVA_ABONO,
+                context_by_user=ctx,
+                severity="info",
+            )
+            logger.info("[abonos.notif] reservar -> admins=%s", admins.count())
+        except Exception:
+            logger.exception("[notif][abono_reserva][fail]")
+
         return Response(payload, status=201)
+        
 class TipoAbonoPadelViewSet(viewsets.ModelViewSet):
     authentication_classes = [JWTAuthentication]
     permission_classes = [EsAdminDeSuCliente | EsSuperAdmin | SoloLecturaUsuariosFinalesYEmpleados]

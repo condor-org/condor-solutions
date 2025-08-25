@@ -49,6 +49,7 @@ PROJECT_APPS = [
     'apps.clientes_core',
     'apps.turnos_padel',
     'apps.common',
+    "apps.notificaciones_core",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + PROJECT_APPS
@@ -218,3 +219,6 @@ LOGGING = {
         "level": LOG_LEVEL if LOGGING_ENABLED else "CRITICAL",
     },
 }
+
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
