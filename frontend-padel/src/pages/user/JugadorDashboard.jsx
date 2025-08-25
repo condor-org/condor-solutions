@@ -263,7 +263,7 @@ const JugadorDashboard = () => {
     <Box minH="100vh" bg={bg} color={card.color}>
       <Box maxW="5xl" mx="auto" px={4} py={8}>
         <Heading as="h2" size="xl" mb={6}>
-          Bienvenido, {user?.nombre}
+          Bienvenido, {user?.email}
         </Heading>
 
         <ProximoTurnoCard />
