@@ -1,3 +1,4 @@
+# backend/obtener_token.py
 import requests
 
 def obtener_token(email, password):

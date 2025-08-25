@@ -1,3 +1,4 @@
+# backend/apps/turnos_core/utils.py
 from django.db.models import Q
 from django.contrib.contenttypes.models import ContentType
 from .models import BloqueoTurnos
