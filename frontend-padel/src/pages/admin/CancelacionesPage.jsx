@@ -264,7 +264,7 @@ const CancelacionesPage = () => {
       toast({
         title: dryRun ? "Simulación ejecutada" : "Cancelación realizada",
         description: tot
-          ? `Cancelados: ${tot.cancelados} · Reservados en el rango: ${tot.reservados} · Bonos emitidos: ${tot.bonificaciones_emitidas}`
+          ? `Cancelados: ${tot.cancelados} · Reservados en el rango: ${tot.reservados}`
           : (dryRun ? "Simulación finalizada" : "Cancelación finalizada"),
         status: "success",
         duration: 6000
@@ -389,7 +389,6 @@ const CancelacionesPage = () => {
                 <Badge>En rango: {resumen.totales.en_rango}</Badge>
                 <Badge colorScheme="green">Reservados: {resumen.totales.reservados}</Badge>
                 <Badge colorScheme="red">Cancelarían: {resumen.totales.cancelados}</Badge>
-                <Badge>Bonos emitidos: {resumen.totales.bonificaciones_emitidas}</Badge>
               </HStack>
             </Box>
           )}
@@ -418,10 +417,24 @@ const CancelacionesPage = () => {
                             : `Turno #${t.id}`}
                         </Text>
                         <Text fontSize="sm" color={muted}>
-                          {isPretty
-                            ? `${t.fecha} · ${t.hora?.slice(0,5)}${t.prestador_nombre ? ` · ${t.prestador_nombre}` : ""}`
-                            : `Estado previo: ${t.estado_previo}${t.usuario_id ? ` · usuario: ${t.usuario_id}` : ""}`
-                          }
+                        {isPretty
+                          ? [
+                              t.fecha,
+                              t.hora?.slice(0,5),
+                              (t.lugar_nombre || t.lugar || "Sede"),
+                              // Profesor
+                              (t.prestador_nombre || t.profesor_nombre || t.profesor || null),
+                              // Usuario (quién reservó) — mostramos nombre/alias/email si está
+                              (t.usuario || t.usuario_nombre || t.usuario_alias || t.usuario_email || (t.usuario_id ? `Usuario #${t.usuario_id}` : null))
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")
+                          : `Estado previo: ${t.estado_previo}${
+                              t.usuario || t.usuario_nombre || t.usuario_alias || t.usuario_email
+                                ? ` · ${(t.usuario || t.usuario_nombre || t.usuario_alias || t.usuario_email)}`
+                                : (t.usuario_id ? ` · Usuario #${t.usuario_id}` : "")
+                            }`
+                        }
                         </Text>
                         <HStack mt={2} spacing={2}>
                           <Badge colorScheme={t.estado_previo === "reservado" ? "green" : "gray"} variant="subtle">

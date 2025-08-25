@@ -5,6 +5,8 @@ from django.db import transaction
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from .models import NotificationEvent, Notification
+import json
+from django.core.serializers.json import DjangoJSONEncoder
 
 logger = logging.getLogger(__name__)
 Usuario = get_user_model()
@@ -17,16 +19,29 @@ TYPE_CANCELACION_TURNO = "CANCELACION_TURNO"
 TYPE_ABONO_RENOVADO = "ABONO_RENOVADO"
 
 
+
+def _json_safe(obj):
+    """
+    Normaliza a tipos JSON-serializables (Decimal, date, time, UUID, etc.).
+    Devuelve dict/list primitivos que Django/psycopg2 pueden guardar en JSONB.
+    """
+    try:
+        return json.loads(json.dumps(obj, cls=DjangoJSONEncoder))
+    except Exception:
+        # último recurso: si no se pudo serializar, devolvemos {} o el valor original
+        return {} if isinstance(obj, dict) else obj
+
 def publish_event(*, topic: str, actor, cliente_id: int | None, metadata: dict | None = None) -> NotificationEvent:
+    md = _json_safe(metadata or {})
     ev = NotificationEvent.objects.create(
         topic=topic,
         actor=actor if getattr(actor, "id", None) else None,
         cliente_id=cliente_id,
-        metadata=metadata or {},
+        metadata=md,
     )
     logger.info(
         "[notif.event] created event_id=%s topic=%s cliente=%s meta_keys=%s",
-        ev.id, ev.topic, ev.cliente_id, list((metadata or {}).keys())
+        ev.id, ev.topic, ev.cliente_id, list(md.keys()) if isinstance(md, dict) else []
     )
     return ev
 
@@ -132,7 +147,6 @@ def _render_inapp_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
     # fallback
     return "Notificación", "", "/"
 
-
 @transaction.atomic
 def notify_inapp(
     *,
@@ -149,7 +163,8 @@ def notify_inapp(
     created = 0
     now = timezone.now()
     for u in recipients:
-        ctx = context_by_user.get(u.id, {})
+        raw_ctx = context_by_user.get(u.id, {})
+        ctx = _json_safe(raw_ctx)  # ← Normalizamos el contexto
         title, body, deeplink = _render_inapp_copy(notif_type, ctx)
         dedupe_key = f"user:{u.id}|event:{event.id}|type:{notif_type}"
         defaults = {
@@ -161,7 +176,7 @@ def notify_inapp(
             "body": body,
             "deeplink_path": deeplink,
             "unread": True,
-            "metadata": ctx,
+            "metadata": ctx,  # ← ctx ya es JSON-safe
             "created_at": now,
         }
         obj, obj_created = Notification.objects.get_or_create(
@@ -179,9 +194,8 @@ def notify_inapp(
                 u.id, notif_type, event.id, dedupe_key
             )
 
-    # Evitamos evaluar dos veces un QuerySet/generador al loguear
     try:
-        total = len(recipients)  # si es lista/QuerySet
+        total = len(recipients)
     except TypeError:
         total = None
     logger.info(

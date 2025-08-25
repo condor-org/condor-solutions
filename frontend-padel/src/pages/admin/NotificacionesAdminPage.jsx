@@ -2,9 +2,13 @@
 import React, { useContext, useEffect, useMemo, useState, useCallback } from "react";
 import {
   Box, Heading, HStack, VStack, Text, IconButton, Button,
-  Badge, Divider, Checkbox, Skeleton, Tooltip, Select, useBreakpointValue
+  Badge, Divider, Checkbox, Skeleton, Tooltip, Select, useBreakpointValue,
+  useDisclosure, AlertDialog, AlertDialogOverlay, AlertDialogContent,
+  AlertDialogHeader, AlertDialogBody, AlertDialogFooter,
+  Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter,
+  Code, useToast
 } from "@chakra-ui/react";
-import { ArrowBackIcon, CheckIcon, RepeatIcon } from "@chakra-ui/icons";
+import { ArrowBackIcon, CheckIcon, RepeatIcon, DeleteIcon } from "@chakra-ui/icons";
 import { FaExternalLinkAlt, FaBell, FaEnvelopeOpenText } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 
@@ -43,6 +47,7 @@ const NotificacionesAdminPage = () => {
   const api = useMemo(() => (accessToken ? axiosAuth(accessToken) : null), [accessToken]);
 
   const navigate = useNavigate();
+  const toast = useToast();
   const bg = useBodyBg();
   const card = useCardColors();
   const muted = useMutedText();
@@ -57,6 +62,12 @@ const NotificacionesAdminPage = () => {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [busyAll, setBusyAll] = useState(false);
+
+  const [busyDelete, setBusyDelete] = useState(false);
+  const delAllDlg = useDisclosure();
+
+  const detailsDlg = useDisclosure();
+  const [selected, setSelected] = useState(null);
 
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [typeFilter, setTypeFilter] = useState("");
@@ -145,22 +156,48 @@ const NotificacionesAdminPage = () => {
     }
   };
 
+  const deleteAllShown = async () => {
+    if (!api || items.length === 0) return;
+    setBusyDelete(true);
+    try {
+      const ids = items.map(n => n.id);
+      // 🔥 requiere endpoint backend POST /notificaciones/bulk_delete/ { ids }
+      await api.post("notificaciones/bulk_delete/", { ids });
+      emitNotificationsRefresh();
+      await loadFirstPage(); // recarga lista + unread_count
+      toast({ title: "Notificaciones borradas", status: "success" });
+    } catch (err) {
+      console.error("[NotificacionesAdminPage] bulk_delete failed", err);
+      toast({
+        title: "No se pudo borrar",
+        description: "¿Agregaste /notificaciones/bulk_delete/ en el backend?",
+        status: "error"
+      });
+    } finally {
+      setBusyDelete(false);
+      delAllDlg.onClose();
+    }
+  };
+
   const toggleRead = async (n) => {
     if (!api) return;
     const nextUnread = !n.unread;
     // Optimistic
     setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, unread: nextUnread } : x)));
-    setUnreadCount((c) => Math.max(0, c + (nextUnread ? +1 : -1)));
+    setUnreadCount((c) => Math.max(0, c + (nextUnread ? 1 : -1)));
     try {
       await api.patch(`notificaciones/${n.id}/read/`, { unread: nextUnread });
       emitNotificationsRefresh();
     } catch (err) {
       // rollback
       setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, unread: !nextUnread } : x)));
-      setUnreadCount((c) => Math.max(0, c + (nextUnread ? -1 : +1)));
+      setUnreadCount((c) => Math.max(0, c + (nextUnread ? -1 : 1)));
       console.error("[NotificacionesAdminPage] toggle read failed", err);
     }
   };
+
+  const openDetails = (n) => { setSelected(n); detailsDlg.onOpen(); };
+  const closeDetails = () => { detailsDlg.onClose(); setSelected(null); };
 
   const goBack = () => {
     if (window.history.length > 1) navigate(-1);
@@ -193,6 +230,18 @@ const NotificacionesAdminPage = () => {
             <Tooltip label="Marcar todas como leídas">
               <Button leftIcon={<CheckIcon />} variant="solid" onClick={markAll} isLoading={busyAll}>
                 Marcar todas
+              </Button>
+            </Tooltip>
+            <Tooltip label="Borrar todas las mostradas">
+              <Button
+                leftIcon={<DeleteIcon />}
+                variant="outline"
+                colorScheme="red"
+                onClick={delAllDlg.onOpen}
+                isLoading={busyDelete}
+                isDisabled={items.length === 0}
+              >
+                Borrar todas
               </Button>
             </Tooltip>
           </HStack>
@@ -258,18 +307,10 @@ const NotificacionesAdminPage = () => {
                       <Text fontSize="xs" color={muted}>{formatWhen(n.created_at)}</Text>
                     </VStack>
 
-                    <VStack spacing={1} minW={isMobile ? "auto" : "120px"}>
-                      {n.deeplink_path && (
-                        <Tooltip label="Ir">
-                          <IconButton
-                            aria-label="Ir"
-                            icon={<FaExternalLinkAlt />}
-                            size="sm"
-                            variant="outline"
-                            onClick={() => navigate(n.deeplink_path)}
-                          />
-                        </Tooltip>
-                      )}
+                    <VStack spacing={1} minW={isMobile ? "auto" : "140px"}>
+                      <Button size="xs" variant="outline" onClick={() => openDetails(n)}>
+                        Ver detalle
+                      </Button>
                       <Button size="xs" variant="ghost" onClick={() => toggleRead(n)}>
                         {n.unread ? "Marcar leída" : "Marcar no leída"}
                       </Button>
@@ -289,6 +330,80 @@ const NotificacionesAdminPage = () => {
           )}
         </Box>
       </Box>
+
+      {/* Confirmación borrar todas */}
+      <AlertDialog isOpen={delAllDlg.isOpen} onClose={delAllDlg.onClose} isCentered>
+        <AlertDialogOverlay />
+        <AlertDialogContent>
+          <AlertDialogHeader fontWeight="bold">Borrar notificaciones</AlertDialogHeader>
+          <AlertDialogBody>
+            Vas a borrar <b>{items.length}</b> notificación(es) <i>de la lista actual</i>.
+            Esta acción no se puede deshacer.
+          </AlertDialogBody>
+          <AlertDialogFooter>
+            <Button onClick={delAllDlg.onClose} variant="ghost">Cancelar</Button>
+            <Button ml={3} colorScheme="red" onClick={deleteAllShown} isLoading={busyDelete}>
+              Borrar todas
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Modal Detalle */}
+      <Modal isOpen={detailsDlg.isOpen} onClose={closeDetails} isCentered size="lg">
+        <ModalOverlay />
+        <ModalContent bg={card.bg} color={card.color}>
+          <ModalHeader>
+            {selected?.title || "Notificación"}
+            <HStack mt={2} spacing={2}>
+              <Badge colorScheme={severityToScheme(selected?.severity)}>{selected?.type}</Badge>
+              {selected?.unread && <Badge colorScheme="orange">No leída</Badge>}
+            </HStack>
+          </ModalHeader>
+          <ModalBody>
+            {selected && (
+              <VStack align="stretch" spacing={3}>
+                <Text fontSize="sm" color={muted}>{formatWhen(selected.created_at)}</Text>
+                {selected.body && (
+                  <>
+                    <Text fontWeight="semibold">Mensaje</Text>
+                    <Text whiteSpace="pre-wrap">{selected.body}</Text>
+                  </>
+                )}
+                {"metadata" in selected && (
+                  <>
+                    <Text fontWeight="semibold" mt={2}>Metadata</Text>
+                    <Box borderWidth="1px" rounded="md" p={2} maxH="260px" overflow="auto">
+                      <Code whiteSpace="pre" width="100%">
+                        {JSON.stringify(selected.metadata || {}, null, 2)}
+                      </Code>
+                    </Box>
+                  </>
+                )}
+                {selected.deeplink_path && (
+                  <>
+                    <Text fontWeight="semibold" mt={2}>Deeplink</Text>
+                    <HStack>
+                      <Code>{selected.deeplink_path}</Code>
+                      <Button
+                        size="sm"
+                        leftIcon={<FaExternalLinkAlt />}
+                        onClick={() => navigate(selected.deeplink_path)}
+                        variant="outline"
+                      >
+                        Abrir deeplink
+                      </Button>
+                    </HStack>
+                  </>
+                )}
+              </VStack>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={closeDetails} variant="ghost">Cerrar</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </Box>
   );
 };

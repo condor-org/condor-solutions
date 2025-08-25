@@ -114,130 +114,153 @@ def cancelar_turnos_admin(
                 "fecha_hasta": str(fecha_fin),
             }
 
-    # CHANGED: trabajamos solo con IDs de 'reservado'
     for i in range(0, len(qs_ids_reservados), CHUNK):
-        bloque_ids = qs_ids_reservados[i : i + CHUNK]
+      bloque_ids = qs_ids_reservados[i : i + CHUNK]
 
-        with transaction.atomic():
-            turnos = list(
-                Turno.objects.filter(id__in=bloque_ids)
-                .select_for_update(of=("self",), skip_locked=True)
-                .only("id", "estado", "usuario_id", "lugar_id", "tipo_turno")
-            )
+      with transaction.atomic():
+          turnos = list(
+              Turno.objects.filter(id__in=bloque_ids)
+              .select_for_update(of=("self",), skip_locked=True)
+              .only("id", "estado", "usuario_id", "lugar_id", "tipo_turno")
+          )
 
-            lugar_ids = {t.lugar_id for t in turnos if t.lugar_id}
-            lugar_map = {
-                l.id: l.nombre
-                for l in Lugar.objects.filter(id__in=lugar_ids).only("id", "nombre")
-            } if lugar_ids else {}
+          lugar_ids = {t.lugar_id for t in turnos if t.lugar_id}
+          lugar_map = {
+              l.id: l.nombre
+              for l in Lugar.objects.filter(id__in=lugar_ids).only("id", "nombre")
+          } if lugar_ids else {}
 
-            # CHANGED: precómputo para detectar "reservado con bono"
-            from apps.turnos_core.models import TurnoBonificado
-            bonos_usados = set(
-                TurnoBonificado.objects.filter(usado_en_turno_id__in=[t.id for t in turnos]).values_list("usado_en_turno_id", flat=True)
-            )
+          # precómputo para detectar "reservado con bono"
+          from apps.turnos_core.models import TurnoBonificado
+          bonos_usados = set(
+              TurnoBonificado.objects.filter(
+                  usado_en_turno_id__in=[t.id for t in turnos]
+              ).values_list("usado_en_turno_id", flat=True)
+          )
 
-            for t in turnos:
-                tot["procesados"] += 1
+          for t in turnos:
+            tot["procesados"] += 1
 
-                # Idempotencia por turno
-                if CancelacionAdmin.objects.filter(turno_id=t.id).exists():
-                    tot["saltados_idempotencia"] += 1
-                    detalle.append({
-                        "turno_id": t.id,
-                        "estado_previo": t.estado,
-                        "usuario_id": t.usuario_id,
-                        "emitio_bono": False,
-                        "bono_id": None,
-                        "razon_skip": "idempotente",
-                    })
-                    continue
+            # 1) Seguridad: solo procesar si está reservado
+            if t.estado != "reservado":
+                detalle.append({
+                    "turno_id": t.id,
+                    "estado_previo": t.estado,
+                    "usuario_id": t.usuario_id,
+                    "emitio_bono": False,
+                    "bono_id": None,
+                    "razon_skip": "no_reservado",
+                })
+                continue
 
-                # CHANGED: seguridad extra — solo reservado
-                if t.estado != "reservado":
-                    detalle.append({
-                        "turno_id": t.id,
-                        "estado_previo": t.estado,
-                        "usuario_id": t.usuario_id,
-                        "emitio_bono": False,
-                        "bono_id": None,
-                        "razon_skip": "no_reservado",
-                    })
-                    continue
+            # 2) Idempotencia REAL: saltar solo si YA quedó cancelado (evita bloquear re-cancelaciones)
+            if CancelacionAdmin.objects.filter(turno_id=t.id).exists() and (t.usuario_id is None or t.estado == "cancelado"):
+                tot["saltados_idempotencia"] += 1
+                detalle.append({
+                    "turno_id": t.id,
+                    "estado_previo": t.estado,
+                    "usuario_id": t.usuario_id,
+                    "emitio_bono": False,
+                    "bono_id": None,
+                    "razon_skip": "ya_cancelado",
+                })
+                continue
 
-                usuario_id = t.usuario_id
-                sede_nombre = lugar_map.get(t.lugar_id, "")
-                emitio_bono = False
-                bono_id = None
+            usuario_id = t.usuario_id
+            sede_nombre = lugar_map.get(t.lugar_id, "")
+            emitio_bono = False
+            bono_id = None
 
-                # Guardamos el tipo (si existe) sólo a efectos de auditoría
-                tipo_turno = t.tipo_turno or None
-                # ¿El turno se reservó usando una bonificación?
-                reservado_con_bono = t.id in bonos_usados
-                
+            tipo_turno = t.tipo_turno or None
+            reservado_con_bono = t.id in bonos_usados
 
-                try:
-                    # REGLA FINAL: siempre compensar si hay usuario (independiente de tipo_turno y de si venía con bono)
-                    puede_emitir_bono = bool(usuario_id)
- 
-                    if not dry_run:
-                        if puede_emitir_bono:
-                          from django.contrib.auth import get_user_model
-                          User = get_user_model()
-                          usuario_obj = User.objects.only("id").get(id=usuario_id)
+            try:
+                puede_emitir_bono = bool(usuario_id)
 
-                          motivo_emision = (motivo or "Cancelación administrativa")
-                          if reservado_con_bono:
-                              motivo_emision += " (compensación)"
+                if not dry_run:
+                    if puede_emitir_bono:
+                        from django.contrib.auth import get_user_model
+                        User = get_user_model()
+                        usuario_obj = User.objects.only("id").get(id=usuario_id)
 
-                          bono = emitir_bonificacion_automatica(
-                              usuario=usuario_obj,
-                              turno_original=t,
-                              motivo=motivo_emision,
-                          )
-                          emitio_bono = True
-                          bono_id = getattr(bono, "id", None)
-                          tot["bonos_emitidos"] += 1
+                        motivo_emision = (motivo or "Cancelación administrativa")
+                        if reservado_con_bono:
+                            motivo_emision += " (compensación)"
 
-
-                        # Cancelar el turno (liberar usuario)
-                        t.usuario_id = None
-                        t.estado = "cancelado"
-                        t.save(update_fields=["usuario_id", "estado"])
-
-                        CancelacionAdmin.objects.create(
-                            turno=t,
-                            accion_por=accion_por,
-                            usuario_afectado_id=usuario_id,
-                            motivo=motivo or "",
-                            event_id=event_uuid,
-                            bonificacion_emitida=emitio_bono,
-                            bonificacion_id=bono_id,
-                            tipo_turno_usado=(str(tipo_turno).lower() if tipo_turno else None),
-                            metadata={"reservado_con_bono": reservado_con_bono},
+                        bono = emitir_bonificacion_automatica(
+                            usuario=usuario_obj,
+                            turno_original=t,
+                            motivo=motivo_emision,
                         )
+                        emitio_bono = True
+                        bono_id = getattr(bono, "id", None)
+                        tot["bonos_emitidos"] += 1
 
-                    # métricas y acumuladores por usuario
-                    if usuario_id:
-                        _add_user(usuario_id, sede_nombre)
-                        per_user[usuario_id]["n_cancelados"] += 1
-                        if puede_emitir_bono:
-                            per_user[usuario_id]["n_bonos"] += 1
+                    # cancelar el turno
+                    t.usuario_id = None
+                    t.estado = "cancelado"
+                    t.save(update_fields=["usuario_id", "estado"])
 
-                    tot["cancelados"] += 1
+                    meta_base = {"reservado_con_bono": reservado_con_bono}
+                    ca, created = CancelacionAdmin.objects.get_or_create(
+                        turno=t,
+                        defaults={
+                            "accion_por": accion_por,
+                            "usuario_afectado_id": usuario_id,
+                            "motivo": (motivo or "Cancelación administrativa"),
+                            "event_id": event_uuid,
+                            "bonificacion_emitida": emitio_bono,
+                            "bonificacion_id": bono_id,
+                            "tipo_turno_usado": (str(tipo_turno).lower() if tipo_turno else None),
+                            "metadata": meta_base,
+                        },
+                    )
 
-                    detalle.append({
-                        "turno_id": t.id,
-                        "estado_previo": "reservado",
-                        "usuario_id": usuario_id,
-                        "emitio_bono": bool(emitio_bono) and not dry_run,
-                        "bono_id": bono_id if not dry_run else None,
-                        "razon_skip": None,
-                    })
+                    if not created:
+                        # Reusar registro existente (estado inconsistente previo)
+                        logger.warning(
+                            "[cancel.admin][idempotencia-reuse] turno=%s usando CancelacionAdmin existente id=%s",
+                            t.id, ca.id
+                        )
+                        # Merge/actualización suave
+                        meta = dict(ca.metadata or {})
+                        meta.update(meta_base)
+                        meta["reintentos"] = int(meta.get("reintentos", 0)) + 1
 
-                except Exception as e:
-                    logger.exception("[cancel.admin][turno][fail] t=%s err=%s", t.id, str(e))
-                    tot["errores"] += 1
+                        updates = {"event_id": event_uuid, "metadata": meta}
+                        if motivo:
+                            updates["motivo"] = motivo
+                        if emitio_bono and not ca.bonificacion_emitida:
+                            updates["bonificacion_emitida"] = True
+                            updates["bonificacion_id"] = bono_id
+                        if not ca.tipo_turno_usado and tipo_turno:
+                            updates["tipo_turno_usado"] = str(tipo_turno).lower()
+
+                        for k, v in updates.items():
+                            setattr(ca, k, v)
+                        ca.save(update_fields=list(updates.keys()))
+
+                if usuario_id:
+                    _add_user(usuario_id, sede_nombre)
+                    per_user[usuario_id]["n_cancelados"] += 1
+                    if puede_emitir_bono:
+                        per_user[usuario_id]["n_bonos"] += 1
+
+                tot["cancelados"] += 1
+
+                detalle.append({
+                    "turno_id": t.id,
+                    "estado_previo": "reservado",
+                    "usuario_id": usuario_id,
+                    "emitio_bono": bool(emitio_bono) and not dry_run,
+                    "bono_id": bono_id if not dry_run else None,
+                    "razon_skip": None,
+                })
+
+            except Exception as e:
+                logger.exception("[cancel.admin][turno][fail] t=%s err=%s", t.id, str(e))
+                tot["errores"] += 1
+
 
     resumen = {
         "event_id": str(event_uuid),

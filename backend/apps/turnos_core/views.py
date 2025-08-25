@@ -13,6 +13,7 @@ from django.db import models, transaction
 from django.db.models import Q
 from django.utils.dateparse import parse_date
 from django.utils.timezone import now, localtime 
+from django.contrib.auth import get_user_model
 
 
 # Django REST Framework
@@ -78,6 +79,7 @@ logger = logging.getLogger(__name__)
 from apps.turnos_padel.models import TipoClasePadel
 
 from apps.turnos_core.services.cancelaciones_admin import cancelar_turnos_admin
+from apps.notificaciones_core.services import publish_event, notify_inapp, TYPE_CANCELACION_TURNO
 
 
 class TurnoListView(ListAPIView):
@@ -539,6 +541,73 @@ class CrearBonificacionManualView(APIView):
         bono = serializer.save()
         return Response({"message": "Bonificación creada correctamente."}, status=201)
 
+
+def _notify_cancelacion_usuario(turno, actor):
+    """
+    Notifica a los admin_cliente del cliente dueño de la sede del turno que el USUARIO canceló.
+    No incluye super_admin (por pedido explícito).
+    """
+    logger.info(
+        "[notif.turno_cancelado_usuario][start] turno=%s actor=%s sede=%s",
+        getattr(turno, "id", None), getattr(actor, "id", None), getattr(turno, "lugar_id", None)
+    )
+    try:
+        Usuario = get_user_model()
+        cliente_id = getattr(getattr(turno, "lugar", None), "cliente_id", None)
+        if not cliente_id:
+            logger.warning("[notif.turno_cancelado_usuario][skip] turno=%s sin cliente_id en lugar", getattr(turno, "id", None))
+            return 0
+
+        ev = publish_event(
+            topic="turnos.cancelacion_usuario",
+            actor=actor,
+            cliente_id=cliente_id,
+            metadata={
+                "turno_id": turno.id,
+                "fecha": str(turno.fecha),
+                "hora": str(turno.hora)[:5],
+                "sede_id": turno.lugar_id,
+                "usuario": getattr(actor, "email", None),
+                "reservado_con_bono": bool(
+                    getattr(turno, "bonificacion_usada", None) is not None
+                    or False
+                ),
+            },
+        )
+
+        # Solo admin_cliente (excluye super_admin)
+        admins = Usuario.objects.filter(
+            cliente_id=cliente_id,
+            tipo_usuario="admin_cliente"
+        ).only("id", "cliente_id")
+
+        # Contexto personalizado por admin (si querés sumar más campos, acá)
+        ctx = {
+            a.id: {
+                "usuario": getattr(actor, "email", None),
+                "fecha": str(turno.fecha),
+                "hora": str(turno.hora)[:5],
+                "sede_nombre": getattr(turno.lugar, "nombre", None),
+                "prestador": getattr(getattr(turno, "recurso", None), "nombre_publico", None),
+            } for a in admins
+        }
+
+        creadas = notify_inapp(
+            event=ev,
+            recipients=admins,
+            notif_type=TYPE_CANCELACION_TURNO,
+            context_by_user=ctx,
+            severity="info",
+        )
+        logger.info(
+            "[notif.turno_cancelado_usuario][ok] event=%s turno=%s created=%s recipients=%s",
+            getattr(ev, "id", None), getattr(turno, "id", None), creadas, admins.count()
+        )
+        return creadas
+    except Exception:
+        logger.exception("[notif.turno_cancelado_usuario][fail]")
+        return 0
+
 class CancelarTurnoView(APIView):
     permission_classes = [IsAuthenticated]
     def post(self, request):
@@ -605,9 +674,12 @@ class CancelarTurnoView(APIView):
                     "[turnos.cancelar][bono][fail] actor=%s turno_id=%s err=%s",
                     request.user.id, turno.id, str(e)
                 )
-
-            # (Opcional) Anular intentos de pago asociados, si corresponde
-            # ...
+        try:
+            # Solo si la cancelación fue iniciada por el usuario final o empleado_cliente actuando sobre su propio turno.
+            if not es_admin:
+                _notify_cancelacion_usuario(turno=turno, actor=request.user)
+        except Exception:
+            logger.exception("[turnos.cancelar][notif_admin][fail] turno=%s", turno.id)
 
         return Response({
             "message": "Turno cancelado y liberado.",
