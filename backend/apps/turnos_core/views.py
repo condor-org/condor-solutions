@@ -14,6 +14,8 @@ from django.db.models import Q
 from django.utils.dateparse import parse_date
 from django.utils.timezone import now, localtime 
 from django.contrib.auth import get_user_model
+from django.utils import timezone as tz
+from zoneinfo import ZoneInfo  # Python 3.9+
 
 
 # Django REST Framework
@@ -206,21 +208,28 @@ class TurnosDisponiblesView(APIView):
                 return Response({"error": "Formato de fecha inválido (usar YYYY-MM-DD)."}, status=400)
             filtros["fecha"] = fecha
 
-        ahora = now()
-        fecha_actual = ahora.date()
-        hora_actual = ahora.time()
 
-        turnos = Turno.objects.filter(**filtros).filter(
-            estado__in=["disponible", "reservado"],
-            fecha__gt=fecha_actual
-        ) | Turno.objects.filter(
-            **filtros,
-            estado__in=["disponible", "reservado"],
-            fecha=fecha_actual,
-            hora__gt=hora_actual
+
+        ahora_ar = tz.now().astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
+        hoy = ahora_ar.date()
+        hora = ahora_ar.time().replace(microsecond=0)
+
+        ct_prestador = ContentType.objects.get_for_model(Prestador)
+
+        turnos = (
+            Turno.objects
+            .filter(
+                content_type=ct_prestador,
+                object_id=int(prestador_id),
+                lugar_id=int(lugar_id),
+                estado__in=["disponible", "reservado"],
+            )
+            .filter(
+                Q(fecha__gt=hoy) |
+                (Q(fecha=hoy) & Q(hora__gte=hora))
+            )
+            .order_by("fecha", "hora")
         )
-
-        turnos = turnos.order_by("fecha", "hora")
 
 
         return Response(TurnoSerializer(turnos, many=True).data)
