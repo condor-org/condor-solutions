@@ -21,11 +21,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: backend,  context: ./backend,        file: ./backend/docker/Dockerfile }
-          - { name: cron,     context: ./backend,        file: ./backend/docker/Dockerfile.cron }
-          - { name: frontend, context: ./frontend-padel, file: ./frontend-padel/docker/Dockerfile,
-              build-args: | 
-                REACT_ENV=production }
+          - name: backend
+            context: ./backend
+            file: ./backend/docker/Dockerfile
+          - name: cron
+            context: ./backend
+            file: ./backend/docker/Dockerfile.cron
+          - name: frontend
+            context: ./frontend-padel
+            file: ./frontend-padel/docker/Dockerfile
+            build-args: |
+              REACT_ENV=production
 
     steps:
       - uses: actions/checkout@v4
