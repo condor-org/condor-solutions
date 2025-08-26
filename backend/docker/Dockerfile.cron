@@ -1,24 +1,27 @@
-FROM python:3.11-slim
+# /backend/docker/Dockerfile.cron
+
+FROM python:3.11.9-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    TZ=America/Argentina/Buenos_Aires
+
+# cron + tzdata para TZ consistente + util-linux para flock
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      cron tzdata util-linux \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+COPY requirements.txt .
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Copia el backend
+# Código
 COPY . /app
 
-# Instala dependencias
-RUN pip install --no-cache-dir -r requirements.txt
+# Crontab (se carga en el crontab de root)
+COPY docker/crontab /etc/cron.d/app-cron
+RUN chmod 0644 /etc/cron.d/app-cron && crontab /etc/cron.d/app-cron
 
-# Instala cron
-RUN apt-get update && apt-get install -y cron && apt-get clean
-
-# Copia el archivo crontab
-COPY docker/crontab /etc/cron.d/abonos-cron
-
-# Da permisos
-RUN chmod 0644 /etc/cron.d/abonos-cron
-
-# Aplica el cronjob
-RUN crontab /etc/cron.d/abonos-cron
-
-# Ejecuta cron en foreground
-CMD ["cron", "-f"]
+# -f: foreground, -L 15: logging verbose (a stdout del contenedor)
+CMD ["cron","-f","-L","15"]

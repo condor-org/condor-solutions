@@ -1,8 +1,8 @@
 # apps/turnos_padel/management/commands/procesar_abonos_mensuales.py
+import logging
+import json
 from django.core.management.base import BaseCommand
 from django.utils import timezone
-from django.db import models
-import logging
 
 from apps.turnos_padel.models import AbonoMes
 from apps.turnos_padel.services.abonos import (
@@ -37,7 +37,7 @@ class Command(BaseCommand):
             "errores": 0,
         }
 
-        # A) Abonos del MES ACTUAL sin aplicar (sin M2M): aplicar reservas/prioridad
+        # A) Mes actual: aplicar reservas/prioridad a los no aplicados
         pendientes = (
             AbonoMes.objects.filter(anio=hoy.year, mes=hoy.month, estado="pagado")
             .filter(turnos_reservados__isnull=True, turnos_prioridad__isnull=True)
@@ -57,7 +57,7 @@ class Command(BaseCommand):
                 resumen["errores"] += 1
                 logger.exception("[CRON ABONOS] fallo al aplicar abono=%s", ab.id)
 
-        # B) Abonos del MES ANTERIOR: renovar (si renovado=True) o liberar prioridades
+        # B) Mes anterior: renovar o liberar
         anteriores = AbonoMes.objects.filter(anio=anio_prev, mes=mes_prev, estado="pagado")
         logger.info(
             "[CRON ABONOS] Abonos del mes anterior a procesar (%04d-%02d): %s",
@@ -76,5 +76,8 @@ class Command(BaseCommand):
                 resumen["errores"] += 1
                 logger.exception("[CRON ABONOS] fallo al procesar abono=%s", ab.id)
 
-        logger.info("[CRON ABONOS] Resumen final: %s", resumen)
-        return resumen
+        # Log estructurado + salida legible
+        logger.info("[CRON ABONOS] Resumen final", extra={"abonos_resumen": resumen})
+        self.stdout.write(self.style.SUCCESS(f"[CRON ABONOS] Resumen final: {json.dumps(resumen, ensure_ascii=False)}"))
+
+        return  # importante: no retornar un dict

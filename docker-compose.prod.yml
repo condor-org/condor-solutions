@@ -1,0 +1,160 @@
+version: "3.9"
+
+networks:
+  web: {}
+
+services:
+  reverse-proxy:
+    image: traefik:v3.1
+    container_name: traefik_condor
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      # Entrypoints + redirect http -> https
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=:443
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      # Let's Encrypt (HTTP-01)
+      - --certificatesresolvers.le.acme.httpchallenge=true
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.le.acme.email=${LETSENCRYPT_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      # Logs
+      - --accesslog=true
+      - --log.level=INFO
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - traefik_letsencrypt:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: always
+    networks: [web]
+    mem_limit: "256m"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  backend:
+    image: ghcr.io/tu-org/condor-backend:${BACKEND_TAG}
+    container_name: backend_condor
+    env_file:
+      - ./backend/.env.prod
+    environment:
+      - DJANGO_SETTINGS_MODULE=condor_core.settings.prod
+      - DJANGO_ALLOWED_HOSTS=${APP_HOST}                # p.ej. app.midominio.com
+      # Logs prod
+      - DJANGO_LOG_FORMAT=json
+      - DJANGO_LOG_LEVEL=INFO
+      - DJANGO_REQUEST_LOG_LEVEL=ERROR
+      - DJANGO_MIDDLEWARE_LOG_LEVEL=WARNING
+      - DJANGO_LOG_SKIP_CONTAINS=/healthz,/api/notificaciones/unread_count/,/api/token/refresh/
+      # Cache/Broker interno (opcional)
+      - DJANGO_CACHE_URL=redis://redis:6379/1
+      - REDIS_URL=redis://redis:6379/0
+      # DATABASE_URL debe venir en ./backend/.env.prod (RDS/Neon/etc.)
+    depends_on:
+      - reverse-proxy
+      - redis
+    labels:
+      - traefik.enable=true
+      # Un solo dominio: /api -> backend:8000 (NO strip; Django recibe /api/...)
+      - traefik.http.routers.api.rule=Host(`${APP_HOST}`) && PathPrefix(`/api`)
+      - traefik.http.routers.api.entrypoints=websecure
+      - traefik.http.routers.api.tls.certresolver=le
+      # Middlewares de seguridad + gzip
+      - traefik.http.middlewares.gzip.compress=true
+      - traefik.http.middlewares.sec.headers.stsSeconds=31536000
+      - traefik.http.middlewares.sec.headers.forceSTSHeader=true
+      - traefik.http.middlewares.sec.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.sec.headers.stsPreload=true
+      - traefik.http.middlewares.sec.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.sec.headers.referrerPolicy=no-referrer
+      - traefik.http.routers.api.middlewares=gzip,sec
+      - traefik.http.services.api.loadbalancer.server.port=8000
+    expose:
+      - "8000"
+    restart: always
+    networks: [web]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    stop_grace_period: 30s
+    mem_limit: "1g"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  frontend:
+    image: ghcr.io/tu-org/condor-frontend:${FRONTEND_TAG}
+    # (la imagen debe estar build con .env.production y REACT_APP_API_BASE_URL=/api)
+    container_name: frontend_condor
+    labels:
+      - traefik.enable=true
+      # Todo lo demás del mismo dominio va al frontend
+      - traefik.http.routers.front.rule=Host(`${APP_HOST}`)
+      - traefik.http.routers.front.entrypoints=websecure
+      - traefik.http.routers.front.tls.certresolver=le
+      - traefik.http.routers.front.middlewares=gzip,sec
+      - traefik.http.services.front.loadbalancer.server.port=80
+    expose:
+      - "80"
+    restart: always
+    networks: [web]
+    healthcheck:
+      test: ["CMD-SHELL","wget -qO- http://localhost/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    mem_limit: "256m"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  cron:
+    image: ghcr.io/tu-org/condor-cron:${BACKEND_TAG}
+    container_name: cron_condor
+    env_file:
+      - ./backend/.env.prod
+    environment:
+      - DJANGO_SETTINGS_MODULE=condor_core.settings.prod
+      - DJANGO_LOG_FORMAT=json
+      - DJANGO_LOG_LEVEL=INFO
+      - DJANGO_REQUEST_LOG_LEVEL=ERROR
+      - DJANGO_MIDDLEWARE_LOG_LEVEL=WARNING
+      - DJANGO_LOG_SKIP_CONTAINS=/healthz
+      - DJANGO_CACHE_URL=redis://redis:6379/1
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - backend
+      - redis
+    restart: always
+    networks: [web]
+    mem_limit: "512m"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis_condor
+    command: ["redis-server","--save","","--appendonly","no","--maxmemory","256mb","--maxmemory-policy","allkeys-lru"]
+    expose:
+      - "6379"          # solo red interna; sin puertos públicos
+    restart: always
+    networks: [web]
+    healthcheck:
+      test: ["CMD","redis-cli","ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    mem_limit: "256m"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  traefik_letsencrypt:
