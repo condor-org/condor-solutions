@@ -1,0 +1,93 @@
+version: '3.9'
+
+services:
+  proxy:
+    image: nginx:1.25-alpine
+    container_name: proxy_condor
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./reverse-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    restart: always
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  backend:
+    image: ghcr.io/${OWNER}/${IMAGE_PREFIX}-backend:${BACKEND_TAG}
+    container_name: backend_condor
+    env_file: [ .env ]
+    environment:
+      DJANGO_SETTINGS_MODULE: condor_core.settings.dev
+    depends_on: [ db, redis ]
+    restart: always
+    mem_limit: "1g"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  frontend:
+    image: ghcr.io/${OWNER}/${IMAGE_PREFIX}-frontend:${FRONTEND_TAG}
+    container_name: frontend_condor
+    env_file: [ .env ]
+    environment:
+      # Runtime config (inyectado por entrypoint.sh del frontend)
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL}
+      PUBLIC_CLIENTE_ID: ${PUBLIC_CLIENTE_ID}
+      PUBLIC_NOMBRE_CLIENTE: ${PUBLIC_NOMBRE_CLIENTE}
+      PUBLIC_COLOR_PRIMARIO: ${PUBLIC_COLOR_PRIMARIO}
+      PUBLIC_COLOR_SECUNDARIO: ${PUBLIC_COLOR_SECUNDARIO}
+    depends_on: [ backend ]
+    restart: always
+    mem_limit: "256m"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  cron:
+    image: ghcr.io/${OWNER}/${IMAGE_PREFIX}-cron:${CRON_TAG}
+    container_name: cron_condor
+    env_file: [ .env ]
+    environment:
+      DJANGO_SETTINGS_MODULE: condor_core.settings.dev
+    depends_on: [ db, redis ]
+    restart: always
+    mem_limit: "512m"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  db:
+    image: postgres:14
+    container_name: postgres_condor
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports: [ "5432:5432" ]
+    restart: always
+    mem_limit: "512m"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  redis:
+    image: redis:7
+    container_name: redis_condor
+    ports: [ "6379:6379" ]
+    volumes:
+      - redis_data:/data
+    restart: always
+    mem_limit: "256m"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  postgres_data: { name: condor_postgres_data }
+  redis_data: { name: condor_redis_data }
