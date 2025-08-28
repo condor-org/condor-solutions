@@ -1,6 +1,7 @@
 name: Deploy Condor to EC2
 
 on:
+  pull:
   workflow_dispatch: {}
   release:
     types: [published]
