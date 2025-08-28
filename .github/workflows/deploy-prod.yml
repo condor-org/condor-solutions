@@ -4,7 +4,6 @@ on:
   workflow_dispatch: {}
   release:
     types: [published]
-  # Opcional para destrabar mientras probás:
   push:
     branches: [ infra ]
 
@@ -22,16 +21,18 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: prod   # usa Vars/Secrets del Environment 'prod'
+    environment: prod
     steps:
       - name: Conectar a EC2 y desplegar
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ vars.EC2_HOST }}        # viene de Vars del env 'prod'
-          username: ${{ vars.EC2_USER }}    # idem
-          key: ${{ secrets.EC2_SSH_KEY }}   # secret del env 'prod'
+          host: ${{ vars.EC2_HOST }}
+          username: ${{ vars.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            set -Eeuo pipefail
+            set -euo pipefail
+            trap 'echo "❌ Error en línea $LINENO" >&2' ERR
+
             cd /opt/condor
 
             echo "[+] Sync repo (branch infra)"
@@ -51,34 +52,38 @@ jobs:
             echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
 
             echo "[+] Render .env.prod"
-            # OJO: tu settings usa DJANGO_ALLOWED_HOSTS (no ALLOWED_HOSTS)
-            # y queremos forzar prod con DJANGO_ENV=prod
-            printf '%s\n' \
-            "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" \
-            "DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,${{ vars.ALLOWED_HOSTS }}" \
-            "CSRF_TRUSTED_ORIGINS=${{ vars.CSRF_TRUSTED_ORIGINS }}" \
-            "DJANGO_ENV=prod" \
-            "DJANGO_SECURE_SSL_REDIRECT=False" \
-            "DJANGO_HSTS_SECONDS=0" \
-            "REDIS_URL=${{ vars.REDIS_URL }}" \
-            "PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}" \
-            "PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}" \
-            "PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}" \
-            "PUBLIC_COLOR_PRIMARIO=\"${{ vars.PUBLIC_COLOR_PRIMARIO }}\"" \
-            "PUBLIC_COLOR_SECUNDARIO=\"${{ vars.PUBLIC_COLOR_SECUNDARIO }}\"" \
-            "POSTGRES_DB=${{ vars.POSTGRES_DB }}" \
-            "POSTGRES_USER=${{ vars.POSTGRES_USER }}" \
-            "POSTGRES_HOST=${{ vars.POSTGRES_HOST }}" \
-            "POSTGRES_PORT=${{ vars.POSTGRES_PORT }}" \
-            "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" \
-            "OWNER=${{ env.OWNER }}" \
-            "IMAGE_PREFIX=${{ env.IMAGE_PREFIX }}" \
-            "BACKEND_TAG=${{ env.BACKEND_TAG }}" \
-            "FRONTEND_TAG=${{ env.FRONTEND_TAG }}" \
-            "CRON_TAG=${{ env.CRON_TAG }}" \
-            > .env.prod
+            # SIN comillas en los colores; DJANGO_ALLOWED_HOSTS correcto
+            cat > .env.prod <<EOF
+            DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
+            DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,${{ vars.ALLOWED_HOSTS }}
+            CSRF_TRUSTED_ORIGINS=${{ vars.CSRF_TRUSTED_ORIGINS }}
+            DJANGO_ENV=prod
+            DJANGO_SECURE_SSL_REDIRECT=False
+            DJANGO_HSTS_SECONDS=0
 
+            REDIS_URL=${{ vars.REDIS_URL }}
 
+            # Frontend runtime-config
+            PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}
+            PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}
+            PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}
+            PUBLIC_COLOR_PRIMARIO=${{ vars.PUBLIC_COLOR_PRIMARIO }}
+            PUBLIC_COLOR_SECUNDARIO=${{ vars.PUBLIC_COLOR_SECUNDARIO }}
+
+            # Postgres (RDS)
+            POSTGRES_DB=${{ vars.POSTGRES_DB }}
+            POSTGRES_USER=${{ vars.POSTGRES_USER }}
+            POSTGRES_HOST=${{ vars.POSTGRES_HOST }}
+            POSTGRES_PORT=${{ vars.POSTGRES_PORT }}
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+
+            # Imágenes
+            OWNER=${{ env.OWNER }}
+            IMAGE_PREFIX=${{ env.IMAGE_PREFIX }}
+            BACKEND_TAG=${{ env.BACKEND_TAG }}
+            FRONTEND_TAG=${{ env.FRONTEND_TAG }}
+            CRON_TAG=${{ env.CRON_TAG }}
+            EOF
 
             echo "[+] Verificando compose"
             test -f docker-compose-prod.yml || { echo "FALTA docker-compose-prod.yml"; ls -la; exit 2; }
@@ -86,16 +91,26 @@ jobs:
             echo "[+] Pull imágenes"
             docker compose --env-file .env.prod -f docker-compose-prod.yml pull
 
-            echo "[+] Levantando stack"
-            docker compose --env-file .env.prod -f docker-compose-prod.yml up -d
+            echo "[+] Levantando stack (force-recreate para aplicar envs)"
+            docker compose --env-file .env.prod -f docker-compose-prod.yml up -d --force-recreate
+
+            echo "[+] Esperando servicios healthy"
+            for i in $(seq 1 40); do
+              B=$(docker inspect -f '{{.State.Health.Status}}' backend_condor 2>/dev/null || echo "starting")
+              F=$(docker inspect -f '{{.State.Health.Status}}' frontend_condor 2>/dev/null || echo "starting")
+              echo "  backend=$B | frontend=$F"
+              if [ "$B" = "healthy" ] && [ "$F" = "healthy" ]; then break; fi
+              sleep 3
+            done
 
             echo "[+] Migraciones y checks"
             docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
             docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
 
-
-            echo "[+] Smoke tests"
-            curl -fsS http://localhost:8080/healthz
-            curl -fsS http://localhost:8080/api/healthz || true
+            echo "[+] Smoke tests (proxy en :80)"
+            # health del proxy
+            curl -fsS http://localhost/healthz >/dev/null
+            # si tenés /api/healthz en backend, validalo; si no, no falla
+            curl -fsS http://localhost/api/healthz >/dev/null || true
 
             echo "[✓] Deploy OK"
