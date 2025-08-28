@@ -70,7 +70,7 @@ jobs:
             fi
 
             log "[+] Docker login GHCR"
-            echo "${{ secrets.GHCR_TOKEN }}" | sudo docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+            echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | sudo docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
 
             log "[+] Render .env.prod"
             cat > .env.prod <<'EOF'
