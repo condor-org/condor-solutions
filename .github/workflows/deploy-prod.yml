@@ -53,8 +53,7 @@ jobs:
             echo "[+] Render .env.prod"
             printf '%s\n' \
             "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" \
-            "DATABASE_URL=${{ secrets.DATABASE_URL }}" \
-            "ALLOWED_HOSTS=${{ vars.ALLOWED_HOSTS }}" \
+            "DJANGO_ALLOWED_HOSTS=${{ vars.ALLOWED_HOSTS }}" \
             "CSRF_TRUSTED_ORIGINS=${{ vars.CSRF_TRUSTED_ORIGINS }}" \
             "REDIS_URL=${{ vars.REDIS_URL }}" \
             "PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}" \
@@ -62,12 +61,14 @@ jobs:
             "PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}" \
             "PUBLIC_COLOR_PRIMARIO=\"${{ vars.PUBLIC_COLOR_PRIMARIO }}\"" \
             "PUBLIC_COLOR_SECUNDARIO=\"${{ vars.PUBLIC_COLOR_SECUNDARIO }}\"" \
+            "DJANGO_ENV=prod" \
             "OWNER=${{ env.OWNER }}" \
             "IMAGE_PREFIX=${{ env.IMAGE_PREFIX }}" \
             "BACKEND_TAG=${{ env.BACKEND_TAG }}" \
             "FRONTEND_TAG=${{ env.FRONTEND_TAG }}" \
             "CRON_TAG=${{ env.CRON_TAG }}" \
             > .env.prod
+
 
             echo "[+] Verificando compose"
             test -f docker-compose-prod.yml || { echo "FALTA docker-compose-prod.yml"; ls -la; exit 2; }
