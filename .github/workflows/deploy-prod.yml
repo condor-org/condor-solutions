@@ -4,6 +4,8 @@ on:
   workflow_dispatch:
   release:
     types: [published]
+  push:
+    branches: [ infra ]
 
 permissions:
   contents: read
