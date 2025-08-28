@@ -73,14 +73,15 @@ jobs:
             test -f docker-compose-prod.yml || { echo "FALTA docker-compose-prod.yml"; ls -la; exit 2; }
 
             echo "[+] Pull imágenes"
-            docker compose -f docker-compose-prod.yml pull
+            docker compose --env-file .env.prod -f docker-compose-prod.yml pull
 
             echo "[+] Levantando stack"
-            docker compose -f docker-compose-prod.yml up -d
+            docker compose --env-file .env.prod -f docker-compose-prod.yml up -d
 
             echo "[+] Migraciones y checks"
-            docker compose -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
-            docker compose -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
+            docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
+            docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
+
 
             echo "[+] Smoke tests"
             curl -fsS http://localhost:8080/healthz
