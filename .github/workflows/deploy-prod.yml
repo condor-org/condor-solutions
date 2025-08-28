@@ -12,140 +12,125 @@ permissions:
 
 jobs:
   deploy:
-    name: Deploy (EC2)
     runs-on: ubuntu-latest
 
     steps:
-      - name: 🚀 Conectar por SSH y desplegar
+      - name: 🚀 Deploy via SSH (pull + up + migrate)
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ vars.EC2_HOST }}          # ej: 18.222.15.118
-          username: ${{ vars.EC2_USER }}       # ej: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}         # private key PEM
-          port: ${{ vars.EC2_SSH_PORT || 22 }}
+          host: ${{ vars.EC2_HOST }}          # de tus VARS
+          username: ${{ vars.EC2_USER }}      # de tus VARS (ubuntu)
+          key: ${{ secrets.EC2_SSH_KEY }}     # de tus SECRETS (clave privada PEM)
+          port: 22
           script_stop: true
+          command_timeout: 30m
+          # Enviar estas envs al host remoto
           envs: >
             GHCR_USERNAME,GH_AUTOMATION_TOKEN,DJANGO_SECRET_KEY,DATABASE_URL,
-            OWNER,REPO_URL,IMAGE_PREFIX,BACKEND_TAG,FRONTEND_TAG,CRON_TAG,
+            OWNER,IMAGE_PREFIX,BACKEND_TAG,FRONTEND_TAG,CRON_TAG,
             PUBLIC_API_BASE_URL,PUBLIC_CLIENTE_ID,PUBLIC_NOMBRE_CLIENTE,
             PUBLIC_COLOR_PRIMARIO,PUBLIC_COLOR_SECUNDARIO,REDIS_URL,
             ALLOWED_HOSTS,CSRF_TRUSTED_ORIGINS
-          # --- Mapeo de secrets/vars a env del host remoto ---
-          command_timeout: "30m"
-          script: |
-            set -euo pipefail
-            trap 'echo "❌ Error en línea $LINENO" >&2' ERR
-            log(){ echo "[$(date -Is)] $*"; }
-            fail(){ echo "❌ $1" >&2; exit 1; }
-            req(){ [ -n "${!1:-}" ] || fail "Falta variable requerida: $1"; }
+        env:
+          # Mapear Secrets/Vars del repo → envs del runner (luego viajan por with.envs)
+          GHCR_USERNAME:           ${{ secrets.GHCR_USERNAME }}
+          GH_AUTOMATION_TOKEN:     ${{ secrets.GH_AUTOMATION_TOKEN }}
+          DJANGO_SECRET_KEY:       ${{ secrets.DJANGO_SECRET_KEY }}
+          DATABASE_URL:            ${{ secrets.DATABASE_URL }}
 
-            # ===== Vars desde GitHub (Secrets y Vars) =====
-            export GHCR_USERNAME='${{ secrets.GHCR_USERNAME }}'
-            export GH_AUTOMATION_TOKEN='${{ secrets.GH_AUTOMATION_TOKEN }}'
-            export DJANGO_SECRET_KEY='${{ secrets.DJANGO_SECRET_KEY }}'
-            export DATABASE_URL='${{ secrets.DATABASE_URL }}'
+          OWNER:                   ${{ vars.OWNER }}
+          IMAGE_PREFIX:            ${{ vars.IMAGE_PREFIX }}
+          BACKEND_TAG:             ${{ vars.BACKEND_TAG }}
+          FRONTEND_TAG:            ${{ vars.FRONTEND_TAG }}
+          CRON_TAG:                ${{ vars.CRON_TAG }}
 
-            export OWNER='${{ vars.OWNER }}'
-            export REPO_URL='${{ vars.REPO_URL }}'
-            export IMAGE_PREFIX='${{ vars.IMAGE_PREFIX }}'
-            export BACKEND_TAG='${{ vars.BACKEND_TAG }}'
-            export FRONTEND_TAG='${{ vars.FRONTEND_TAG }}'
-            export CRON_TAG='${{ vars.CRON_TAG }}'
+          PUBLIC_API_BASE_URL:     ${{ vars.PUBLIC_API_BASE_URL }}
+          PUBLIC_CLIENTE_ID:       ${{ vars.PUBLIC_CLIENTE_ID }}
+          PUBLIC_NOMBRE_CLIENTE:   ${{ vars.PUBLIC_NOMBRE_CLIENTE }}
+          PUBLIC_COLOR_PRIMARIO:   ${{ vars.PUBLIC_COLOR_PRIMARIO }}
+          PUBLIC_COLOR_SECUNDARIO: ${{ vars.PUBLIC_COLOR_SECUNDARIO }}
 
-            export PUBLIC_API_BASE_URL='${{ vars.PUBLIC_API_BASE_URL }}'
-            export PUBLIC_CLIENTE_ID='${{ vars.PUBLIC_CLIENTE_ID }}'
-            export PUBLIC_NOMBRE_CLIENTE='${{ vars.PUBLIC_NOMBRE_CLIENTE }}'
-            export PUBLIC_COLOR_PRIMARIO='${{ vars.PUBLIC_COLOR_PRIMARIO }}'
-            export PUBLIC_COLOR_SECUNDARIO='${{ vars.PUBLIC_COLOR_SECUNDARIO }}'
+          REDIS_URL:               ${{ vars.REDIS_URL }}
+          ALLOWED_HOSTS:           ${{ vars.ALLOWED_HOSTS }}
+          CSRF_TRUSTED_ORIGINS:    ${{ vars.CSRF_TRUSTED_ORIGINS }}
+        script: |
+          set -euo pipefail
+          trap 'echo "❌ Error en línea $LINENO" >&2' ERR
+          log(){ echo "[$(date -Is)] $*"; }
+          fail(){ echo "❌ $1" >&2; exit 1; }
+          req(){ [ -n "${!1:-}" ] || fail "Falta variable requerida: $1"; }
 
-            export REDIS_URL='${{ vars.REDIS_URL }}'
-            export ALLOWED_HOSTS='${{ vars.ALLOWED_HOSTS }}'
-            export CSRF_TRUSTED_ORIGINS='${{ vars.CSRF_TRUSTED_ORIGINS }}'
+          # ==== Validaciones (todas vienen de tus Secrets/Vars) ====
+          for v in GHCR_USERNAME GH_AUTOMATION_TOKEN DJANGO_SECRET_KEY DATABASE_URL OWNER \
+                   IMAGE_PREFIX BACKEND_TAG FRONTEND_TAG CRON_TAG PUBLIC_API_BASE_URL \
+                   PUBLIC_CLIENTE_ID PUBLIC_NOMBRE_CLIENTE PUBLIC_COLOR_PRIMARIO \
+                   PUBLIC_COLOR_SECUNDARIO REDIS_URL ALLOWED_HOSTS CSRF_TRUSTED_ORIGINS; do
+            req "$v"
+          done
 
-            # ===== Validaciones tempranas =====
-            for v in GHCR_USERNAME GH_AUTOMATION_TOKEN DJANGO_SECRET_KEY DATABASE_URL OWNER REPO_URL \
-                     IMAGE_PREFIX BACKEND_TAG FRONTEND_TAG CRON_TAG PUBLIC_API_BASE_URL PUBLIC_CLIENTE_ID \
-                     PUBLIC_NOMBRE_CLIENTE PUBLIC_COLOR_PRIMARIO PUBLIC_COLOR_SECUNDARIO REDIS_URL \
-                     ALLOWED_HOSTS CSRF_TRUSTED_ORIGINS; do
-              req "$v"
-            done
+          # ==== Ajuste CSRF: si no tiene puerto, le agrego :8080 ====
+          if ! echo "${CSRF_TRUSTED_ORIGINS}" | grep -qE ':[0-9]{2,5}$'; then
+            CSRF_TRUSTED_ORIGINS="${CSRF_TRUSTED_ORIGINS}:8080"
+          fi
 
-            # ===== Paths y dependencias mínimas =====
-            sudo mkdir -p /opt/condor /opt/condor-tmp
-            sudo chown -R "$USER":"$USER" /opt/condor /opt/condor-tmp
-            cd /opt/condor
-            sudo apt-get update -y
-            sudo apt-get install -y git curl
+          # ==== Paths ====
+          sudo mkdir -p /opt/condor
+          sudo chown -R "$USER":"$USER" /opt/condor
+          cd /opt/condor
 
-            # ===== Cleanup suave (idempotente) =====
-            log "[+] Bajar stack si existe (idempotente)"
-            if [ -f /opt/condor/docker-compose-prod.yml ] && [ -f /opt/condor/.env.prod ]; then
-              docker compose --env-file /opt/condor/.env.prod -f /opt/condor/docker-compose-prod.yml down -v --remove-orphans || true
-            else
-              docker compose down -v --remove-orphans || true
-            fi
+          # ==== Pre-chequeo: compose local ====
+          [ -f docker-compose-prod.yml ] || fail "Falta /opt/condor/docker-compose-prod.yml en la EC2"
 
-            # ===== Clonado autenticado de rama infra =====
-            log "[+] Clonando rama infra (con Bearer)"
-            rm -rf /opt/condor-tmp/*
-            git -c http.extraHeader="Authorization: Bearer ${GH_AUTOMATION_TOKEN}" \
-                clone --depth=1 -b infra "${REPO_URL}" /opt/condor-tmp
+          # ==== Render .env.prod ====
+          log "[+] Render .env.prod"
+          cat > .env.prod <<EOF
+          DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+          DATABASE_URL=${DATABASE_URL}
+          ALLOWED_HOSTS=${ALLOWED_HOSTS}
+          CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS}
+          REDIS_URL=${REDIS_URL}
 
-            [ -f /opt/condor-tmp/docker-compose-prod.yml ] || fail "No se encontró docker-compose-prod.yml en rama infra"
-            cp /opt/condor-tmp/docker-compose-prod.yml /opt/condor/
-            [ -d /opt/condor-tmp/deploy ] && cp -r /opt/condor-tmp/deploy/* /opt/condor/ || true
-            rm -rf /opt/condor-tmp
+          PUBLIC_API_BASE_URL=${PUBLIC_API_BASE_URL}
+          PUBLIC_CLIENTE_ID=${PUBLIC_CLIENTE_ID}
+          PUBLIC_NOMBRE_CLIENTE=${PUBLIC_NOMBRE_CLIENTE}
+          PUBLIC_COLOR_PRIMARIO=${PUBLIC_COLOR_PRIMARIO}
+          PUBLIC_COLOR_SECUNDARIO=${PUBLIC_COLOR_SECUNDARIO}
 
-            # ===== Docker login GHCR =====
-            log "[+] Docker login GHCR"
-            echo "${GH_AUTOMATION_TOKEN}" | sudo docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
+          OWNER=${OWNER}
+          IMAGE_PREFIX=${IMAGE_PREFIX}
+          BACKEND_TAG=${BACKEND_TAG}
+          FRONTEND_TAG=${FRONTEND_TAG}
+          CRON_TAG=${CRON_TAG}
+          EOF
 
-            # ===== Render .env.prod =====
-            log "[+] Render .env.prod"
-            cat > .env.prod <<EOF
-            DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
-            DATABASE_URL=${DATABASE_URL}
-            ALLOWED_HOSTS=${ALLOWED_HOSTS}
-            CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS}
-            REDIS_URL=${REDIS_URL}
+          log "[i] Preview .env (sin secretos sensibles)"
+          grep -E '^(ALLOWED_HOSTS|CSRF_TRUSTED_ORIGINS|PUBLIC_|OWNER|IMAGE_PREFIX|.*TAG)=' .env.prod || true
 
-            PUBLIC_API_BASE_URL=${PUBLIC_API_BASE_URL}
-            PUBLIC_CLIENTE_ID=${PUBLIC_CLIENTE_ID}
-            PUBLIC_NOMBRE_CLIENTE=${PUBLIC_NOMBRE_CLIENTE}
-            PUBLIC_COLOR_PRIMARIO=${PUBLIC_COLOR_PRIMARIO}
-            PUBLIC_COLOR_SECUNDARIO=${PUBLIC_COLOR_SECUNDARIO}
+          # ==== Validar compose ====
+          log "[+] Validando compose"
+          docker compose --env-file .env.prod -f docker-compose-prod.yml config >/dev/null
 
-            OWNER=${OWNER}
-            IMAGE_PREFIX=${IMAGE_PREFIX}
-            BACKEND_TAG=${BACKEND_TAG}
-            FRONTEND_TAG=${FRONTEND_TAG}
-            CRON_TAG=${CRON_TAG}
-            EOF
+          # ==== GHCR login ====
+          log "[+] Docker login GHCR"
+          echo "${GH_AUTOMATION_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
 
-            log "[i] Preview .env (sin secretos sensibles)"
-            grep -E '^(ALLOWED_HOSTS|CSRF_TRUSTED_ORIGINS|PUBLIC_|OWNER|IMAGE_PREFIX|.*TAG)=' .env.prod || true
+          # ==== Pull & Up ====
+          log "[+] Pull imágenes"
+          docker compose --env-file .env.prod -f docker-compose-prod.yml pull
 
-            # ===== Validar compose =====
-            log "[+] Validando compose"
-            sudo docker compose --env-file .env.prod -f docker-compose-prod.yml config >/dev/null
+          log "[+] Levantando stack"
+          docker compose --env-file .env.prod -f docker-compose-prod.yml up -d
 
-            # ===== Pull & Up =====
-            log "[+] Pull imágenes GHCR"
-            sudo docker compose --env-file .env.prod -f docker-compose-prod.yml pull
+          # ==== Migraciones & Checks ====
+          log "[+] Migraciones Django"
+          docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
 
-            log "[+] Levantando stack"
-            sudo docker compose --env-file .env.prod -f docker-compose-prod.yml up -d
+          log "[+] Django check --deploy (no-fail)"
+          docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
 
-            # ===== Migraciones y checks =====
-            log "[+] Migraciones Django"
-            sudo docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
+          # ==== Smoke tests ====
+          log "[+] Smoke /healthz"
+          curl -fsS http://localhost:8080/healthz
+          curl -fsS http://localhost:8080/api/healthz || true
 
-            log "[+] Django check --deploy (no-fail)"
-            sudo docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
-
-            # ===== Smoke tests =====
-            log "[+] Smoke /healthz"
-            curl -fsS http://localhost:8080/healthz
-            curl -fsS http://localhost:8080/api/healthz || true
-
-            log "[✓] Deploy OK"
+          log "[✓] Deploy OK"
