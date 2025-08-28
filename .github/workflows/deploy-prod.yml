@@ -37,37 +37,45 @@ jobs:
             log(){ echo "[$(date -Is)] $*"; }
             fail(){ echo "❌ $1" >&2; exit 1; }
 
-            # --- Validaciones tempranas (evitan 'username is empty') ---
-            [ -n "${{ secrets.GHCR_USERNAME }}" ] || fail "Falta secret GHCR_USERNAME"
-            [ -n "${{ secrets.GH_AUTOMATION_TOKEN }}" ]    || fail "Falta secret GH_AUTOMATION_TOKEN"
-            [ -n "${{ secrets.DJANGO_SECRET_KEY }}" ] || fail "Falta secret DJANGO_SECRET_KEY"
-            [ -n "${{ secrets.DATABASE_URL }}" ]      || fail "Falta secret DATABASE_URL"
-            [ -n "${{ vars.OWNER }}" ]            || fail "Falta var OWNER"
-            [ -n "${{ vars.IMAGE_PREFIX }}" ]     || fail "Falta var IMAGE_PREFIX"
-            [ -n "${{ vars.BACKEND_TAG }}" ]      || fail "Falta var BACKEND_TAG"
-            [ -n "${{ vars.FRONTEND_TAG }}" ]     || fail "Falta var FRONTEND_TAG"
-            [ -n "${{ vars.CRON_TAG }}" ]         || fail "Falta var CRON_TAG"
-            [ -n "${{ vars.PUBLIC_API_BASE_URL }}" ] || fail "Falta var PUBLIC_API_BASE_URL"
-            [ -n "${{ vars.PUBLIC_CLIENTE_ID }}" ]   || fail "Falta var PUBLIC_CLIENTE_ID"
-            [ -n "${{ vars.PUBLIC_NOMBRE_CLIENTE }}" ] || fail "Falta var PUBLIC_NOMBRE_CLIENTE"
-            [ -n "${{ vars.PUBLIC_COLOR_PRIMARIO }}" ] || fail "Falta var PUBLIC_COLOR_PRIMARIO"
-            [ -n "${{ vars.PUBLIC_COLOR_SECUNDARIO }}" ] || fail "Falta var PUBLIC_COLOR_SECUNDARIO"
-            [ -n "${{ vars.REDIS_URL }}" ] || fail "Falta var REDIS_URL"
-            [ -n "${{ vars.ALLOWED_HOSTS }}" ] || fail "Falta var ALLOWED_HOSTS"
-            [ -n "${{ vars.CSRF_TRUSTED_ORIGINS }}" ] || fail "Falta var CSRF_TRUSTED_ORIGINS"
+            # --- Validaciones tempranas ---
+            [ -n "${{ secrets.GHCR_USERNAME }}" ]           || fail "Falta secret GHCR_USERNAME"
+            [ -n "${{ secrets.GH_AUTOMATION_TOKEN }}" ]     || fail "Falta secret GH_AUTOMATION_TOKEN"
+            [ -n "${{ secrets.DJANGO_SECRET_KEY }}" ]       || fail "Falta secret DJANGO_SECRET_KEY"
+            [ -n "${{ secrets.DATABASE_URL }}" ]            || fail "Falta secret DATABASE_URL"
+            [ -n "${{ vars.OWNER }}" ]                      || fail "Falta var OWNER"
+            [ -n "${{ vars.IMAGE_PREFIX }}" ]               || fail "Falta var IMAGE_PREFIX"
+            [ -n "${{ vars.BACKEND_TAG }}" ]                || fail "Falta var BACKEND_TAG"
+            [ -n "${{ vars.FRONTEND_TAG }}" ]               || fail "Falta var FRONTEND_TAG"
+            [ -n "${{ vars.CRON_TAG }}" ]                   || fail "Falta var CRON_TAG"
+            [ -n "${{ vars.PUBLIC_API_BASE_URL }}" ]        || fail "Falta var PUBLIC_API_BASE_URL"
+            [ -n "${{ vars.PUBLIC_CLIENTE_ID }}" ]          || fail "Falta var PUBLIC_CLIENTE_ID"
+            [ -n "${{ vars.PUBLIC_NOMBRE_CLIENTE }}" ]      || fail "Falta var PUBLIC_NOMBRE_CLIENTE"
+            [ -n "${{ vars.PUBLIC_COLOR_PRIMARIO }}" ]      || fail "Falta var PUBLIC_COLOR_PRIMARIO"
+            [ -n "${{ vars.PUBLIC_COLOR_SECUNDARIO }}" ]    || fail "Falta var PUBLIC_COLOR_SECUNDARIO"
+            [ -n "${{ vars.REDIS_URL }}" ]                  || fail "Falta var REDIS_URL"
+            [ -n "${{ vars.ALLOWED_HOSTS }}" ]              || fail "Falta var ALLOWED_HOSTS"
+            [ -n "${{ vars.CSRF_TRUSTED_ORIGINS }}" ]       || fail "Falta var CSRF_TRUSTED_ORIGINS"
+            [ -n "${{ vars.REPO_URL }}" ]                   || fail "Falta var REPO_URL (https://github.com/org/repo.git)"
 
             sudo mkdir -p /opt/condor
             cd /opt/condor
 
-            # Si no está el compose, clonar la rama infra desde REPO_URL
-            if [ ! -f docker-compose-prod.yml ]; then
-              [ -n "${{ vars.REPO_URL }}" ] || fail "docker-compose-prod.yml no existe y vars.REPO_URL no está definida"
-              log "[+] Clonando repo (infra) desde ${{ vars.REPO_URL }}"
-              sudo apt-get update -y && sudo apt-get install -y git
-              rm -rf /opt/condor/.git || true
-              git clone --depth=1 -b infra "${{ vars.REPO_URL }}" /opt/condor
-              ls -la
+            # --- Traer archivos de infra a un dir temporal y copiarlos ---
+            log "[+] Clonando rama infra a /opt/condor-tmp"
+            sudo apt-get update -y && sudo apt-get install -y git
+            rm -rf /opt/condor-tmp
+            git clone --depth=1 -b infra "${{ vars.REPO_URL }}" /opt/condor-tmp
+
+            # Copiar docker-compose y (opcional) archivos de deploy sin pisar .env.prod si ya existe
+            if [ -f /opt/condor-tmp/docker-compose-prod.yml ]; then
+              cp /opt/condor-tmp/docker-compose-prod.yml /opt/condor/
+            else
+              fail "No se encontró docker-compose-prod.yml en la rama infra del repo"
             fi
+            if [ -d /opt/condor-tmp/deploy ]; then
+              cp -r /opt/condor-tmp/deploy/* /opt/condor/ || true
+            fi
+            rm -rf /opt/condor-tmp
 
             log "[+] Docker login GHCR"
             echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | sudo docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
