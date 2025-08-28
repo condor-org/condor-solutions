@@ -57,16 +57,18 @@ jobs:
             [ -n "${{ vars.CSRF_TRUSTED_ORIGINS }}" ]       || fail "Falta var CSRF_TRUSTED_ORIGINS"
             [ -n "${{ vars.REPO_URL }}" ]                   || fail "Falta var REPO_URL (https://github.com/org/repo.git)"
 
-            sudo mkdir -p /opt/condor
+            # --- Preparar paths y ownership ---
+            sudo mkdir -p /opt/condor /opt/condor-tmp
+            sudo chown -R "$(whoami)":"$(whoami)" /opt/condor /opt/condor-tmp
+
             cd /opt/condor
 
-            # --- Traer archivos de infra a un dir temporal y copiarlos ---
+            # --- Clonar rama infra a /opt/condor-tmp y copiar artefactos ---
             log "[+] Clonando rama infra a /opt/condor-tmp"
             sudo apt-get update -y && sudo apt-get install -y git
-            rm -rf /opt/condor-tmp
+            rm -rf /opt/condor-tmp/*
             git clone --depth=1 -b infra "${{ vars.REPO_URL }}" /opt/condor-tmp
 
-            # Copiar docker-compose y (opcional) archivos de deploy sin pisar .env.prod si ya existe
             if [ -f /opt/condor-tmp/docker-compose-prod.yml ]; then
               cp /opt/condor-tmp/docker-compose-prod.yml /opt/condor/
             else
@@ -119,7 +121,6 @@ jobs:
             log "[+] Django check --deploy"
             sudo docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
 
-            # Opcional: collectstatic si corresponde
             # sudo docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py collectstatic --noinput
 
             log "[+] Smoke tests"
