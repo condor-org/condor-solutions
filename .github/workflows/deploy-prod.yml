@@ -39,7 +39,7 @@ jobs:
 
             # --- Validaciones tempranas (evitan 'username is empty') ---
             [ -n "${{ secrets.GHCR_USERNAME }}" ] || fail "Falta secret GHCR_USERNAME"
-            [ -n "${{ secrets.GHCR_TOKEN }}" ]    || fail "Falta secret GHCR_TOKEN"
+            [ -n "${{ secrets.GH_AUTOMATION_TOKEN }}" ]    || fail "Falta secret GH_AUTOMATION_TOKEN"
             [ -n "${{ secrets.DJANGO_SECRET_KEY }}" ] || fail "Falta secret DJANGO_SECRET_KEY"
             [ -n "${{ secrets.DATABASE_URL }}" ]      || fail "Falta secret DATABASE_URL"
             [ -n "${{ vars.OWNER }}" ]            || fail "Falta var OWNER"
