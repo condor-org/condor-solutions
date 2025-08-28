@@ -19,7 +19,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
+    environment: prod
     steps:
       - name: Conectar a EC2 y desplegar
         uses: appleboy/ssh-action@v1.0.3
