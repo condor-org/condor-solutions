@@ -17,36 +17,45 @@ jobs:
     steps:
       - name: 🚀 Deploy via SSH (pull + up + migrate)
         uses: appleboy/ssh-action@v1.0.3
-        env: # ← estas envs se cargan en el runner (de acá salen para with.envs)
-          GHCR_USERNAME:           ${{ secrets.GHCR_USERNAME }}
-          GH_AUTOMATION_TOKEN:     ${{ secrets.GH_AUTOMATION_TOKEN }}
-          DJANGO_SECRET_KEY:       ${{ secrets.DJANGO_SECRET_KEY }}
-          DATABASE_URL:            ${{ secrets.DATABASE_URL }}
 
-          OWNER:                   ${{ vars.OWNER }}
-          IMAGE_PREFIX:            ${{ vars.IMAGE_PREFIX }}
-          BACKEND_TAG:             ${{ vars.BACKEND_TAG }}
-          FRONTEND_TAG:            ${{ vars.FRONTEND_TAG }}
-          CRON_TAG:                ${{ vars.CRON_TAG }}
+        # 1) Mapear todo a env del runner (incluye EC2_HOST/EC2_USER desde VARS)
+        env:
+          # SSH target
+          EC2_HOST:                 ${{ vars.EC2_HOST }}
+          EC2_USER:                 ${{ vars.EC2_USER }}
 
-          PUBLIC_API_BASE_URL:     ${{ vars.PUBLIC_API_BASE_URL }}
-          PUBLIC_CLIENTE_ID:       ${{ vars.PUBLIC_CLIENTE_ID }}
-          PUBLIC_NOMBRE_CLIENTE:   ${{ vars.PUBLIC_NOMBRE_CLIENTE }}
-          PUBLIC_COLOR_PRIMARIO:   ${{ vars.PUBLIC_COLOR_PRIMARIO }}
-          PUBLIC_COLOR_SECUNDARIO: ${{ vars.PUBLIC_COLOR_SECUNDARIO }}
+          # Secrets
+          GHCR_USERNAME:            ${{ secrets.GHCR_USERNAME }}
+          GH_AUTOMATION_TOKEN:      ${{ secrets.GH_AUTOMATION_TOKEN }}
+          DJANGO_SECRET_KEY:        ${{ secrets.DJANGO_SECRET_KEY }}
+          DATABASE_URL:             ${{ secrets.DATABASE_URL }}
 
-          REDIS_URL:               ${{ vars.REDIS_URL }}
-          ALLOWED_HOSTS:           ${{ vars.ALLOWED_HOSTS }}
-          CSRF_TRUSTED_ORIGINS:    ${{ vars.CSRF_TRUSTED_ORIGINS }}
+          # Vars
+          OWNER:                    ${{ vars.OWNER }}
+          IMAGE_PREFIX:             ${{ vars.IMAGE_PREFIX }}
+          BACKEND_TAG:              ${{ vars.BACKEND_TAG }}
+          FRONTEND_TAG:             ${{ vars.FRONTEND_TAG }}
+          CRON_TAG:                 ${{ vars.CRON_TAG }}
 
+          PUBLIC_API_BASE_URL:      ${{ vars.PUBLIC_API_BASE_URL }}
+          PUBLIC_CLIENTE_ID:        ${{ vars.PUBLIC_CLIENTE_ID }}
+          PUBLIC_NOMBRE_CLIENTE:    ${{ vars.PUBLIC_NOMBRE_CLIENTE }}
+          PUBLIC_COLOR_PRIMARIO:    ${{ vars.PUBLIC_COLOR_PRIMARIO }}
+          PUBLIC_COLOR_SECUNDARIO:  ${{ vars.PUBLIC_COLOR_SECUNDARIO }}
+
+          REDIS_URL:                ${{ vars.REDIS_URL }}
+          ALLOWED_HOSTS:            ${{ vars.ALLOWED_HOSTS }}
+          CSRF_TRUSTED_ORIGINS:     ${{ vars.CSRF_TRUSTED_ORIGINS }}
+
+        # 2) Usar env.* en los inputs de with:
         with:
-          host: ${{ vars.EC2_HOST }}        # ej: 18.222.15.118
-          username: ${{ vars.EC2_USER }}    # ej: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}   # PEM
+          host: ${{ env.EC2_HOST }}
+          username: ${{ env.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           script_stop: true
           command_timeout: 30m
-          # IMPORTANTE: sólo se envían las variables listadas acá
+          # 3) Sólo viajan al host las envs listadas acá:
           envs: >
             GHCR_USERNAME,GH_AUTOMATION_TOKEN,DJANGO_SECRET_KEY,DATABASE_URL,
             OWNER,IMAGE_PREFIX,BACKEND_TAG,FRONTEND_TAG,CRON_TAG,
@@ -68,7 +77,7 @@ jobs:
               req "$v"
             done
 
-            # ==== Ajuste CSRF: si no tiene puerto, agrego :8080 ====
+            # ==== Ajuste CSRF: agregar :8080 si falta ====
             if ! echo "${CSRF_TRUSTED_ORIGINS}" | grep -qE ':[0-9]{2,5}$'; then
               CSRF_TRUSTED_ORIGINS="${CSRF_TRUSTED_ORIGINS}:8080"
             fi
@@ -78,7 +87,7 @@ jobs:
             sudo chown -R "$USER":"$USER" /opt/condor
             cd /opt/condor
 
-            # ==== Pre-chequeo: compose local ====
+            # ==== Pre-chequeo ====
             [ -f docker-compose-prod.yml ] || fail "Falta /opt/condor/docker-compose-prod.yml en la EC2"
 
             # ==== Render .env.prod ====
