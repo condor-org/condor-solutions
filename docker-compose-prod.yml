@@ -38,7 +38,8 @@ services:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/api/healthz || exit 1"]
       interval: 15s
       timeout: 5s
-      retries: 10
+      retries: 20
+      start_period: 40s
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }

@@ -51,17 +51,26 @@ jobs:
             echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
 
             echo "[+] Render .env.prod"
+            # OJO: tu settings usa DJANGO_ALLOWED_HOSTS (no ALLOWED_HOSTS)
+            # y queremos forzar prod con DJANGO_ENV=prod
             printf '%s\n' \
             "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" \
             "DJANGO_ALLOWED_HOSTS=${{ vars.ALLOWED_HOSTS }}" \
             "CSRF_TRUSTED_ORIGINS=${{ vars.CSRF_TRUSTED_ORIGINS }}" \
+            "DJANGO_ENV=prod" \
             "REDIS_URL=${{ vars.REDIS_URL }}" \
             "PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}" \
             "PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}" \
             "PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}" \
             "PUBLIC_COLOR_PRIMARIO=\"${{ vars.PUBLIC_COLOR_PRIMARIO }}\"" \
             "PUBLIC_COLOR_SECUNDARIO=\"${{ vars.PUBLIC_COLOR_SECUNDARIO }}\"" \
-            "DJANGO_ENV=prod" \
+            # --- Postgres via POSTGRES_* (evita problemas con DATABASE_URL) ---
+            "POSTGRES_DB=${{ vars.POSTGRES_DB }}" \
+            "POSTGRES_USER=${{ vars.POSTGRES_USER }}" \
+            "POSTGRES_HOST=${{ vars.POSTGRES_HOST }}" \
+            "POSTGRES_PORT=${{ vars.POSTGRES_PORT }}" \
+            "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" \
+            # --- Tags / images ---
             "OWNER=${{ env.OWNER }}" \
             "IMAGE_PREFIX=${{ env.IMAGE_PREFIX }}" \
             "BACKEND_TAG=${{ env.BACKEND_TAG }}" \
