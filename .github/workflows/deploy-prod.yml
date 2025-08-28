@@ -34,18 +34,21 @@ jobs:
             set -Eeuo pipefail
             cd /opt/condor
 
+            echo "[+] Sync repo (branch infra)"
+            if [ ! -d .git ]; then
+              echo "   - .git no existe: clonando..."
+              git clone "${{ vars.REPO_URL }}" .
+            fi
+            git fetch --all --prune
+            git checkout infra
+            git reset --hard origin/infra
+            git rev-parse --abbrev-ref HEAD
+            git log -1 --oneline
+
             echo "[+] Docker login GHCR"
             echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
 
-            # (Opcional) si querés sincronizar el compose desde el repo:
-            # if [ -d .git ]; then
-            #   git fetch --all
-            #   git checkout infra
-            #   git pull --ff-only origin infra
-            # fi
-
             echo "[+] Render .env.prod"
-            # OJO: los colores con # deben ir entre comillas
             printf '%s\n' \
             "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" \
             "DATABASE_URL=${{ secrets.DATABASE_URL }}" \
@@ -63,6 +66,9 @@ jobs:
             "FRONTEND_TAG=${{ env.FRONTEND_TAG }}" \
             "CRON_TAG=${{ env.CRON_TAG }}" \
             > .env.prod
+
+            echo "[+] Verificando compose"
+            test -f docker-compose-prod.yml || { echo "FALTA docker-compose-prod.yml en /opt/condor"; ls -la; exit 2; }
 
             echo "[+] Pull imágenes"
             docker compose -f docker-compose-prod.yml pull
