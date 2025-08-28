@@ -1,4 +1,3 @@
-
 networks:
   condor_net:
     name: condor_net
