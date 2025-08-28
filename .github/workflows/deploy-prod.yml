@@ -22,7 +22,7 @@ jobs:
           host: ${{ vars.EC2_HOST }}          # ej: 18.222.15.118
           username: ${{ vars.EC2_USER }}       # ej: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}         # private key PEM
-          port: ${{ var.EC2_SSH_PORT || 22 }}
+          port: ${{ vars.EC2_SSH_PORT || 22 }}
           script_stop: true
           envs: >
             GHCR_USERNAME,GH_AUTOMATION_TOKEN,DJANGO_SECRET_KEY,DATABASE_URL,
