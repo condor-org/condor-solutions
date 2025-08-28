@@ -1,4 +1,4 @@
-name: Deploy Condor to EC2
+name: Deploy Condor to EC2 (prod)
 
 on:
   push:
@@ -17,22 +17,7 @@ jobs:
     steps:
       - name: 🚀 Deploy via SSH (pull + up + migrate)
         uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ vars.EC2_HOST }}          # de tus VARS
-          username: ${{ vars.EC2_USER }}      # de tus VARS (ubuntu)
-          key: ${{ secrets.EC2_SSH_KEY }}     # de tus SECRETS (clave privada PEM)
-          port: 22
-          script_stop: true
-          command_timeout: 30m
-          # Enviar estas envs al host remoto
-          envs: >
-            GHCR_USERNAME,GH_AUTOMATION_TOKEN,DJANGO_SECRET_KEY,DATABASE_URL,
-            OWNER,IMAGE_PREFIX,BACKEND_TAG,FRONTEND_TAG,CRON_TAG,
-            PUBLIC_API_BASE_URL,PUBLIC_CLIENTE_ID,PUBLIC_NOMBRE_CLIENTE,
-            PUBLIC_COLOR_PRIMARIO,PUBLIC_COLOR_SECUNDARIO,REDIS_URL,
-            ALLOWED_HOSTS,CSRF_TRUSTED_ORIGINS
-        env:
-          # Mapear Secrets/Vars del repo → envs del runner (luego viajan por with.envs)
+        env: # ← estas envs se cargan en el runner (de acá salen para with.envs)
           GHCR_USERNAME:           ${{ secrets.GHCR_USERNAME }}
           GH_AUTOMATION_TOKEN:     ${{ secrets.GH_AUTOMATION_TOKEN }}
           DJANGO_SECRET_KEY:       ${{ secrets.DJANGO_SECRET_KEY }}
@@ -53,84 +38,99 @@ jobs:
           REDIS_URL:               ${{ vars.REDIS_URL }}
           ALLOWED_HOSTS:           ${{ vars.ALLOWED_HOSTS }}
           CSRF_TRUSTED_ORIGINS:    ${{ vars.CSRF_TRUSTED_ORIGINS }}
-        script: |
-          set -euo pipefail
-          trap 'echo "❌ Error en línea $LINENO" >&2' ERR
-          log(){ echo "[$(date -Is)] $*"; }
-          fail(){ echo "❌ $1" >&2; exit 1; }
-          req(){ [ -n "${!1:-}" ] || fail "Falta variable requerida: $1"; }
 
-          # ==== Validaciones (todas vienen de tus Secrets/Vars) ====
-          for v in GHCR_USERNAME GH_AUTOMATION_TOKEN DJANGO_SECRET_KEY DATABASE_URL OWNER \
-                   IMAGE_PREFIX BACKEND_TAG FRONTEND_TAG CRON_TAG PUBLIC_API_BASE_URL \
-                   PUBLIC_CLIENTE_ID PUBLIC_NOMBRE_CLIENTE PUBLIC_COLOR_PRIMARIO \
-                   PUBLIC_COLOR_SECUNDARIO REDIS_URL ALLOWED_HOSTS CSRF_TRUSTED_ORIGINS; do
-            req "$v"
-          done
+        with:
+          host: ${{ vars.EC2_HOST }}        # ej: 18.222.15.118
+          username: ${{ vars.EC2_USER }}    # ej: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}   # PEM
+          port: 22
+          script_stop: true
+          command_timeout: 30m
+          # IMPORTANTE: sólo se envían las variables listadas acá
+          envs: >
+            GHCR_USERNAME,GH_AUTOMATION_TOKEN,DJANGO_SECRET_KEY,DATABASE_URL,
+            OWNER,IMAGE_PREFIX,BACKEND_TAG,FRONTEND_TAG,CRON_TAG,
+            PUBLIC_API_BASE_URL,PUBLIC_CLIENTE_ID,PUBLIC_NOMBRE_CLIENTE,
+            PUBLIC_COLOR_PRIMARIO,PUBLIC_COLOR_SECUNDARIO,REDIS_URL,
+            ALLOWED_HOSTS,CSRF_TRUSTED_ORIGINS
+          script: |
+            set -euo pipefail
+            trap 'echo "❌ Error en línea $LINENO" >&2' ERR
+            log(){ echo "[$(date -Is)] $*"; }
+            fail(){ echo "❌ $1" >&2; exit 1; }
+            req(){ [ -n "${!1:-}" ] || fail "Falta variable requerida: $1"; }
 
-          # ==== Ajuste CSRF: si no tiene puerto, le agrego :8080 ====
-          if ! echo "${CSRF_TRUSTED_ORIGINS}" | grep -qE ':[0-9]{2,5}$'; then
-            CSRF_TRUSTED_ORIGINS="${CSRF_TRUSTED_ORIGINS}:8080"
-          fi
+            # ==== Validaciones ====
+            for v in GHCR_USERNAME GH_AUTOMATION_TOKEN DJANGO_SECRET_KEY DATABASE_URL OWNER \
+                     IMAGE_PREFIX BACKEND_TAG FRONTEND_TAG CRON_TAG PUBLIC_API_BASE_URL \
+                     PUBLIC_CLIENTE_ID PUBLIC_NOMBRE_CLIENTE PUBLIC_COLOR_PRIMARIO \
+                     PUBLIC_COLOR_SECUNDARIO REDIS_URL ALLOWED_HOSTS CSRF_TRUSTED_ORIGINS; do
+              req "$v"
+            done
 
-          # ==== Paths ====
-          sudo mkdir -p /opt/condor
-          sudo chown -R "$USER":"$USER" /opt/condor
-          cd /opt/condor
+            # ==== Ajuste CSRF: si no tiene puerto, agrego :8080 ====
+            if ! echo "${CSRF_TRUSTED_ORIGINS}" | grep -qE ':[0-9]{2,5}$'; then
+              CSRF_TRUSTED_ORIGINS="${CSRF_TRUSTED_ORIGINS}:8080"
+            fi
 
-          # ==== Pre-chequeo: compose local ====
-          [ -f docker-compose-prod.yml ] || fail "Falta /opt/condor/docker-compose-prod.yml en la EC2"
+            # ==== Paths ====
+            sudo mkdir -p /opt/condor
+            sudo chown -R "$USER":"$USER" /opt/condor
+            cd /opt/condor
 
-          # ==== Render .env.prod ====
-          log "[+] Render .env.prod"
-          cat > .env.prod <<EOF
-          DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
-          DATABASE_URL=${DATABASE_URL}
-          ALLOWED_HOSTS=${ALLOWED_HOSTS}
-          CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS}
-          REDIS_URL=${REDIS_URL}
+            # ==== Pre-chequeo: compose local ====
+            [ -f docker-compose-prod.yml ] || fail "Falta /opt/condor/docker-compose-prod.yml en la EC2"
 
-          PUBLIC_API_BASE_URL=${PUBLIC_API_BASE_URL}
-          PUBLIC_CLIENTE_ID=${PUBLIC_CLIENTE_ID}
-          PUBLIC_NOMBRE_CLIENTE=${PUBLIC_NOMBRE_CLIENTE}
-          PUBLIC_COLOR_PRIMARIO=${PUBLIC_COLOR_PRIMARIO}
-          PUBLIC_COLOR_SECUNDARIO=${PUBLIC_COLOR_SECUNDARIO}
+            # ==== Render .env.prod ====
+            log "[+] Render .env.prod"
+            cat > .env.prod <<EOF
+            DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+            DATABASE_URL=${DATABASE_URL}
+            ALLOWED_HOSTS=${ALLOWED_HOSTS}
+            CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS}
+            REDIS_URL=${REDIS_URL}
 
-          OWNER=${OWNER}
-          IMAGE_PREFIX=${IMAGE_PREFIX}
-          BACKEND_TAG=${BACKEND_TAG}
-          FRONTEND_TAG=${FRONTEND_TAG}
-          CRON_TAG=${CRON_TAG}
-          EOF
+            PUBLIC_API_BASE_URL=${PUBLIC_API_BASE_URL}
+            PUBLIC_CLIENTE_ID=${PUBLIC_CLIENTE_ID}
+            PUBLIC_NOMBRE_CLIENTE=${PUBLIC_NOMBRE_CLIENTE}
+            PUBLIC_COLOR_PRIMARIO='${PUBLIC_COLOR_PRIMARIO}'
+            PUBLIC_COLOR_SECUNDARIO='${PUBLIC_COLOR_SECUNDARIO}'
 
-          log "[i] Preview .env (sin secretos sensibles)"
-          grep -E '^(ALLOWED_HOSTS|CSRF_TRUSTED_ORIGINS|PUBLIC_|OWNER|IMAGE_PREFIX|.*TAG)=' .env.prod || true
+            OWNER=${OWNER}
+            IMAGE_PREFIX=${IMAGE_PREFIX}
+            BACKEND_TAG=${BACKEND_TAG}
+            FRONTEND_TAG=${FRONTEND_TAG}
+            CRON_TAG=${CRON_TAG}
+            EOF
 
-          # ==== Validar compose ====
-          log "[+] Validando compose"
-          docker compose --env-file .env.prod -f docker-compose-prod.yml config >/dev/null
+            log "[i] Preview .env (sin secretos sensibles)"
+            grep -E '^(ALLOWED_HOSTS|CSRF_TRUSTED_ORIGINS|PUBLIC_|OWNER|IMAGE_PREFIX|.*TAG)=' .env.prod || true
 
-          # ==== GHCR login ====
-          log "[+] Docker login GHCR"
-          echo "${GH_AUTOMATION_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
+            # ==== Validar compose ====
+            log "[+] Validando compose"
+            docker compose --env-file .env.prod -f docker-compose-prod.yml config >/dev/null
 
-          # ==== Pull & Up ====
-          log "[+] Pull imágenes"
-          docker compose --env-file .env.prod -f docker-compose-prod.yml pull
+            # ==== GHCR login ====
+            log "[+] Docker login GHCR"
+            echo "${GH_AUTOMATION_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
 
-          log "[+] Levantando stack"
-          docker compose --env-file .env.prod -f docker-compose-prod.yml up -d
+            # ==== Pull & Up ====
+            log "[+] Pull imágenes"
+            docker compose --env-file .env.prod -f docker-compose-prod.yml pull
 
-          # ==== Migraciones & Checks ====
-          log "[+] Migraciones Django"
-          docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
+            log "[+] Levantando stack"
+            docker compose --env-file .env.prod -f docker-compose-prod.yml up -d
 
-          log "[+] Django check --deploy (no-fail)"
-          docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
+            # ==== Migraciones & Checks ====
+            log "[+] Migraciones Django"
+            docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
 
-          # ==== Smoke tests ====
-          log "[+] Smoke /healthz"
-          curl -fsS http://localhost:8080/healthz
-          curl -fsS http://localhost:8080/api/healthz || true
+            log "[+] Django check --deploy (no-fail)"
+            docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
 
-          log "[✓] Deploy OK"
+            # ==== Smoke tests ====
+            log "[+] Smoke /healthz"
+            curl -fsS http://localhost:8080/healthz
+            curl -fsS http://localhost:8080/api/healthz || true
+
+            log "[✓] Deploy OK"
