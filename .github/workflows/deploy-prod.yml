@@ -1,0 +1,75 @@
+name: Deploy Condor (prod)
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  OWNER: ${{ vars.OWNER }}
+  IMAGE_PREFIX: ${{ vars.IMAGE_PREFIX }}
+  BACKEND_TAG: ${{ vars.BACKEND_TAG }}
+  FRONTEND_TAG: ${{ vars.FRONTEND_TAG }}
+  CRON_TAG: ${{ vars.CRON_TAG }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Conectar a EC2 y desplegar
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /opt/condor
+
+            echo "[+] Docker login GHCR"
+            echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+            echo "[+] Render .env.prod"
+            cat > .env.prod <<'EOF'
+DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
+DATABASE_URL=${{ secrets.DATABASE_URL }}
+ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
+CSRF_TRUSTED_ORIGINS=${{ secrets.CSRF_TRUSTED_ORIGINS }}
+REDIS_URL=${{ vars.REDIS_URL }}
+
+PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}
+PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}
+PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}
+PUBLIC_COLOR_PRIMARIO=${{ vars.PUBLIC_COLOR_PRIMARIO }}
+PUBLIC_COLOR_SECUNDARIO=${{ vars.PUBLIC_COLOR_SECUNDARIO }}
+
+OWNER=${{ env.OWNER }}
+IMAGE_PREFIX=${{ env.IMAGE_PREFIX }}
+BACKEND_TAG=${{ env.BACKEND_TAG }}
+FRONTEND_TAG=${{ env.FRONTEND_TAG }}
+CRON_TAG=${{ env.CRON_TAG }}
+EOF
+
+            echo "[+] Pull imágenes"
+            docker compose -f docker-compose-prod.yml pull
+
+            echo "[+] Levantando stack"
+            docker compose -f docker-compose-prod.yml up -d
+
+            echo "[+] Migraciones y checks"
+            docker compose -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
+            docker compose -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
+
+            # Si servís estáticos desde backend o S3, descomentá:
+            # docker compose -f docker-compose-prod.yml exec -T backend python manage.py collectstatic --noinput
+
+            echo "[+] Smoke tests"
+            curl -fsS http://localhost:8080/healthz
+            curl -fsS http://localhost:8080/api/healthz || true
+
+            echo "[✓] Deploy OK"
