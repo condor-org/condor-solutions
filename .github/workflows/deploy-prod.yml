@@ -36,11 +36,13 @@ jobs:
 
             echo "[+] Sync repo (branch infra)"
             if [ ! -d .git ]; then
-              echo "   - .git no existe: clonando..."
-              git clone "${{ vars.REPO_URL }}" .
+              git init
+              git remote add origin "https://x-access-token:${{ secrets.GH_AUTOMATION_TOKEN }}@github.com/condor-ai-solutions/condor.git"
+            else
+              git remote set-url origin "https://x-access-token:${{ secrets.GH_AUTOMATION_TOKEN }}@github.com/condor-ai-solutions/condor.git"
             fi
             git fetch --all --prune
-            git checkout infra
+            git checkout -B infra origin/infra
             git reset --hard origin/infra
             git rev-parse --abbrev-ref HEAD
             git log -1 --oneline
@@ -68,7 +70,7 @@ jobs:
             > .env.prod
 
             echo "[+] Verificando compose"
-            test -f docker-compose-prod.yml || { echo "FALTA docker-compose-prod.yml en /opt/condor"; ls -la; exit 2; }
+            test -f docker-compose-prod.yml || { echo "FALTA docker-compose-prod.yml"; ls -la; exit 2; }
 
             echo "[+] Pull imágenes"
             docker compose -f docker-compose-prod.yml pull
