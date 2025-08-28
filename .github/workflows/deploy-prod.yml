@@ -35,21 +35,38 @@ jobs:
           script: |
             set -euo pipefail
             log(){ echo "[$(date -Is)] $*"; }
+            fail(){ echo "❌ $1" >&2; exit 1; }
+
+            # --- Validaciones tempranas (evitan 'username is empty') ---
+            [ -n "${{ secrets.GHCR_USERNAME }}" ] || fail "Falta secret GHCR_USERNAME"
+            [ -n "${{ secrets.GHCR_TOKEN }}" ]    || fail "Falta secret GHCR_TOKEN"
+            [ -n "${{ secrets.DJANGO_SECRET_KEY }}" ] || fail "Falta secret DJANGO_SECRET_KEY"
+            [ -n "${{ secrets.DATABASE_URL }}" ]      || fail "Falta secret DATABASE_URL"
+            [ -n "${{ vars.OWNER }}" ]            || fail "Falta var OWNER"
+            [ -n "${{ vars.IMAGE_PREFIX }}" ]     || fail "Falta var IMAGE_PREFIX"
+            [ -n "${{ vars.BACKEND_TAG }}" ]      || fail "Falta var BACKEND_TAG"
+            [ -n "${{ vars.FRONTEND_TAG }}" ]     || fail "Falta var FRONTEND_TAG"
+            [ -n "${{ vars.CRON_TAG }}" ]         || fail "Falta var CRON_TAG"
+            [ -n "${{ vars.PUBLIC_API_BASE_URL }}" ] || fail "Falta var PUBLIC_API_BASE_URL"
+            [ -n "${{ vars.PUBLIC_CLIENTE_ID }}" ]   || fail "Falta var PUBLIC_CLIENTE_ID"
+            [ -n "${{ vars.PUBLIC_NOMBRE_CLIENTE }}" ] || fail "Falta var PUBLIC_NOMBRE_CLIENTE"
+            [ -n "${{ vars.PUBLIC_COLOR_PRIMARIO }}" ] || fail "Falta var PUBLIC_COLOR_PRIMARIO"
+            [ -n "${{ vars.PUBLIC_COLOR_SECUNDARIO }}" ] || fail "Falta var PUBLIC_COLOR_SECUNDARIO"
+            [ -n "${{ vars.REDIS_URL }}" ] || fail "Falta var REDIS_URL"
+            [ -n "${{ vars.ALLOWED_HOSTS }}" ] || fail "Falta var ALLOWED_HOSTS"
+            [ -n "${{ vars.CSRF_TRUSTED_ORIGINS }}" ] || fail "Falta var CSRF_TRUSTED_ORIGINS"
 
             sudo mkdir -p /opt/condor
             cd /opt/condor
 
-            # (Opcional) si no existe el compose, clonar rama infra
+            # Si no está el compose, clonar la rama infra desde REPO_URL
             if [ ! -f docker-compose-prod.yml ]; then
-              log "[!] docker-compose-prod.yml no existe. Intentando clonar rama infra…"
+              [ -n "${{ vars.REPO_URL }}" ] || fail "docker-compose-prod.yml no existe y vars.REPO_URL no está definida"
+              log "[+] Clonando repo (infra) desde ${{ vars.REPO_URL }}"
               sudo apt-get update -y && sudo apt-get install -y git
-              if [ -n "${{ vars.REPO_URL || '' }}" ]; then
-                rm -rf /opt/condor/.git || true
-                git clone --depth=1 -b infra "${{ vars.REPO_URL }}" /opt/condor
-                ls -la
-              else
-                log "[!] vars.REPO_URL no definido; omitiendo clone."
-              fi
+              rm -rf /opt/condor/.git || true
+              git clone --depth=1 -b infra "${{ vars.REPO_URL }}" /opt/condor
+              ls -la
             fi
 
             log "[+] Docker login GHCR"
@@ -76,7 +93,10 @@ jobs:
             CRON_TAG=${{ env.CRON_TAG }}
             EOF
 
-            log "[+] Validar compose"
+            log "[i] Preview .env (sin secretos)"
+            grep -E '^(ALLOWED_HOSTS|CSRF_TRUSTED_ORIGINS|PUBLIC_|OWNER|IMAGE_PREFIX|.*TAG)=' .env.prod || true
+
+            log "[+] Validando compose"
             sudo docker compose --env-file .env.prod -f docker-compose-prod.yml config >/dev/null
 
             log "[+] Pull imágenes"
@@ -91,11 +111,10 @@ jobs:
             log "[+] Django check --deploy"
             sudo docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
 
-            # Si servís estáticos desde backend o S3, descomentá:
+            # Opcional: collectstatic si corresponde
             # sudo docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py collectstatic --noinput
 
             log "[+] Smoke tests"
-            # asegurate que 8080 responda y /api rote al backend
             curl -fsS http://localhost:8080/healthz
             curl -fsS http://localhost:8080/api/healthz || true
 
