@@ -7,7 +7,7 @@ services:
     image: nginx:1.25-alpine
     container_name: proxy_condor
     ports:
-      - "80:8080"     # nginx.conf escucha 8080; host expone 80
+      - "80:8080"
     volumes:
       - ./reverse-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:

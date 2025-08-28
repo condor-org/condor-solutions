@@ -32,7 +32,6 @@ jobs:
           script: |
             set -euo pipefail
             trap 'echo "❌ Error en línea $LINENO" >&2' ERR
-
             cd /opt/condor
 
             echo "[+] Sync repo (branch infra)"
@@ -42,7 +41,11 @@ jobs:
             else
               git remote set-url origin "https://x-access-token:${{ secrets.GH_AUTOMATION_TOKEN }}@github.com/condor-ai-solutions/condor.git"
             fi
+            # backup + limpiar posibles cambios locales
+            [ -f docker-compose-prod.yml ] && cp -a docker-compose-prod.yml docker-compose-prod.yml.bak.$(date +%F_%H%M) || true
             git fetch --all --prune
+            git reset --hard
+            git clean -fd
             git checkout -B infra origin/infra
             git reset --hard origin/infra
             git rev-parse --abbrev-ref HEAD
@@ -52,38 +55,30 @@ jobs:
             echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
 
             echo "[+] Render .env.prod"
-            # SIN comillas en los colores; DJANGO_ALLOWED_HOSTS correcto
-            cat > .env.prod <<EOF
-            DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
-            DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,${{ vars.ALLOWED_HOSTS }}
-            CSRF_TRUSTED_ORIGINS=${{ vars.CSRF_TRUSTED_ORIGINS }}
-            DJANGO_ENV=prod
-            DJANGO_SECURE_SSL_REDIRECT=False
-            DJANGO_HSTS_SECONDS=0
-
-            REDIS_URL=${{ vars.REDIS_URL }}
-
-            # Frontend runtime-config
-            PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}
-            PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}
-            PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}
-            PUBLIC_COLOR_PRIMARIO=${{ vars.PUBLIC_COLOR_PRIMARIO }}
-            PUBLIC_COLOR_SECUNDARIO=${{ vars.PUBLIC_COLOR_SECUNDARIO }}
-
-            # Postgres (RDS)
-            POSTGRES_DB=${{ vars.POSTGRES_DB }}
-            POSTGRES_USER=${{ vars.POSTGRES_USER }}
-            POSTGRES_HOST=${{ vars.POSTGRES_HOST }}
-            POSTGRES_PORT=${{ vars.POSTGRES_PORT }}
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-
-            # Imágenes
-            OWNER=${{ env.OWNER }}
-            IMAGE_PREFIX=${{ env.IMAGE_PREFIX }}
-            BACKEND_TAG=${{ env.BACKEND_TAG }}
-            FRONTEND_TAG=${{ env.FRONTEND_TAG }}
-            CRON_TAG=${{ env.CRON_TAG }}
-            EOF
+            printf '%s\n' \
+            "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" \
+            "DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,${{ vars.ALLOWED_HOSTS }}" \
+            "CSRF_TRUSTED_ORIGINS=${{ vars.CSRF_TRUSTED_ORIGINS }}" \
+            "DJANGO_ENV=prod" \
+            "DJANGO_SECURE_SSL_REDIRECT=False" \
+            "DJANGO_HSTS_SECONDS=0" \
+            "REDIS_URL=${{ vars.REDIS_URL }}" \
+            "PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}" \
+            "PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}" \
+            "PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}" \
+            "PUBLIC_COLOR_PRIMARIO=${{ vars.PUBLIC_COLOR_PRIMARIO }}" \
+            "PUBLIC_COLOR_SECUNDARIO=${{ vars.PUBLIC_COLOR_SECUNDARIO }}" \
+            "POSTGRES_DB=${{ vars.POSTGRES_DB }}" \
+            "POSTGRES_USER=${{ vars.POSTGRES_USER }}" \
+            "POSTGRES_HOST=${{ vars.POSTGRES_HOST }}" \
+            "POSTGRES_PORT=${{ vars.POSTGRES_PORT }}" \
+            "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" \
+            "OWNER=${{ env.OWNER }}" \
+            "IMAGE_PREFIX=${{ env.IMAGE_PREFIX }}" \
+            "BACKEND_TAG=${{ env.BACKEND_TAG }}" \
+            "FRONTEND_TAG=${{ env.FRONTEND_TAG }}" \
+            "CRON_TAG=${{ env.CRON_TAG }}" \
+            > .env.prod
 
             echo "[+] Verificando compose"
             test -f docker-compose-prod.yml || { echo "FALTA docker-compose-prod.yml"; ls -la; exit 2; }
@@ -91,7 +86,7 @@ jobs:
             echo "[+] Pull imágenes"
             docker compose --env-file .env.prod -f docker-compose-prod.yml pull
 
-            echo "[+] Levantando stack (force-recreate para aplicar envs)"
+            echo "[+] Levantando stack"
             docker compose --env-file .env.prod -f docker-compose-prod.yml up -d --force-recreate
 
             echo "[+] Esperando servicios healthy"
@@ -107,10 +102,11 @@ jobs:
             docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
             docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
 
-            echo "[+] Smoke tests (proxy en :80)"
-            # health del proxy
-            curl -fsS http://localhost/healthz >/dev/null
-            # si tenés /api/healthz en backend, validalo; si no, no falla
+            echo "[+] Smoke tests"
+            # Frontend + proxy (si esto responde, Nginx y el cont está OK)
+            curl -fsS http://localhost/ >/dev/null
+            curl -fsS http://localhost/config.js >/dev/null
+            # API: endpoint opcional (si existe en tu backend, pasará)
             curl -fsS http://localhost/api/healthz >/dev/null || true
 
             echo "[✓] Deploy OK"
