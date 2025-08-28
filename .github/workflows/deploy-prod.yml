@@ -29,26 +29,45 @@ jobs:
           host: ${{ vars.EC2_HOST }}
           username: ${{ vars.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          timeout: 30s
+          command_timeout: 15m
           script: |
             set -euo pipefail
+            log(){ echo "[$(date -Is)] $*"; }
+
+            sudo mkdir -p /opt/condor
             cd /opt/condor
 
-            echo "[+] Docker login GHCR"
-            echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+            # (Opcional) si no existe el compose, clonar rama infra
+            if [ ! -f docker-compose-prod.yml ]; then
+              log "[!] docker-compose-prod.yml no existe. Intentando clonar rama infra…"
+              sudo apt-get update -y && sudo apt-get install -y git
+              if [ -n "${{ vars.REPO_URL || '' }}" ]; then
+                rm -rf /opt/condor/.git || true
+                git clone --depth=1 -b infra "${{ vars.REPO_URL }}" /opt/condor
+                ls -la
+              else
+                log "[!] vars.REPO_URL no definido; omitiendo clone."
+              fi
+            fi
 
-            echo "[+] Render .env.prod"
+            log "[+] Docker login GHCR"
+            echo "${{ secrets.GHCR_TOKEN }}" | sudo docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+
+            log "[+] Render .env.prod"
             cat > .env.prod <<'EOF'
             DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
             DATABASE_URL=${{ secrets.DATABASE_URL }}
-            ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
-            CSRF_TRUSTED_ORIGINS=${{ secrets.CSRF_TRUSTED_ORIGINS }}
+            ALLOWED_HOSTS=${{ vars.ALLOWED_HOSTS }}
+            CSRF_TRUSTED_ORIGINS=${{ vars.CSRF_TRUSTED_ORIGINS }}
             REDIS_URL=${{ vars.REDIS_URL }}
 
             PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}
             PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}
             PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}
-            PUBLIC_COLOR_PRIMARIO=${{ vars.PUBLIC_COLOR_PRIMARIO }}
-            PUBLIC_COLOR_SECUNDARIO=${{ vars.PUBLIC_COLOR_SECUNDARIO }}
+            PUBLIC_COLOR_PRIMARIO="${{ vars.PUBLIC_COLOR_PRIMARIO }}"
+            PUBLIC_COLOR_SECUNDARIO="${{ vars.PUBLIC_COLOR_SECUNDARIO }}"
 
             OWNER=${{ env.OWNER }}
             IMAGE_PREFIX=${{ env.IMAGE_PREFIX }}
@@ -57,21 +76,27 @@ jobs:
             CRON_TAG=${{ env.CRON_TAG }}
             EOF
 
-            echo "[+] Pull imágenes"
-            docker compose -f docker-compose-prod.yml pull
+            log "[+] Validar compose"
+            sudo docker compose --env-file .env.prod -f docker-compose-prod.yml config >/dev/null
 
-            echo "[+] Levantando stack"
-            docker compose -f docker-compose-prod.yml up -d
+            log "[+] Pull imágenes"
+            sudo docker compose --env-file .env.prod -f docker-compose-prod.yml pull
 
-            echo "[+] Migraciones y checks"
-            docker compose -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
-            docker compose -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
+            log "[+] Levantando stack"
+            sudo docker compose --env-file .env.prod -f docker-compose-prod.yml up -d
+
+            log "[+] Migraciones"
+            sudo docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
+
+            log "[+] Django check --deploy"
+            sudo docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
 
             # Si servís estáticos desde backend o S3, descomentá:
-            # docker compose -f docker-compose-prod.yml exec -T backend python manage.py collectstatic --noinput
+            # sudo docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py collectstatic --noinput
 
-            echo "[+] Smoke tests"
+            log "[+] Smoke tests"
+            # asegurate que 8080 responda y /api rote al backend
             curl -fsS http://localhost:8080/healthz
             curl -fsS http://localhost:8080/api/healthz || true
 
-            echo "[✓] Deploy OK"
+            log "[✓] Deploy OK"
