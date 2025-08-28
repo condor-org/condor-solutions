@@ -38,24 +38,24 @@ jobs:
 
             echo "[+] Render .env.prod"
             cat > .env.prod <<'EOF'
-DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
-DATABASE_URL=${{ secrets.DATABASE_URL }}
-ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
-CSRF_TRUSTED_ORIGINS=${{ secrets.CSRF_TRUSTED_ORIGINS }}
-REDIS_URL=${{ vars.REDIS_URL }}
+            DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
+            CSRF_TRUSTED_ORIGINS=${{ secrets.CSRF_TRUSTED_ORIGINS }}
+            REDIS_URL=${{ vars.REDIS_URL }}
 
-PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}
-PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}
-PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}
-PUBLIC_COLOR_PRIMARIO=${{ vars.PUBLIC_COLOR_PRIMARIO }}
-PUBLIC_COLOR_SECUNDARIO=${{ vars.PUBLIC_COLOR_SECUNDARIO }}
+            PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}
+            PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}
+            PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}
+            PUBLIC_COLOR_PRIMARIO=${{ vars.PUBLIC_COLOR_PRIMARIO }}
+            PUBLIC_COLOR_SECUNDARIO=${{ vars.PUBLIC_COLOR_SECUNDARIO }}
 
-OWNER=${{ env.OWNER }}
-IMAGE_PREFIX=${{ env.IMAGE_PREFIX }}
-BACKEND_TAG=${{ env.BACKEND_TAG }}
-FRONTEND_TAG=${{ env.FRONTEND_TAG }}
-CRON_TAG=${{ env.CRON_TAG }}
-EOF
+            OWNER=${{ env.OWNER }}
+            IMAGE_PREFIX=${{ env.IMAGE_PREFIX }}
+            BACKEND_TAG=${{ env.BACKEND_TAG }}
+            FRONTEND_TAG=${{ env.FRONTEND_TAG }}
+            CRON_TAG=${{ env.CRON_TAG }}
+            EOF
 
             echo "[+] Pull imágenes"
             docker compose -f docker-compose-prod.yml pull
