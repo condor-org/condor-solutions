@@ -63,21 +63,26 @@ jobs:
 
             cd /opt/condor
 
-            # --- Clonar rama infra a /opt/condor-tmp y copiar artefactos ---
-            log "[+] Clonando rama infra a /opt/condor-tmp"
+            # --- Clonar rama infra a /opt/condor-tmp con token ---
+            log "[+] Clonando rama infra a /opt/condor-tmp (autenticado)"
             sudo apt-get update -y && sudo apt-get install -y git
+            sudo mkdir -p /opt/condor /opt/condor-tmp
+            sudo chown -R "$(whoami)":"$(whoami)" /opt/condor /opt/condor-tmp
             rm -rf /opt/condor-tmp/*
-            git clone --depth=1 -b infra "${{ vars.REPO_URL }}" /opt/condor-tmp
 
-            if [ -f /opt/condor-tmp/docker-compose-prod.yml ]; then
-              cp /opt/condor-tmp/docker-compose-prod.yml /opt/condor/
-            else
-              fail "No se encontró docker-compose-prod.yml en la rama infra del repo"
-            fi
-            if [ -d /opt/condor-tmp/deploy ]; then
-              cp -r /opt/condor-tmp/deploy/* /opt/condor/ || true
-            fi
+            GIT_TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
+            REPO_URL="${{ vars.REPO_URL }}"          # ej: https://github.com/condor-ai-solutions/condor.git
+
+            # Clonado autenticado sin guardar credenciales globales
+            git -c http.extraHeader="Authorization: Bearer ${GIT_TOKEN}" \
+                clone --depth=1 -b infra "${REPO_URL}" /opt/condor-tmp
+
+            # Copiar artefactos necesarios y limpiar
+            [ -f /opt/condor-tmp/docker-compose-prod.yml ] || fail "No se encontró docker-compose-prod.yml en la rama infra del repo"
+            cp /opt/condor-tmp/docker-compose-prod.yml /opt/condor/
+            [ -d /opt/condor-tmp/deploy ] && cp -r /opt/condor-tmp/deploy/* /opt/condor/ || true
             rm -rf /opt/condor-tmp
+
 
             log "[+] Docker login GHCR"
             echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | sudo docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
