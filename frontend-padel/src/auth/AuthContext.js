@@ -1,13 +1,11 @@
 // src/auth/AuthContext.js
 
 import React, { createContext, useState, useEffect, useCallback, useContext } from "react";
-import axios from "axios";
 import { jwtDecode } from "jwt-decode";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
-import { applyAuthInterceptor } from "./axiosInterceptor";
-
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
+import { applyAuthInterceptor } from "./axiosInterceptor"; // <- si no lo usás acá, podés quitarlo
+import { axiosAuth } from "../utils/axiosAuth";
 
 export const AuthContext = createContext();
 
@@ -19,7 +17,7 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
 
   const [accessToken, setAccessToken] = useState(() => localStorage.getItem("access"));
   const [refreshToken, setRefreshToken] = useState(() => localStorage.getItem("refresh"));
-  const [loadingUser, setLoadingUser] = useState(true);  // ✅ Nuevo
+  const [loadingUser, setLoadingUser] = useState(true);
 
   const logout = useCallback(() => {
     console.log("[AUTH] Logout ejecutado.");
@@ -27,7 +25,6 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
     setRefreshToken(null);
     setUser(null);
     localStorage.clear();
-    delete axios.defaults.headers.common["Authorization"];
     if (onLogoutNavigate) onLogoutNavigate("/login");
   }, [onLogoutNavigate]);
 
@@ -35,14 +32,14 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
     if (!refreshToken) return false;
     try {
       console.log("[AUTH] Intentando refresh token...");
-      const res = await axios.post(`${API_BASE_URL}/api/token/refresh/`, { refresh: refreshToken });
+      const api = axiosAuth(); // instancia sin token
+      const res = await api.post("/token/refresh/", { refresh: refreshToken });
       const { access } = res.data;
       const decoded = jwtDecode(access);
 
       localStorage.setItem("access", access);
       localStorage.setItem("access_exp", decoded.exp);
       setAccessToken(access);
-      axios.defaults.headers.common["Authorization"] = `Bearer ${access}`;
 
       console.log("[AUTH] Refresh token exitoso.");
       return true;
@@ -56,7 +53,8 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
   const login = async (email, password) => {
     console.log("[AUTH] Intentando login con email:", email);
     try {
-      const res = await axios.post(`${API_BASE_URL}/api/token/`, { email, password });
+      const api = axiosAuth(); // instancia sin token para login
+      const res = await api.post("/token/", { email, password });
       const { access, refresh } = res.data;
       const decoded = jwtDecode(access);
 
@@ -66,11 +64,11 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
 
       setAccessToken(access);
       setRefreshToken(refresh);
-      axios.defaults.headers.common["Authorization"] = `Bearer ${access}`;
 
       console.log("[AUTH] Login exitoso. Tokens recibidos.");
 
-      const perfilRes = await axios.get(`${API_BASE_URL}/api/auth/yo/`);
+      const authed = axiosAuth(access);
+      const perfilRes = await authed.get("/auth/yo/");
       setUser(perfilRes.data);
       localStorage.setItem("user", JSON.stringify(perfilRes.data));
 
@@ -86,21 +84,14 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
       if (accessToken) {
         const now = Math.floor(Date.now() / 1000);
         const exp = parseInt(localStorage.getItem("access_exp") || "0", 10);
-
-        if (exp < now) {
-          await attemptRefreshToken();
-        } else {
-          axios.defaults.headers.common["Authorization"] = `Bearer ${accessToken}`;
-        }
+        if (exp < now) await attemptRefreshToken();
       }
-      setLoadingUser(false);  // ✅ Importante: señaliza fin de carga inicial
+      setLoadingUser(false);
     };
     initializeAuth();
   }, [accessToken, attemptRefreshToken]);
 
-  useEffect(() => {
-    applyAuthInterceptor(axios, logout);
-  }, [logout]);
+  // Ya no necesitamos setear interceptores/global defaults sobre axios global.
 
   return (
     <AuthContext.Provider value={{ user, login, logout, accessToken, loadingUser }}>

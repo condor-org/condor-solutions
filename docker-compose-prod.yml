@@ -1,0 +1,111 @@
+networks:
+  condor_net:
+    name: condor_net
+
+services:
+  proxy:
+    image: nginx:1.25-alpine
+    container_name: proxy_condor
+    volumes:
+      - ./reverse-proxy/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - certbot_etc:/etc/letsencrypt:ro
+    ports:
+      - "80:8080"
+      - "443:8443"
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    restart: always
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    networks: [condor_net]
+
+  backend:
+    image: ghcr.io/${OWNER}/${IMAGE_PREFIX}-backend:${BACKEND_TAG}
+    container_name: backend_condor
+    env_file: [ .env.prod ]
+    environment:
+      DJANGO_SETTINGS_MODULE: condor_core.settings.prod
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: always
+    mem_limit: "1g"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import http.client,sys; c=http.client.HTTPConnection('localhost',8000,timeout=3); c.request('GET','/'); c.getresponse(); sys.exit(0)\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    networks: [condor_net]
+
+  frontend:
+    image: ghcr.io/${OWNER}/${IMAGE_PREFIX}-frontend:${FRONTEND_TAG}
+    container_name: frontend_condor
+    env_file: [ .env.prod ]
+    environment:
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL}
+      PUBLIC_CLIENTE_ID: ${PUBLIC_CLIENTE_ID}
+      PUBLIC_NOMBRE_CLIENTE: ${PUBLIC_NOMBRE_CLIENTE}
+      PUBLIC_COLOR_PRIMARIO: ${PUBLIC_COLOR_PRIMARIO}
+      PUBLIC_COLOR_SECUNDARIO: ${PUBLIC_COLOR_SECUNDARIO}
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: always
+    mem_limit: "256m"
+    healthcheck:
+      test: ["CMD-SHELL", "pidof nginx >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    networks: [condor_net]
+
+  cron:
+    image: ghcr.io/${OWNER}/${IMAGE_PREFIX}-cron:${CRON_TAG}
+    container_name: cron_condor
+    env_file: [ .env.prod ]
+    environment:
+      DJANGO_SETTINGS_MODULE: condor_core.settings.prod
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: always
+    mem_limit: "512m"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    networks: [condor_net]
+
+  redis:
+    image: redis:7
+    container_name: redis_condor
+    volumes:
+      - redis_data:/data
+    restart: always
+    mem_limit: "256m"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    networks: [condor_net]
+
+volumes:
+  redis_data:
+    name: condor_redis_data_prod
+  certbot_etc:
+    name: condor_certbot_etc
+
