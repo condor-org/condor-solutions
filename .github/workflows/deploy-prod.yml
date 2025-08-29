@@ -2,10 +2,6 @@ name: Deploy Condor (prod)
 
 on:
   workflow_dispatch: {}
-  release:
-    types: [published]
-  push:
-    branches: [ infra ]
 
 permissions:
   contents: read
@@ -103,7 +99,7 @@ jobs:
                 -d cnd-ia.com -d '*.cnd-ia.com' \
                 --agree-tos --non-interactive \
                 -m '${{ env.LETSENCRYPT_EMAIL }}' || true
-                
+
             echo "[+] Listar certificados disponibles"
             docker run --rm -v condor_certbot_etc:/data alpine sh -lc "ls -l /data/live/cnd-ia.com || true"
 
