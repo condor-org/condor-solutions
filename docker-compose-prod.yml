@@ -107,5 +107,6 @@ volumes:
   redis_data:
     name: condor_redis_data_prod
   certbot_etc:
+    external: true
     name: condor_certbot_etc
 

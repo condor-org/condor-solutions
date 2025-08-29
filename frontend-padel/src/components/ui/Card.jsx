@@ -1,9 +1,8 @@
 // src/components/ui/Card.jsx
-
 import React from "react";
-import { Box, Text, useColorModeValue } from "@chakra-ui/react";
+import { Box, Text, useColorModeValue, Icon as ChakraIcon } from "@chakra-ui/react";
 
-const Card = ({ title, value, icon: Icon }) => {
+const Card = ({ title, value, icon: IconComp }) => {
   const bg = useColorModeValue('white', 'gray.800');
   const color = useColorModeValue('gray.800', 'white');
   const iconColor = useColorModeValue('blue.500', 'blue.400');
@@ -11,24 +10,28 @@ const Card = ({ title, value, icon: Icon }) => {
   return (
     <Box
       bg={bg}
-      p={4}
+      p={{ base: 4, md: 4 }}
       rounded="md"
       textAlign="center"
-      boxShadow="2xl"
+      boxShadow={{ base: 'md', md: '2xl' }}
       color={color}
-      maxW="300px"
-      mx="auto"
-      minW="220px"
+      // ✅ móvil ocupa todo el ancho disponible; respeta límites
+      w={{ base: '100%', sm: 'auto' }}
+      maxW={{ base: '100%', sm: '300px' }}
+      mx={{ base: 0, sm: 'auto' }}
+      minW={{ base: 0, sm: '220px' }}
+      // Permite truncados internos si el contenedor es chico
+      minH={0}
     >
-      {Icon && (
-        <Box mb={3} color={iconColor} display="inline-block">
-          <Icon size={32} />
+      {IconComp && (
+        <Box mb={{ base: 2, md: 3 }} color={iconColor} display="inline-block">
+          <ChakraIcon as={IconComp} boxSize={{ base: 7, md: 8 }} />
         </Box>
       )}
-      <Text fontSize="lg" fontWeight="semibold" mb={1}>
+      <Text fontSize={{ base: 'md', md: 'lg' }} fontWeight="semibold" mb={{ base: 1, md: 1 }}>
         {title}
       </Text>
-      <Text fontSize="2xl" fontWeight="bold">
+      <Text fontSize={{ base: 'xl', md: '2xl' }} fontWeight="bold">
         {value}
       </Text>
     </Box>

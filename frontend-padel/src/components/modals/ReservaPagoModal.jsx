@@ -64,36 +64,59 @@ const ReservaPagoModal = ({
     }
   }, [tieneBonos, usarBonificado, setUsarBonificado]);
 
-  const segundos = Number(tiempoRestante || configPago?.tiempo_maximo_minutos * 60 || 180);
+  const segundos = Number(tiempoRestante || configPago?.tiempo_maximo_minutos * 60 || 900);
 
   // Normaliza fecha/hora para UI (turno de calendario o abono)
-  const fechaTexto = useMemo(() => {
+  const fechaObj = useMemo(() => {
     if (!turno) return null;
-    if (turno.start instanceof Date) {
-      return turno.start.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
+    const s = turno.start;
+    if (s instanceof Date) return s;
+    if (typeof s === "string") {
+      const d = new Date(s);
+      return isNaN(d.getTime()) ? null : d;
     }
-    if (typeof turno.fecha === "string") return turno.fecha; // p.ej. "Mes 8/2025"
     return null;
   }, [turno]);
 
+  const fechaTexto = useMemo(() => {
+    if (!turno) return null;
+    if (fechaObj) {
+      return fechaObj.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
+    }
+    if (typeof turno.fecha === "string") return turno.fecha; // p.ej. "Mes 8/2025"
+    return null;
+  }, [turno, fechaObj]);
+
   const horaTexto = useMemo(() => {
     if (!turno) return null;
-    if (turno.start instanceof Date) {
-      return turno.start.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+    if (fechaObj) {
+      return fechaObj.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
     }
     if (typeof turno.hora === "string") {
       return (turno.hora || "").slice(0,5); // "08:00"
     }
     return null;
-  }, [turno]);
+  }, [turno, fechaObj]);
 
   const nombreTipo = (tipoClase?.nombre) || LABELS[tipoClase?.codigo] || "—";
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} isCentered size="lg" motionPreset="slideInBottom">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      isCentered
+      size={{ base: "xs", sm: "sm", md: "lg" }}
+      motionPreset="slideInBottom"
+    >
       <ModalOverlay />
-      <ModalContent bg={modalBg} color={modalText} px={6} py={4} borderRadius="2xl">
-        <ModalHeader fontWeight="bold" fontSize="lg" color="blue.300">
+      <ModalContent
+        bg={modalBg}
+        color={modalText}
+        px={{ base: 4, md: 6 }}
+        py={{ base: 3, md: 4 }}
+        borderRadius="2xl"
+      >
+        <ModalHeader fontWeight="bold" fontSize={{ base: "md", md: "lg" }} color="blue.300">
           Confirmar reserva
         </ModalHeader>
         <ModalCloseButton />
@@ -101,36 +124,55 @@ const ReservaPagoModal = ({
         <ModalBody>
           {(fechaTexto || horaTexto) && (
             <Box
-              mb={5}
+              mb={{ base: 4, md: 5 }}
               border="2px solid"
               borderColor={resumenBorder}
               bg={resumenBg}
               color={resumenText}
               borderRadius="md"
-              px={4}
-              py={3}
+              px={{ base: 3, md: 4 }}
+              py={{ base: 2, md: 3 }}
+              wordBreak="break-word"
             >
               {fechaTexto && (
-                <Flex align="center" gap={3}>
-                  <Icon as={FaCalendarAlt} boxSize={5} />
-                  <Text><b>Día:</b> {fechaTexto}</Text>
+                <Flex align="center" gap={{ base: 2, md: 3 }} wrap="wrap">
+                  <Icon as={FaCalendarAlt} boxSize={{ base: 4, md: 5 }} />
+                  <Text fontSize={{ base: "sm", md: "md" }} whiteSpace="normal">
+                    <b>Día:</b> {fechaTexto}
+                  </Text>
                 </Flex>
               )}
               {horaTexto && (
-                <Flex align="center" gap={3} mt={2}>
-                  <Icon as={FaClock} boxSize={5} />
-                  <Text><b>Hora:</b> {horaTexto} hs</Text>
+                <Flex align="center" gap={{ base: 2, md: 3 }} mt={2} wrap="wrap">
+                  <Icon as={FaClock} boxSize={{ base: 4, md: 5 }} />
+                  <Text fontSize={{ base: "sm", md: "md" }} whiteSpace="normal">
+                    <b>Hora:</b> {horaTexto} hs
+                  </Text>
                 </Flex>
               )}
             </Box>
           )}
 
           {tipoClase && (
-            <Box mb={6}>
-              <Text><b>Tipo de clase:</b> {nombreTipo}</Text>
-              {"precio" in tipoClase && <Text><b>Monto:</b> ${tipoClase.precio}</Text>}
-              {alias && <Text><b>Alias:</b> {alias}</Text>}
-              {cbuCvu && <Text><b>CBU/CVU:</b> {cbuCvu}</Text>}
+            <Box mb={{ base: 4, md: 6 }} wordBreak="break-word">
+              <Text fontSize={{ base: "sm", md: "md" }}>
+                <b>Tipo de clase:</b> {nombreTipo}
+              </Text>
+              {"precio" in tipoClase && (
+                <Text fontSize={{ base: "sm", md: "md" }}>
+                  <b>Monto:</b> ${tipoClase.precio}
+                </Text>
+              )}
+              {alias && (
+                <Text fontSize={{ base: "sm", md: "md" }}>
+                  <b>Alias:</b> {alias}
+                </Text>
+              )}
+              {cbuCvu && (
+                <Text fontSize={{ base: "sm", md: "md" }}>
+                  <b>CBU/CVU:</b> {cbuCvu}
+                </Text>
+              )}
             </Box>
           )}
 
@@ -149,17 +191,18 @@ const ReservaPagoModal = ({
             <Box
               mt={6}
               mb={4}
-              p={4}
+              p={{ base: 3, md: 4 }}
               borderRadius="md"
               bg={`${resumenBg}88`}
               border="1px solid"
               borderColor={resumenBorder}
+              wordBreak="break-word"
             >
-              <Text fontWeight="medium" mb={2}>
+              <Text fontWeight="medium" mb={2} fontSize={{ base: "sm", md: "md" }}>
                 Tenés {bonificaciones.length} turno{bonificaciones.length > 1 ? "s" : ""} bonificado{bonificaciones.length > 1 ? "s" : ""}.
               </Text>
               <FormControl display="flex" alignItems="center">
-                <FormLabel htmlFor="usarBonificado" mb="0">
+                <FormLabel htmlFor="usarBonificado" mb="0" fontSize={{ base: "sm", md: "md" }}>
                   ¿Querés usar uno para esta reserva?
                 </FormLabel>
                 <Switch
@@ -179,8 +222,8 @@ const ReservaPagoModal = ({
               border="2px dashed"
               borderColor={dropzoneBorder}
               bg={dropzoneBg}
-              px={4}
-              py={4}
+              px={{ base: 3, md: 4 }}
+              py={{ base: 4, md: 4 }}
               minH="60px"
               rounded="lg"
               w="100%"
@@ -190,8 +233,8 @@ const ReservaPagoModal = ({
               justifyContent="center"
               textAlign="center"
               _hover={{ borderColor: "green.400", bg: dropzoneHover }}
-              mt={4}
-              mb={3}
+              mt={{ base: 3, md: 4 }}
+              mb={{ base: 2, md: 3 }}
             >
               <Input
                 id="archivo"
@@ -199,7 +242,7 @@ const ReservaPagoModal = ({
                 display="none"
                 onChange={e => onArchivoChange(e.target.files[0])}
               />
-              <Text color="gray.500" fontSize="sm" fontWeight="medium">
+              <Text color="gray.500" fontSize={{ base: "xs", md: "sm" }} fontWeight="medium" wordBreak="break-word">
                 {archivo ? `📄 ${archivo.name}` : "📎 Subí el comprobante de pago"}
               </Text>
             </Box>
@@ -207,7 +250,7 @@ const ReservaPagoModal = ({
 
           {!usarBonificado && archivo && (
             <Button
-              size="sm"
+              size={{ base: "sm", md: "sm" }}
               leftIcon={<FaTrash />}
               colorScheme="red"
               variant="ghost"
@@ -218,18 +261,34 @@ const ReservaPagoModal = ({
             </Button>
           )}
 
-          <Text fontSize="sm" color="gray.500" mt={6}>
+          <Text fontSize={{ base: "xs", md: "sm" }} color="gray.500" mt={{ base: 4, md: 6 }} wordBreak="break-word">
             <b>📋 Política de reserva:</b> Toda reserva debe incluir comprobante de pago.
             Las cancelaciones sólo se permiten con <b>mínimo 24 horas de anticipación</b>.
             Si no se confirma el pago antes del fin del contador, el turno será liberado automáticamente.
           </Text>
         </ModalBody>
 
-        <ModalFooter>
-          <Button colorScheme="blue" mr={3} isLoading={loading} onClick={onConfirmar}>
+        <ModalFooter
+          // ✅ en pantallas chicas, permitimos wrap para que no se rompa
+          flexWrap={{ base: "wrap", md: "nowrap" }}
+          gap={{ base: 2, md: 3 }}
+        >
+          <Button
+            colorScheme="blue"
+            mr={{ base: 0, md: 3 }}
+            isLoading={loading}
+            onClick={onConfirmar}
+            size={{ base: "sm", md: "md" }}
+            flexShrink={0}
+          >
             Confirmar reserva
           </Button>
-          <Button variant="ghost" onClick={onClose}>
+          <Button
+            variant="ghost"
+            onClick={onClose}
+            size={{ base: "sm", md: "md" }}
+            flexShrink={0}
+          >
             Cancelar
           </Button>
         </ModalFooter>

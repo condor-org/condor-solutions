@@ -9,7 +9,7 @@ import {
   useColorMode,
   useToast,
 } from '@chakra-ui/react';
-import { MoonIcon, SunIcon } from '@chakra-ui/icons';
+  import { MoonIcon, SunIcon } from '@chakra-ui/icons';
 import { AuthContext, useAuth } from '../../auth/AuthContext';
 import { useNavbarTokens } from '../theme/tokens';
 import Button from '../ui/Button';
@@ -66,18 +66,48 @@ const Navbar = () => {
       width="100%"
       bg={bg}
       color={color}
-      px={8}
-      py={4}
+      px={{ base: 4, md: 8 }}
+      py={{ base: 3, md: 4 }}
       boxShadow="lg"
       borderBottom={`2px solid ${borderColor}`}
     >
-      <Flex justify="space-between" align="center">
-        <Text fontWeight="bold" fontSize="xl" letterSpacing="wide" color={textColor}>
+      <Flex
+        justify="space-between"
+        align="center"
+        // ✅ En móvil permitimos que el bloque derecho salte de línea
+        flexWrap={{ base: 'wrap', md: 'nowrap' }}
+        rowGap={{ base: 3, md: 0 }}
+      >
+        {/* Izquierda: título */}
+        <Text
+          fontWeight="bold"
+          fontSize={{ base: 'lg', md: 'xl' }}
+          letterSpacing="wide"
+          color={textColor}
+          // Evita que el título empuje si es largo
+          minW={0}
+        >
           {titulo}
         </Text>
 
-        <Flex align="center" gap={4}>
-          <Text fontSize="sm" color={textColor} opacity={emailOpacity}>
+        {/* Derecha: acciones */}
+        <Flex
+          align="center"
+          gap={{ base: 2, md: 4 }}
+          // En móvil, que ocupe toda la fila si baja
+          w={{ base: '100%', md: 'auto' }}
+          justify={{ base: 'flex-end', md: 'flex-end' }}
+          minW={0}
+        >
+          <Text
+            fontSize="sm"
+            color={textColor}
+            opacity={emailOpacity}
+            // ✅ Truncar email largo en móvil
+            noOfLines={1}
+            maxW={{ base: '40%', sm: '50%', md: 'unset' }}
+            title={user?.email}
+          >
             {user?.email}
           </Text>
 
@@ -105,10 +135,18 @@ const Navbar = () => {
               isRound
               color={iconColor}
               _hover={{ color: hoverColor }}
+              flexShrink={0}
             />
           </Tooltip>
 
-          <Button size="sm" variant="solid" onClick={logout}>
+          <Button
+            size="sm"
+            variant="solid"
+            onClick={logout}
+            // Evita que el botón colapse texto en pantallas muy chicas
+            whiteSpace="nowrap"
+            flexShrink={0}
+          >
             Cerrar sesión
           </Button>
         </Flex>

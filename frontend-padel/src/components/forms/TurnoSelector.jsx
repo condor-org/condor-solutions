@@ -37,9 +37,11 @@ const TurnoSelector = ({
       spacing={4}
       align={{ base: 'stretch', md: 'end' }}
       mb={6}
+      // evita que hijos con min-width implícito rompan el layout
+      w="100%"
     >
       {/* Sede */}
-      <FormControl flex={1}>
+      <FormControl flex={1} minW={0}>
         <FormLabel color={mutedText}>Sede</FormLabel>
         <Select
           value={sedeId}
@@ -52,6 +54,8 @@ const TurnoSelector = ({
           color={textColor}
           borderColor={inputBorder}
           rounded="md"
+          w="100%"
+          size={{ base: 'md', md: 'sm' }}
         >
           {sedes.map((s) => (
             <option key={s.id} value={String(s.id)}>
@@ -62,7 +66,7 @@ const TurnoSelector = ({
       </FormControl>
 
       {/* Profesor */}
-      <FormControl flex={1} isDisabled={!sedeId || disabled}>
+      <FormControl flex={1} minW={0} isDisabled={!sedeId || disabled}>
         <FormLabel color={mutedText}>Profesor</FormLabel>
         <Select
           value={profesorId}
@@ -72,6 +76,8 @@ const TurnoSelector = ({
           color={textColor}
           borderColor={inputBorder}
           rounded="md"
+          w="100%"
+          size={{ base: 'md', md: 'sm' }}
         >
           {profesores.map((p) => (
             <option key={p.id} value={String(p.id)}>
@@ -82,7 +88,11 @@ const TurnoSelector = ({
       </FormControl>
 
       {/* Tipo de Clase */}
-      <FormControl flex={1} isDisabled={!sedeId || tiposClase.length === 0 || disabled}>
+      <FormControl
+        flex={1}
+        minW={0}
+        isDisabled={!sedeId || tiposClase.length === 0 || disabled}
+      >
         <FormLabel color={mutedText}>Tipo de Clase</FormLabel>
         <Select
           value={tipoClaseId}
@@ -92,6 +102,8 @@ const TurnoSelector = ({
           color={textColor}
           borderColor={inputBorder}
           rounded="md"
+          w="100%"
+          size={{ base: 'md', md: 'sm' }}
         >
           {tiposClase.map((t) => (
             <option key={t.id} value={String(t.id)}>

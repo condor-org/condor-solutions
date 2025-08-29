@@ -32,8 +32,8 @@ const ReservaPagoModalAbono = ({
   onClose,
   turno,                 // {fecha, hora}
   tipoClase,             // {id, codigo, nombre?, precio}
-  precioAbono = 0,       // 💰 precio mensual del abono (viene de /padel/tipos-abono)
-  precioUnitario = 0,    // 💸 descuento por cada bonificación (usamos tipo_clase.precio)
+  precioAbono = 0,       // 💰 precio mensual del abono
+  precioUnitario = 0,    // 💸 descuento por cada bonificación (tipo_clase.precio)
   archivo,
   onArchivoChange,
   onRemoveArchivo,
@@ -55,11 +55,10 @@ const ReservaPagoModalAbono = ({
   const dropzoneBorder = useColorModeValue("green.500", "#27ae60");
 
   // 🧮 cálculos
-  const segundos = Number(tiempoRestante ?? 180);
+  const segundos = Number(tiempoRestante ?? 900);
   const nombreTipo = (tipoClase?.nombre) || LABELS[tipoClase?.codigo] || "—";
 
   const bonosOrdenados = useMemo(() => {
-    // Ordenar por vencimiento ascendente (nulos al final)
     const clone = Array.isArray(bonificaciones) ? [...bonificaciones] : [];
     return clone.sort((a, b) => {
       const va = a?.valido_hasta ? new Date(a.valido_hasta).getTime() : Infinity;
@@ -76,30 +75,28 @@ const ReservaPagoModalAbono = ({
 
   const hideComprobante = totalEstimado <= 0;
 
-  // 🪵 logs
-  console.debug("[ModalAbono] render", {
-    tipoClase,
-    precioAbono,
-    precioUnitario,
-    bonosDisponibles: bonificaciones?.length || 0,
-    selectedBonos,
-    totalEstimado,
-    hideComprobante,
-  });
-
   const toggleAll = (checkAll) => {
-    if (checkAll) {
-      setSelectedBonos((bonosOrdenados || []).map((b) => b.id));
-    } else {
-      setSelectedBonos([]);
-    }
+    if (checkAll) setSelectedBonos((bonosOrdenados || []).map((b) => b.id));
+    else setSelectedBonos([]);
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} isCentered size="lg" motionPreset="slideInBottom">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      isCentered
+      size={{ base: "xs", sm: "sm", md: "lg" }}
+      motionPreset="slideInBottom"
+    >
       <ModalOverlay />
-      <ModalContent bg={modalBg} color={modalText} px={6} py={4} borderRadius="2xl">
-        <ModalHeader fontWeight="bold" fontSize="lg" color="blue.300">
+      <ModalContent
+        bg={modalBg}
+        color={modalText}
+        px={{ base: 4, md: 6 }}
+        py={{ base: 3, md: 4 }}
+        borderRadius="2xl"
+      >
+        <ModalHeader fontWeight="bold" fontSize={{ base: "md", md: "lg" }} color="blue.300">
           Confirmar pago de abono
         </ModalHeader>
         <ModalCloseButton />
@@ -107,27 +104,28 @@ const ReservaPagoModalAbono = ({
         <ModalBody>
           {(turno?.fecha || turno?.hora) && (
             <Box
-              mb={5}
+              mb={{ base: 4, md: 5 }}
               border="2px solid"
               borderColor={resumenBorder}
               bg={resumenBg}
               color={resumenText}
               borderRadius="md"
-              px={4}
-              py={3}
+              px={{ base: 3, md: 4 }}
+              py={{ base: 2, md: 3 }}
+              wordBreak="break-word"
             >
               {turno.fecha && (
-                <Flex align="center" gap={3}>
-                  <Icon as={FaCalendarAlt} boxSize={5} />
-                  <Text>
+                <Flex align="center" gap={{ base: 2, md: 3 }} wrap="wrap">
+                  <Icon as={FaCalendarAlt} boxSize={{ base: 4, md: 5 }} />
+                  <Text fontSize={{ base: "sm", md: "md" }} whiteSpace="normal">
                     <b>Mes/Día:</b> {turno.fecha}
                   </Text>
                 </Flex>
               )}
               {turno.hora && (
-                <Flex align="center" gap={3} mt={2}>
-                  <Icon as={FaClock} boxSize={5} />
-                  <Text>
+                <Flex align="center" gap={{ base: 2, md: 3 }} mt={2} wrap="wrap">
+                  <Icon as={FaClock} boxSize={{ base: 4, md: 5 }} />
+                  <Text fontSize={{ base: "sm", md: "md" }} whiteSpace="normal">
                     <b>Hora:</b> {(turno.hora || "").slice(0, 5)} hs
                   </Text>
                 </Flex>
@@ -136,32 +134,30 @@ const ReservaPagoModalAbono = ({
           )}
 
           {tipoClase && (
-            <Box mb={4}>
-              <Text>
+            <Box mb={{ base: 3, md: 4 }} wordBreak="break-word">
+              <Text fontSize={{ base: "sm", md: "md" }}>
                 <b>Tipo de clase:</b> {nombreTipo}
               </Text>
-              <Text>
-                <b>Precio del abono:</b>{" "}
-                ${Number(precioAbono).toLocaleString("es-AR")}
+              <Text fontSize={{ base: "sm", md: "md" }}>
+                <b>Precio del abono:</b> ${Number(precioAbono).toLocaleString("es-AR")}
               </Text>
-              <Text>
-                <b>Descuento por bonificación:</b>{" "}
-                ${Number(precioUnitario).toLocaleString("es-AR")} c/u
+              <Text fontSize={{ base: "sm", md: "md" }}>
+                <b>Descuento por bonificación:</b> ${Number(precioUnitario).toLocaleString("es-AR")} c/u
               </Text>
               {alias && (
-                <Text>
+                <Text fontSize={{ base: "sm", md: "md" }}>
                   <b>Alias:</b> {alias}
                 </Text>
               )}
               {cbuCvu && (
-                <Text>
+                <Text fontSize={{ base: "sm", md: "md" }}>
                   <b>CBU/CVU:</b> {cbuCvu}
                 </Text>
               )}
             </Box>
           )}
 
-          {/* Countdown (fallback si el componente no está disponible) */}
+          {/* Countdown */}
           {CountdownClock ? (
             <CountdownClock
               segundosTotales={segundos}
@@ -183,7 +179,7 @@ const ReservaPagoModalAbono = ({
               borderColor={resumenBorder}
               bg={`${resumenBg}66`}
             >
-              <Text fontSize="sm" color="orange.500">
+              <Text fontSize={{ base: "xs", md: "sm" }} color="orange.500">
                 Contador no disponible (ver consola). No afecta a la confirmación.
               </Text>
             </Box>
@@ -191,15 +187,16 @@ const ReservaPagoModalAbono = ({
 
           {/* Resumen del cálculo */}
           <Box
-            mt={4}
-            mb={3}
+            mt={{ base: 3, md: 4 }}
+            mb={{ base: 2, md: 3 }}
             p={3}
             borderRadius="md"
             border="1px solid"
             borderColor={resumenBorder}
             bg={`${resumenBg}66`}
+            wordBreak="break-word"
           >
-            <Text fontSize="sm">
+            <Text fontSize={{ base: "sm", md: "sm" }}>
               Total estimado:{" "}
               <b>${Number(totalEstimado).toLocaleString("es-AR")}</b>{" "}
               = ${Number(precioAbono).toLocaleString("es-AR")} − (
@@ -208,68 +205,56 @@ const ReservaPagoModalAbono = ({
             </Text>
           </Box>
 
-          {/* Bonificaciones: selección amigable */}
+          {/* Bonificaciones */}
           {!!bonosOrdenados.length && (
             <Box
-              mt={4}
-              mb={4}
-              p={4}
+              mt={{ base: 3, md: 4 }}
+              mb={{ base: 3, md: 4 }}
+              p={{ base: 3, md: 4 }}
               borderRadius="md"
               bg={`${resumenBg}88`}
               border="1px solid"
               borderColor={resumenBorder}
             >
-              <HStack justify="space-between" align="center" mb={2}>
-                <Text fontWeight="medium">
+              <HStack justify="space-between" align="center" mb={2} flexWrap="wrap" rowGap={2}>
+                <Text fontWeight="medium" fontSize={{ base: "sm", md: "md" }}>
                   Tenés {bonosOrdenados.length} bonificación
                   {bonosOrdenados.length > 1 ? "es" : ""} disponibles. Elegí
                   cuáles aplicar al <b>mes actual</b>:
                 </Text>
                 <HStack>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={() => toggleAll(true)}
-                  >
+                  <Button size="xs" variant="outline" onClick={() => toggleAll(true)}>
                     Seleccionar todas
                   </Button>
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    onClick={() => toggleAll(false)}
-                  >
+                  <Button size="xs" variant="ghost" onClick={() => toggleAll(false)}>
                     Ninguna
                   </Button>
                 </HStack>
               </HStack>
 
-              <Stack spacing={2}>
+              {/* En móvil, lista scrolleable si es larga */}
+              <Stack
+                spacing={2}
+                maxH={{ base: '35vh', md: 'none' }}
+                overflowY={{ base: 'auto', md: 'visible' }}
+                pr={{ base: 1, md: 0 }}
+              >
                 {bonosOrdenados.map((b) => {
                   const checked = selectedBonos.includes(b.id);
-                  const vence =
-                    b.valido_hasta &&
-                    new Date(b.valido_hasta).toLocaleDateString("es-AR");
-                  const tipo =
-                    (b.tipo_turno || "").toUpperCase(); // ej: x1
+                  const vence = b.valido_hasta && new Date(b.valido_hasta).toLocaleDateString("es-AR");
+                  const tipo = (b.tipo_turno || "").toUpperCase(); // ej: x1
                   return (
                     <Checkbox
                       key={b.id}
                       isChecked={checked}
                       onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedBonos([...selectedBonos, b.id]);
-                        } else {
-                          setSelectedBonos(
-                            selectedBonos.filter((x) => x !== b.id)
-                          );
-                        }
+                        if (e.target.checked) setSelectedBonos([...selectedBonos, b.id]);
+                        else setSelectedBonos(selectedBonos.filter((x) => x !== b.id));
                       }}
                       colorScheme="teal"
                     >
-                      <HStack spacing={2}>
-                        <Badge variant="subtle" colorScheme="purple">
-                          #{b.id}
-                        </Badge>
+                      <HStack spacing={2} flexWrap="wrap" rowGap={1}>
+                        <Badge variant="subtle" colorScheme="purple">#{b.id}</Badge>
                         <Badge variant="outline">{tipo}</Badge>
                         {vence && (
                           <Badge variant="outline" colorScheme="orange">
@@ -277,7 +262,7 @@ const ReservaPagoModalAbono = ({
                           </Badge>
                         )}
                         {b.motivo && (
-                          <Text fontSize="sm" color="gray.500">
+                          <Text fontSize="sm" color="gray.500" wordBreak="break-word">
                             — {b.motivo}
                           </Text>
                         )}
@@ -301,8 +286,8 @@ const ReservaPagoModalAbono = ({
               border="2px dashed"
               borderColor={dropzoneBorder}
               bg={dropzoneBg}
-              px={4}
-              py={4}
+              px={{ base: 3, md: 4 }}
+              py={{ base: 4, md: 4 }}
               minH="60px"
               rounded="lg"
               w="100%"
@@ -312,8 +297,8 @@ const ReservaPagoModalAbono = ({
               justifyContent="center"
               textAlign="center"
               _hover={{ borderColor: "green.400", bg: dropzoneHover }}
-              mt={2}
-              mb={3}
+              mt={{ base: 2, md: 2 }}
+              mb={{ base: 2, md: 3 }}
             >
               <Input
                 id="archivo"
@@ -321,17 +306,15 @@ const ReservaPagoModalAbono = ({
                 display="none"
                 onChange={(e) => onArchivoChange(e.target.files[0])}
               />
-              <Text color="gray.500" fontSize="sm" fontWeight="medium">
-                {archivo
-                  ? `📄 ${archivo.name}`
-                  : "📎 Subí el comprobante de pago del abono"}
+              <Text color="gray.500" fontSize={{ base: "xs", md: "sm" }} fontWeight="medium" wordBreak="break-word">
+                {archivo ? `📄 ${archivo.name}` : "📎 Subí el comprobante de pago del abono"}
               </Text>
             </Box>
           )}
 
           {archivo && !hideComprobante && (
             <Button
-              size="sm"
+              size={{ base: "sm", md: "sm" }}
               leftIcon={<FaTrash />}
               colorScheme="red"
               variant="ghost"
@@ -344,39 +327,45 @@ const ReservaPagoModalAbono = ({
 
           {hideComprobante && (
             <Box
-              mt={2}
-              mb={3}
+              mt={{ base: 2, md: 2 }}
+              mb={{ base: 2, md: 3 }}
               p={3}
               borderRadius="md"
               border="1px dashed"
               borderColor={resumenBorder}
               bg={`${resumenBg}66`}
+              wordBreak="break-word"
             >
-              <Text fontSize="sm" color="gray.700">
+              <Text fontSize={{ base: "xs", md: "sm" }} color="gray.700">
                 Con <b>{selectedBonos.length}</b> bonificación
-                {selectedBonos.length > 1 ? "es" : ""} el total es{" "}
-                <b>$0</b>. Comprobante <b>no requerido</b>.
+                {selectedBonos.length > 1 ? "es" : ""} el total es <b>$0</b>. Comprobante <b>no requerido</b>.
               </Text>
             </Box>
           )}
 
-          <Text fontSize="sm" color="gray.500" mt={4}>
-            <b>📋 Política de abono:</b> Reservamos todas las fechas del mes
-            actual y prioridad del próximo. El total se recalcula en backend y
-            podría ajustar según reglas internas.
+          <Text fontSize={{ base: "xs", md: "sm" }} color="gray.500" mt={{ base: 2, md: 4 }} wordBreak="break-word">
+            <b>📋 Política de abono:</b> Reservamos todas las fechas del mes actual y prioridad del próximo.
+            El total se recalcula en backend y podría ajustar según reglas internas.
           </Text>
         </ModalBody>
 
-        <ModalFooter>
+        <ModalFooter flexWrap={{ base: "wrap", md: "nowrap" }} gap={{ base: 2, md: 3 }}>
           <Button
             colorScheme="blue"
-            mr={3}
+            mr={{ base: 0, md: 3 }}
             isLoading={loading}
             onClick={() => onConfirmar(selectedBonos)}
+            size={{ base: "sm", md: "md" }}
+            flexShrink={0}
           >
             Confirmar pago de abono
           </Button>
-          <Button variant="ghost" onClick={onClose}>
+          <Button
+            variant="ghost"
+            onClick={onClose}
+            size={{ base: "sm", md: "md" }}
+            flexShrink={0}
+          >
             Cancelar
           </Button>
         </ModalFooter>

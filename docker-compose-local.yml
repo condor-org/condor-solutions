@@ -1,6 +1,18 @@
 version: '3.9'
 
 services:
+  
+  proxy:
+    image: nginx:1.25-alpine
+    container_name: proxy_condor
+    ports: ["8080:8080"]
+    volumes:
+      - ./reverse-proxy/nginx.dev.conf:/etc/nginx/nginx.conf:ro
+    depends_on: [ frontend, backend ]
+    restart: always
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
   backend:
     build:
