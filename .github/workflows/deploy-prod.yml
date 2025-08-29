@@ -93,20 +93,17 @@ jobs:
             echo "[+] Asegurar volumen de certificados (docker)"
             docker volume inspect condor_certbot_etc >/dev/null 2>&1 || docker volume create --name condor_certbot_etc >/dev/null
 
-            echo "[+] Emitir/renovar wildcard (*.cnd-ia.com) con Certbot (puede demorar un poco si es la 1ra vez)"
+            echo "[+] Emitir/renovar wildcard (*.cnd-ia.com) con Certbot (DNS-01 Cloudflare)"
             docker run --rm \
               -v condor_certbot_etc:/etc/letsencrypt \
               -v "$PWD/letsencrypt:/secrets:ro" \
-              certbot/certbot:latest /bin/sh -lc "\
-                python3 -m pip install --no-cache-dir certbot-dns-cloudflare >/dev/null 2>&1 && \
-                certbot certonly \
-                  --dns-cloudflare \
-                  --dns-cloudflare-credentials /secrets/cloudflare.ini \
-                  -d cnd-ia.com -d '*.cnd-ia.com' \
-                  --agree-tos --non-interactive \
-                  -m '${{ env.LETSENCRYPT_EMAIL }}' \
-                || true"
-
+              certbot/dns-cloudflare:latest certonly \
+                --dns-cloudflare \
+                --dns-cloudflare-credentials /secrets/cloudflare.ini \
+                -d cnd-ia.com -d '*.cnd-ia.com' \
+                --agree-tos --non-interactive \
+                -m '${{ env.LETSENCRYPT_EMAIL }}' || true
+                
             echo "[+] Listar certificados disponibles"
             docker run --rm -v condor_certbot_etc:/data alpine sh -lc "ls -l /data/live/cnd-ia.com || true"
 
