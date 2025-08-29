@@ -17,6 +17,7 @@ env:
   BACKEND_TAG: ${{ vars.BACKEND_TAG }}
   FRONTEND_TAG: ${{ vars.FRONTEND_TAG }}
   CRON_TAG: ${{ vars.CRON_TAG }}
+  LETSENCRYPT_EMAIL: ${{ vars.LETSENCRYPT_EMAIL || 'admin@cnd-ia.com' }}
 
 jobs:
   deploy:
@@ -41,7 +42,6 @@ jobs:
             else
               git remote set-url origin "https://x-access-token:${{ secrets.GH_AUTOMATION_TOKEN }}@github.com/condor-ai-solutions/condor.git"
             fi
-            # backup + limpiar posibles cambios locales
             [ -f docker-compose-prod.yml ] && cp -a docker-compose-prod.yml docker-compose-prod.yml.bak.$(date +%F_%H%M) || true
             git fetch --all --prune
             git reset --hard
@@ -83,6 +83,33 @@ jobs:
             echo "[+] Verificando compose"
             test -f docker-compose-prod.yml || { echo "FALTA docker-compose-prod.yml"; ls -la; exit 2; }
 
+            echo "[+] Preparar credencial Cloudflare para certbot (DNS-01)"
+            mkdir -p letsencrypt
+            cat > letsencrypt/cloudflare.ini <<'EOF'
+            dns_cloudflare_api_token=${{ secrets.CF_DNS_API_TOKEN }}
+            EOF
+            chmod 600 letsencrypt/cloudflare.ini
+
+            echo "[+] Asegurar volumen de certificados (docker)"
+            docker volume inspect condor_certbot_etc >/dev/null 2>&1 || docker volume create --name condor_certbot_etc >/dev/null
+
+            echo "[+] Emitir/renovar wildcard (*.cnd-ia.com) con Certbot (puede demorar un poco si es la 1ra vez)"
+            docker run --rm \
+              -v condor_certbot_etc:/etc/letsencrypt \
+              -v "$PWD/letsencrypt:/secrets:ro" \
+              certbot/certbot:latest /bin/sh -lc "\
+                python3 -m pip install --no-cache-dir certbot-dns-cloudflare >/dev/null 2>&1 && \
+                certbot certonly \
+                  --dns-cloudflare \
+                  --dns-cloudflare-credentials /secrets/cloudflare.ini \
+                  -d cnd-ia.com -d '*.cnd-ia.com' \
+                  --agree-tos --non-interactive \
+                  -m '${{ env.LETSENCRYPT_EMAIL }}' \
+                || true"
+
+            echo "[+] Listar certificados disponibles"
+            docker run --rm -v condor_certbot_etc:/data alpine sh -lc "ls -l /data/live/cnd-ia.com || true"
+
             echo "[+] Pull imágenes"
             docker compose --env-file .env.prod -f docker-compose-prod.yml pull
 
@@ -102,11 +129,9 @@ jobs:
             docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
             docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
 
-            echo "[+] Smoke tests"
-            # Frontend + proxy (si esto responde, Nginx y el cont está OK)
+            echo "[+] Smoke tests (HTTP interno en proxy; HTTPS depende de tu nginx.conf/443)"
             curl -fsS http://localhost/ >/dev/null
             curl -fsS http://localhost/config.js >/dev/null
-            # API: endpoint opcional (si existe en tu backend, pasará)
             curl -fsS http://localhost/api/healthz >/dev/null || true
 
             echo "[✓] Deploy OK"
