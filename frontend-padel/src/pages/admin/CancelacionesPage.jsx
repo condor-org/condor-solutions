@@ -61,7 +61,7 @@ async function fetchAllPages(
     }
 
     while (true) {
-      page += 1;
+      page = 1;
       const results = data?.results ?? [];
       items.push(...results);
 
@@ -71,7 +71,7 @@ async function fetchAllPages(
       if (isAbsolute) {
         res = await api.get(data.next);
       } else {
-        const nextOffset = (currentParams.offset ?? 0) + (currentParams.limit ?? pageSize);
+        const nextOffset = (currentParams.offset ?? 0)  (currentParams.limit ?? pageSize);
         currentParams = { ...currentParams, offset: nextOffset };
         res = await api.get(nextUrl, { params: currentParams });
       }
@@ -301,7 +301,7 @@ const CancelacionesPage = () => {
           <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
             <Box>
               <Text fontWeight="semibold" mb={1}>Sede</Text>
-              <Select value={sedeId} onChange={(e) => setSedeId(e.target.value)} placeholder="Elegí una sede">
+              <Select value={sedeId} onChange={(e) => setSedeId(e.target.value)} placeholder="Elegí una sede"  size={{ base: "sm", md: "md" }}>
                 {sedes.map(s => (
                   <option key={s.id} value={s.id}>{s.nombre || s.alias || `Sede #${s.id}`}</option>
                 ))}
@@ -311,10 +311,10 @@ const CancelacionesPage = () => {
             <Box>
               <Text fontWeight="semibold" mb={1}>Modo</Text>
               <RadioGroup value={modo} onChange={setModo}>
-                <HStack spacing={6}>
-                  <Radio value="profesor">Por profesor</Radio>
-                  <Radio value="masiva">Masiva (por sede)</Radio>
-                </HStack>
+                <Stack direction={{ base: "column", md: "row" }} spacing={{ base: 2, md: 6 }}>
+                  <Radio value="profesor" size={{ base: "sm", md: "md" }}>Por profesor</Radio>
+                  <Radio value="masiva" size={{ base: "sm", md: "md" }}>Masiva (por sede)</Radio>
+                </Stack>
               </RadioGroup>
             </Box>
 
@@ -325,6 +325,7 @@ const CancelacionesPage = () => {
                 onChange={(e) => setProfesorId(e.target.value)}
                 placeholder={modo === "profesor" ? "Elegí un profesor" : "— no aplica —"}
                 isDisabled={modo !== "profesor"}
+                size={{ base: "sm", md: "md" }}
               >
                 {profesores.map(p => (
                   <option key={p.id} value={p.id}>{p.nombre || p.email || `Profesor #${p.id}`}</option>
@@ -334,53 +335,81 @@ const CancelacionesPage = () => {
 
             <Box>
               <Text fontWeight="semibold" mb={1}>Desde (fecha)</Text>
-              <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+              <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} size={{ base: "sm", md: "md" }}/>
             </Box>
 
             <Box>
               <Text fontWeight="semibold" mb={1}>Hasta (fecha)</Text>
-              <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+              <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} size={{ base: "sm", md: "md" }}/>
             </Box>
 
-            <Box>
+            <Box gridColumn={{ base: "auto", md: "1 / -1" }}>
               <Text fontWeight="semibold" mb={1}>Motivo (interno)</Text>
               <Textarea
                 placeholder="Ej.: Profesor enfermo / Corte de luz / Lluvia"
                 rows={3}
                 value={motivo}
                 onChange={(e) => setMotivo(e.target.value)}
+                size={{ base: "sm", md: "md" }}
               />
             </Box>
 
             {/* 🕒 NUEVO: RANGO HORARIO */}
             <Box>
               <Text fontWeight="semibold" mb={1}>Desde (hora)</Text>
-              <Input type="time" value={horaDesde} onChange={(e) => setHoraDesde(e.target.value)} />
+              <Input type="time" value={horaDesde} onChange={(e) => setHoraDesde(e.target.value)} size={{ base: "sm", md: "md" }}/>
             </Box>
             <Box>
               <Text fontWeight="semibold" mb={1}>Hasta (hora)</Text>
-              <Input type="time" value={horaHasta} onChange={(e) => setHoraHasta(e.target.value)} />
+              <Input type="time" value={horaHasta} onChange={(e) => setHoraHasta(e.target.value)} size={{ base: "sm", md: "md" }}/>
             </Box>
           </SimpleGrid>
 
-          <HStack mt={6} spacing={6} align="center">
-            {/* 🎚️ NUEVO: Toggle de simulación */}
-            <HStack>
-              <Switch id="dry-run" isChecked={dryRun} onChange={(e) => setDryRun(e.target.checked)} />
-              <Text htmlFor="dry-run">Sólo simular (no cancela)</Text>
+          <Stack
+            mt={6}
+            spacing={{ base: 3, md: 6 }}
+            direction={{ base: "column", md: "row" }}
+            align={{ base: "stretch", md: "center" }}
+            flexWrap="nowrap"
+          >
+            {/* 🎚️ Toggle de simulación (no wrap) */}
+            <HStack minW={{ md: "260px" }}>
+              <Switch
+                id="dry-run"
+                isChecked={dryRun}
+                onChange={(e) => setDryRun(e.target.checked)}
+              />
+              <Text htmlFor="dry-run" whiteSpace="nowrap">
+                Sólo simular (no cancela)
+              </Text>
             </HStack>
 
-            <HStack spacing={3}>
-              <Button onClick={preview} variant="primary">Buscar turnos</Button>
+            {/* Botones con ancho fijo en desktop para evitar “saltos” */}
+            <Stack
+              direction={{ base: "column", md: "row" }}
+              spacing={3}
+              w={{ base: "100%", md: "auto" }}
+              flex="1 1 auto"
+            >
+              <Button
+                onClick={preview}
+                variant="primary"
+                isFullWidth
+                w={{ base: "100%", md: "180px" }}
+              >
+                Buscar turnos
+              </Button>
               <Button
                 variant={dryRun ? "secondary" : "danger"}
                 onClick={confirmDlg.onOpen}
                 isDisabled={coincidencias.length === 0}
+                isFullWidth
+                w={{ base: "100%", md: "260px" }}
               >
                 {dryRun ? "Simular cancelación" : `Cancelar seleccionados (${coincidencias.length})`}
               </Button>
-            </HStack>
-          </HStack>
+            </Stack>
+          </Stack>
 
           {resumen?.totales && (
             <Box mt={6} p={3} borderWidth="1px" rounded="md">
@@ -409,14 +438,14 @@ const CancelacionesPage = () => {
                 const isPretty = t.fecha && t.hora; // enriquecido
                 return (
                   <Box key={t.id} p={3} bg={card.bg} rounded="md" borderWidth="1px">
-                    <HStack justify="space-between" align="start">
-                      <Box>
+                    <Stack direction={{ base: "column", md: "row" }} justify="space-between" align="start" spacing={{ base: 2, md: 3 }}>
+                      <Box flex="1 1 auto">
                         <Text fontWeight="semibold">
                           {isPretty
                             ? (t.lugar_nombre || t.lugar || "Sede")
                             : `Turno #${t.id}`}
                         </Text>
-                        <Text fontSize="sm" color={muted}>
+                        <Text fontSize="sm" color={muted} noOfLines={{ base: 3, md: undefined }}>
                         {isPretty
                           ? [
                               t.fecha,
@@ -443,8 +472,8 @@ const CancelacionesPage = () => {
                           {t.prestador_nombre && <Badge variant="outline">{t.prestador_nombre}</Badge>}
                         </HStack>
                       </Box>
-                      <Badge variant="subtle">#{t.id}</Badge>
-                    </HStack>
+                      <Badge variant="subtle" alignSelf={{ base: "flex-start", md: "center" }}>#{t.id}</Badge>
+                    </Stack>
                   </Box>
                 );
               })}

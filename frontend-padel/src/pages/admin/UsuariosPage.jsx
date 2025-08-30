@@ -4,7 +4,8 @@ import React, { useEffect, useState, useContext } from "react";
 import {
   Box, Flex, Heading, Text, VStack, Modal, ModalOverlay, ModalContent,
   ModalHeader, ModalCloseButton, ModalBody, ModalFooter, useDisclosure,
-  IconButton, Switch, Stack, useBreakpointValue, Divider, useColorModeValue, Select
+  IconButton, Switch, Stack, HStack, useBreakpointValue, Divider,
+  useColorModeValue, Select, SimpleGrid, ButtonGroup
 } from "@chakra-ui/react";
 import { DeleteIcon, EditIcon } from "@chakra-ui/icons";
 import Sidebar from "../../components/layout/Sidebar";
@@ -24,7 +25,7 @@ import {
 } from "../../components/theme/tokens";
 
 const UsuariosPage = () => {
-  const { user, logout, accessToken } = useContext(AuthContext);
+  const { accessToken } = useContext(AuthContext);
   const hoverBg = useColorModeValue("gray.200", "gray.700");
   const [usuarios, setUsuarios] = useState([]);
   const [editingId, setEditingId] = useState(null);
@@ -37,7 +38,6 @@ const UsuariosPage = () => {
   const [password, setPassword] = useState("");
   const [detalleUsuario, setDetalleUsuario] = useState(null);
   const [tipoTurnoBono, setTipoTurnoBono] = useState("individual");
-
 
   const { isOpen, onOpen, onClose } = useDisclosure();
   const {
@@ -61,21 +61,18 @@ const UsuariosPage = () => {
   const [motivoBonificacion, setMotivoBonificacion] = useState("");
   const [cargandoBono, setCargandoBono] = useState(false);
   const [bonificaciones, setBonificaciones] = useState([]);
-  const [usarBonificado, setUsarBonificado] = useState(false);
-  const [archivo, setArchivo] = useState(null);
 
   useEffect(() => {
     const fetchBonificaciones = async () => {
       try {
         const res = await axiosAuth(accessToken).get("/turnos/bonificados/mios/");
-        setBonificaciones(res.data); // debe ser un array
+        setBonificaciones(res.data || []);
       } catch (e) {
         console.error("Error al obtener bonificaciones:", e);
       }
     };
-  
-    fetchBonificaciones();
-  }, []);
+    if (accessToken) fetchBonificaciones();
+  }, [accessToken]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -85,7 +82,7 @@ const UsuariosPage = () => {
   const reloadUsuarios = () => {
     const api = axiosAuth(accessToken);
     api.get("auth/usuarios/")
-      .then(res => setUsuarios(res.data.results || res.data))
+      .then(res => setUsuarios(res.data.results || res.data || []))
       .catch(() => toast.error("Error cargando usuarios"));
   };
 
@@ -112,10 +109,11 @@ const UsuariosPage = () => {
     setTelefono(u.telefono || "");
     setTipoUsuario(u.tipo_usuario || "usuario_final");
     setEmail(u.email || "");
-    setActivo(u.is_active);
+    setActivo(!!u.is_active);
     setPassword("");
     onOpen();
   };
+
   const handleOpenDetalle = (u) => {
     setDetalleUsuario(u);
     onOpenDetalle();
@@ -123,17 +121,15 @@ const UsuariosPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-  
     if (!nombre.trim()) {
       toast.error("El nombre es obligatorio");
       return;
     }
-  
     if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       toast.error("Ingresá un email válido.");
       return;
     }
-  
+
     const api = axiosAuth(accessToken);
     const data = {
       nombre,
@@ -143,11 +139,9 @@ const UsuariosPage = () => {
       email,
       is_active: activo,
     };
-  
+
     if (editingId) {
-      if (password.trim()) {
-        data.password = password;
-      }
+      if (password.trim()) data.password = password;
     } else {
       if (!password.trim()) {
         toast.error("La contraseña es obligatoria para crear un usuario.");
@@ -155,7 +149,7 @@ const UsuariosPage = () => {
       }
       data.password = password;
     }
-  
+
     try {
       if (editingId) {
         await api.put(`auth/usuarios/${editingId}/`, data);
@@ -164,25 +158,20 @@ const UsuariosPage = () => {
         await api.post("auth/usuarios/", data);
         toast.success("Usuario creado");
       }
-  
       onClose();
       resetForm();
       reloadUsuarios();
-  
     } catch (err) {
       console.error("Detalle del error:", err.response?.data || err.message);
-  
       const errorResponse = err.response?.data;
       const errorMessage =
         typeof errorResponse === "string"
           ? errorResponse
-          : Object.values(errorResponse).flat().join(" | ") || "Error al guardar usuario";
-  
+          : Object.values(errorResponse || {}).flat().join(" | ") || "Error al guardar usuario";
       toast.error(errorMessage);
     }
   };
-  
-  
+
   const handleDelete = async (id, email) => {
     if (!window.confirm(`¿Eliminar el usuario "${email}"?`)) return;
     const api = axiosAuth(accessToken);
@@ -198,314 +187,250 @@ const UsuariosPage = () => {
       toast.error("Error al eliminar usuario");
     }
   };
-  console.log("🧾 Bonificaciones:", bonificaciones);
 
-  return (
+  const Section = ({ title, items }) => (
     <>
-      <PageWrapper>
-        <Sidebar
-          links={[
-            { label: "Dashboard", path: "/admin" },
-            { label: "Sedes", path: "/admin/sedes" },
-            { label: "Profesores", path: "/admin/profesores" },
-            { label: "Usuarios", path: "/admin/usuarios" },
-            { label: "Cancelaciones", path: "/admin/cancelaciones" },
-            { label: "Pagos Preaprobados", path: "/admin/pagos-preaprobados" },
-          ]}
-        />
-        <Box flex="1" p={[2, 4, 8]} bg={bg} color={card.color}>
-          <Heading size="md" mb={4}>Administrar Usuarios</Heading>
-          <Flex justify="flex-end" mb={4}>
-            <Button onClick={openForCreate} size={isMobile ? "md" : "lg"}>
-              Agregar Usuario
-            </Button>
-          </Flex>
-  
-                  {/* USUARIOS */}
-        <Heading size="sm" mt={8} mb={2}>Usuarios</Heading>
-        {usuariosFinales.length === 0 ? (
-          <Text color={mutedText}>No hay usuarios cargados.</Text>
-        ) : (
-          <VStack spacing={3} align="stretch">
-            {usuariosFinales.map((u) => (
-              <Flex
-                key={u.id}
-                bg={card.bg}
-                color={card.color}
-                p={4}
-                rounded="md"
-                justify="space-between"
-                align="center"
-                boxShadow="md"
-                direction={isMobile ? "column" : "row"}
-                _hover={{ cursor: "pointer", bg: card.iconColor }}
-                onClick={e => {
-                  if (e.target.closest("button")) return;
-                  handleOpenDetalle(u);
-                }}
+      <Heading size="sm" mt={8} mb={2}>{title}</Heading>
+      {items.length === 0 ? (
+        <Text color={mutedText}>No hay {title.toLowerCase()} cargados.</Text>
+      ) : (
+        <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3}>
+          {items.map((u) => (
+            <Flex
+              key={u.id}
+              bg={card.bg}
+              color={card.color}
+              p={4}
+              rounded="md"
+              boxShadow="md"
+              role="group"
+              _hover={{ bg: hoverBg, cursor: "pointer" }}
+              direction={{ base: "column", md: "row" }}
+              align={{ base: "stretch", md: "center" }}
+              justify="space-between"
+              onClick={(e) => {
+                if (e.target.closest("button")) return;
+                handleOpenDetalle(u);
+              }}
+            >
+              <Box flex="1" mr={{ md: 4 }}>
+                <Text fontWeight="bold" noOfLines={{ base: 1, md: undefined }}>
+                  {u.nombre} {u.apellido}
+                </Text>
+                <Text fontSize="sm" color={mutedText} noOfLines={{ base: 1, md: undefined }}>
+                  {u.email}
+                </Text>
+                <Text fontSize="sm" color={u.is_active ? "green.400" : "red.400"}>
+                  {u.is_active ? "Activo" : "Inactivo"}
+                </Text>
+              </Box>
+
+              <ButtonGroup
+                mt={{ base: 3, md: 0 }}
+                size="sm"
+                isAttached={false}
+                spacing="2"
+                w={{ base: "100%", md: "auto" }}
+                justifyContent={{ base: "stretch", md: "flex-end" }}
               >
-                <Box>
-                  <Text fontWeight="bold">{u.nombre} {u.apellido}</Text>
-                  <Text fontSize="sm" color={mutedText}>{u.email}</Text>
-                  <Text fontSize="sm" color={u.is_active ? "green.400" : "red.400"}>
-                    {u.is_active ? "Activo" : "Inactivo"}
-                  </Text>
-                </Box>
-                <Flex gap={2} mt={isMobile ? 2 : 0}>
-                  <IconButton
-                    icon={<EditIcon />}
-                    aria-label="Editar"
-                    onClick={() => openForEdit(u)}
-                    size="sm"
-                    colorScheme="blue"
-                  />
-                  <IconButton
-                    icon={<DeleteIcon />}
-                    aria-label="Eliminar"
-                    onClick={() => handleDelete(u.id, u.email)}
-                    size="sm"
-                    colorScheme="red"
-                  />
-                </Flex>
-              </Flex>
-            ))}
-          </VStack>
-        )}
-
-        {/* PROFESORES */}
-        <Heading size="sm" mt={8} mb={2}>Profesores</Heading>
-        {empleados.length === 0 ? (
-          <Text color={mutedText}>No hay profesores cargados.</Text>
-        ) : (
-          <VStack spacing={3} align="stretch">
-            {empleados.map((u) => (
-              <Flex
-                key={u.id}
-                bg={card.bg}
-                color={card.color}
-                p={4}
-                rounded="md"
-                justify="space-between"
-                align="center"
-                boxShadow="md"
-                direction={isMobile ? "column" : "row"}
-                _hover={{ cursor: "pointer", bg: card.iconColor }}
-                onClick={e => {
-                  if (e.target.closest("button")) return;
-                  handleOpenDetalle(u);
-                }}
-              >
-                <Box>
-                  <Text fontWeight="bold">{u.nombre} {u.apellido}</Text>
-                  <Text fontSize="sm" color={mutedText}>{u.email}</Text>
-                  <Text fontSize="sm" color={u.is_active ? "green.400" : "red.400"}>
-                    {u.is_active ? "Activo" : "Inactivo"}
-                  </Text>
-                </Box>
-                <Flex gap={2} mt={isMobile ? 2 : 0}>
-                  <IconButton
-                    icon={<EditIcon />}
-                    aria-label="Editar"
-                    onClick={() => openForEdit(u)}
-                    size="sm"
-                    colorScheme="blue"
-                  />
-                  <IconButton
-                    icon={<DeleteIcon />}
-                    aria-label="Eliminar"
-                    onClick={() => handleDelete(u.id, u.email)}
-                    size="sm"
-                    colorScheme="red"
-                  />
-                </Flex>
-              </Flex>
-            ))}
-          </VStack>
-        )}
-
-        {/* ADMINISTRADORES */}
-        <Heading size="sm" mt={8} mb={2}>Administradores</Heading>
-        {admins.length === 0 ? (
-          <Text color={mutedText}>No hay administradores cargados.</Text>
-        ) : (
-          <VStack spacing={3} align="stretch">
-            {admins.map((u) => (
-              <Flex
-                key={u.id}
-                bg={card.bg}
-                color={card.color}
-                p={4}
-                rounded="md"
-                justify="space-between"
-                align="center"
-                boxShadow="md"
-                direction={isMobile ? "column" : "row"}
-                _hover={{ cursor: "pointer", bg: card.iconColor }}
-                onClick={e => {
-                  if (e.target.closest("button")) return;
-                  handleOpenDetalle(u);
-                }}
-              >
-                <Box>
-                  <Text fontWeight="bold">{u.nombre} {u.apellido}</Text>
-                  <Text fontSize="sm" color={mutedText}>{u.email}</Text>
-                  <Text fontSize="sm" color={u.is_active ? "green.400" : "red.400"}>
-                    {u.is_active ? "Activo" : "Inactivo"}
-                  </Text>
-                </Box>
-                <Flex gap={2} mt={isMobile ? 2 : 0}>
-                  <IconButton
-                    icon={<EditIcon />}
-                    aria-label="Editar"
-                    onClick={() => openForEdit(u)}
-                    size="sm"
-                    colorScheme="blue"
-                  />
-                  <IconButton
-                    icon={<DeleteIcon />}
-                    aria-label="Eliminar"
-                    onClick={() => handleDelete(u.id, u.email)}
-                    size="sm"
-                    colorScheme="red"
-                  />
-                </Flex>
-              </Flex>
-            ))}
-          </VStack>
-        )}
-
-          {/* MODAL crear/editar */}
-          <Modal isOpen={isOpen} onClose={() => { onClose(); resetForm(); }} isCentered size={isMobile ? "full" : "md"}>
-            <ModalOverlay />
-            <ModalContent bg={modal.bg} color={modal.color}>
-              <ModalHeader>{editingId ? "Editar Usuario" : "Agregar Usuario"}</ModalHeader>
-              <ModalCloseButton />
-              <ModalBody>
-                <form id="usuario-form" onSubmit={handleSubmit}>
-                  <VStack spacing={4} align="stretch">
-                    <Input label="Nombre" value={nombre} onChange={e => setNombre(e.target.value)} />
-                    <Input label="Apellido" value={apellido} onChange={e => setApellido(e.target.value)} />
-                    <Input label="Teléfono" value={telefono} onChange={e => setTelefono(e.target.value)} />
-                    <Select bg={input.bg} color={input.color} value={tipoUsuario} onChange={e => setTipoUsuario(e.target.value)}>
-                      <option value="admin_cliente">Admin del Cliente</option>
-                      <option value="empleado_cliente">Empleado del Cliente</option>
-                      <option value="usuario_final">Usuario Final</option>
-                    </Select>
-                    <Input label="Email" value={email} onChange={e => setEmail(e.target.value)} type="email" />
-                    {!editingId && (
-                      <Input label="Contraseña" value={password} onChange={e => setPassword(e.target.value)} type="password" autoComplete="new-password" />
-                    )}
-                    <Stack direction="row" align="center">
-                      <Text>Activo</Text>
-                      <Switch isChecked={activo} onChange={e => setActivo(e.target.checked)} colorScheme="green" />
-                    </Stack>
-                  </VStack>
-                </form>
-              </ModalBody>
-              <ModalFooter>
-                <Button type="submit" form="usuario-form" size="lg" mr={3}>
-                  {editingId ? "Guardar" : "Crear"}
-                </Button>
-                <Button variant="secondary" onClick={() => { onClose(); resetForm(); }} size="lg">
-                  Cancelar
-                </Button>
-              </ModalFooter>
-            </ModalContent>
-          </Modal>
-  
-          {/* MODAL detalle usuario */}
-          <Modal isOpen={isOpenDetalle} onClose={onCloseDetalle} isCentered size={isMobile ? "full" : "md"}>
-            <ModalOverlay />
-            <ModalContent bg={modal.bg} color={modal.color}>
-              <ModalHeader>Detalle de Usuario</ModalHeader>
-              <ModalCloseButton />
-              <ModalBody>
-                {detalleUsuario && (
-                  <VStack spacing={2} align="stretch">
-                    <Text fontWeight="bold">Nombre:</Text>
-                    <Text>{detalleUsuario.nombre}</Text>
-                    <Text fontWeight="bold">Apellido:</Text>
-                    <Text>{detalleUsuario.apellido}</Text>
-                    <Text fontWeight="bold">Teléfono:</Text>
-                    <Text>{detalleUsuario.telefono || "No informado"}</Text>
-                    <Text fontWeight="bold">Tipo de usuario:</Text>
-                    <Text>{detalleUsuario.tipo_usuario || "No informado"}</Text>
-                    <Divider />
-                    <Text fontWeight="bold">Email:</Text>
-                    <Text>{detalleUsuario.email}</Text>
-                    <Text fontWeight="bold">Username:</Text>
-                    <Text>{detalleUsuario.username}</Text>
-                    <Text fontWeight="bold">Activo:</Text>
-                    <Text color={detalleUsuario.is_active ? "green.400" : "red.400"}>
-                      {detalleUsuario.is_active ? "Sí" : "No"}
-                    </Text>
-                    <Text fontWeight="bold">Es staff:</Text>
-                    <Text color={detalleUsuario.is_staff ? "green.400" : "red.400"}>
-                      {detalleUsuario.is_staff ? "Sí" : "No"}
-                    </Text>
-                  </VStack>
-                )}
-                {detalleUsuario?.tipo_usuario === "usuario_final" && (
-                  <Box mt={4} p={4} bg={card.bg} borderRadius="md">
-                    <Text fontWeight="bold" mb={2}>Emitir Bonificación Manual</Text>
-                    <VStack spacing={3} align="stretch">
-                      <Input
-                        placeholder="Motivo"
-                        value={motivoBonificacion}
-                        onChange={(e) => setMotivoBonificacion(e.target.value)}
-                      />
-                      <Select
-                        value={tipoTurnoBono}
-                        onChange={(e) => setTipoTurnoBono(e.target.value)}
-                      >
-                        <option value="individual">Individual</option>
-                        <option value="x2">2 Personas</option>
-                        <option value="x3">3 Personas</option>
-                        <option value="x4">4 Personas</option>
-                      </Select>
-                      <Button
-                        isLoading={cargandoBono}
-                        onClick={async () => {
-                          if (!motivoBonificacion.trim()) {
-                            toast.error("El motivo es obligatorio");
-                            return;
-                          }
-
-                          setCargandoBono(true);
-                          const api = axiosAuth(accessToken);
-                          try {
-                            await api.post("/turnos/bonificaciones/crear-manual/", {
-                              usuario_id: detalleUsuario.id,
-                              motivo: motivoBonificacion,
-                              tipo_turno: tipoTurnoBono,        // << ADD
-                            });
-                            toast.success("Bonificación emitida correctamente");
-                            setMotivoBonificacion("");
-                          } catch (err) {
-                            toast.error("Error al emitir bonificación");
-                          } finally {
-                            setCargandoBono(false);
-                          }
-                        }}
-                      >
-                        Emitir Bono
-                      </Button>
-                    </VStack>
-                  </Box>
-                )}
-
-              </ModalBody>
-              <ModalFooter>
-                <Button onClick={onCloseDetalle} size="lg">
-                  Cerrar
-                </Button>
-              </ModalFooter>
-            </ModalContent>
-          </Modal>
-        </Box>
-      </PageWrapper>
+                <IconButton
+                  icon={<EditIcon />}
+                  aria-label="Editar"
+                  onClick={() => openForEdit(u)}
+                  size="sm"
+                  colorScheme="blue"
+                />
+                <IconButton
+                  icon={<DeleteIcon />}
+                  aria-label="Eliminar"
+                  onClick={() => handleDelete(u.id, u.email)}
+                  size="sm"
+                  colorScheme="red"
+                />
+              </ButtonGroup>
+            </Flex>
+          ))}
+        </SimpleGrid>
+      )}
     </>
   );
-};  
+
+  return (
+    <PageWrapper>
+      <Sidebar
+        links={[
+          { label: "Dashboard", path: "/admin" },
+          { label: "Sedes", path: "/admin/sedes" },
+          { label: "Profesores", path: "/admin/profesores" },
+          { label: "Usuarios", path: "/admin/usuarios" },
+          { label: "Cancelaciones", path: "/admin/cancelaciones" },
+          { label: "Pagos Preaprobados", path: "/admin/pagos-preaprobados" },
+        ]}
+      />
+
+      {/* Wrapper consistente */}
+      <Box flex="1" p={{ base: 4, md: 8 }} bg={bg} color={card.color}>
+        {/* Header responsivo */}
+        <Stack direction={{ base: "column", md: "row" }} justify="space-between" align={{ md: "center" }} mb={4} spacing={3}>
+          <Heading size="md">Administrar Usuarios</Heading>
+          <Button onClick={openForCreate} size={{ base: "md", md: "lg" }} w={{ base: "100%", md: "auto" }}>
+            Agregar Usuario
+          </Button>
+        </Stack>
+
+        {/* Secciones en cards responsivas */}
+        <Section title="Usuarios" items={usuariosFinales} />
+        <Section title="Profesores" items={empleados} />
+        <Section title="Administradores" items={admins} />
+
+        {/* MODAL crear/editar */}
+        <Modal isOpen={isOpen} onClose={() => { onClose(); resetForm(); }} isCentered size={isMobile ? "full" : "md"}>
+          <ModalOverlay />
+          <ModalContent bg={modal.bg} color={modal.color}>
+            <ModalHeader>{editingId ? "Editar Usuario" : "Agregar Usuario"}</ModalHeader>
+            <ModalCloseButton />
+            <ModalBody maxH="70vh" overflowY="auto">
+              <form id="usuario-form" onSubmit={handleSubmit}>
+                <VStack spacing={4} align="stretch">
+                  <Input size={{ base: "sm", md: "md" }} label="Nombre" value={nombre} onChange={e => setNombre(e.target.value)} />
+                  <Input size={{ base: "sm", md: "md" }} label="Apellido" value={apellido} onChange={e => setApellido(e.target.value)} />
+                  <Input size={{ base: "sm", md: "md" }} label="Teléfono" value={telefono} onChange={e => setTelefono(e.target.value)} />
+                  <Select
+                    size={{ base: "sm", md: "md" }}
+                    bg={input.bg}
+                    color={input.color}
+                    value={tipoUsuario}
+                    onChange={e => setTipoUsuario(e.target.value)}
+                  >
+                    <option value="admin_cliente">Admin del Cliente</option>
+                    <option value="empleado_cliente">Empleado del Cliente</option>
+                    <option value="usuario_final">Usuario Final</option>
+                  </Select>
+                  <Input size={{ base: "sm", md: "md" }} label="Email" value={email} onChange={e => setEmail(e.target.value)} type="email" />
+                  {!editingId && (
+                    <Input
+                      size={{ base: "sm", md: "md" }}
+                      label="Contraseña"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      type="password"
+                      autoComplete="new-password"
+                    />
+                  )}
+                  <HStack justify="space-between">
+                    <Text>Activo</Text>
+                    <Switch isChecked={activo} onChange={e => setActivo(e.target.checked)} colorScheme="green" />
+                  </HStack>
+                </VStack>
+              </form>
+            </ModalBody>
+            <ModalFooter>
+              <Stack direction={{ base: "column", md: "row" }} w="100%">
+                <Button type="submit" form="usuario-form" size={{ base: "md", md: "lg" }} w={{ base: "100%", md: "auto" }}>
+                  {editingId ? "Guardar" : "Crear"}
+                </Button>
+                <Button variant="secondary" onClick={() => { onClose(); resetForm(); }} size={{ base: "md", md: "lg" }} w={{ base: "100%", md: "auto" }}>
+                  Cancelar
+                </Button>
+              </Stack>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
+
+        {/* MODAL detalle usuario */}
+        <Modal isOpen={isOpenDetalle} onClose={onCloseDetalle} isCentered size={isMobile ? "full" : "md"}>
+          <ModalOverlay />
+          <ModalContent bg={modal.bg} color={modal.color}>
+            <ModalHeader>Detalle de Usuario</ModalHeader>
+            <ModalCloseButton />
+            <ModalBody maxH="70vh" overflowY="auto">
+              {detalleUsuario && (
+                <VStack spacing={2} align="stretch">
+                  <Text fontWeight="bold">Nombre:</Text>
+                  <Text noOfLines={{ base: 1, md: undefined }}>{detalleUsuario.nombre}</Text>
+                  <Text fontWeight="bold">Apellido:</Text>
+                  <Text noOfLines={{ base: 1, md: undefined }}>{detalleUsuario.apellido}</Text>
+                  <Text fontWeight="bold">Teléfono:</Text>
+                  <Text>{detalleUsuario.telefono || "No informado"}</Text>
+                  <Text fontWeight="bold">Tipo de usuario:</Text>
+                  <Text>{detalleUsuario.tipo_usuario || "No informado"}</Text>
+                  <Divider />
+                  <Text fontWeight="bold">Email:</Text>
+                  <Text noOfLines={{ base: 2, md: undefined }}>{detalleUsuario.email}</Text>
+                  <Text fontWeight="bold">Username:</Text>
+                  <Text noOfLines={{ base: 1, md: undefined }}>{detalleUsuario.username}</Text>
+                  <Text fontWeight="bold">Activo:</Text>
+                  <Text color={detalleUsuario.is_active ? "green.400" : "red.400"}>
+                    {detalleUsuario.is_active ? "Sí" : "No"}
+                  </Text>
+                  <Text fontWeight="bold">Es staff:</Text>
+                  <Text color={detalleUsuario.is_staff ? "green.400" : "red.400"}>
+                    {detalleUsuario.is_staff ? "Sí" : "No"}
+                  </Text>
+                </VStack>
+              )}
+
+              {detalleUsuario?.tipo_usuario === "usuario_final" && (
+                <Box mt={4} p={4} bg={card.bg} borderRadius="md" borderWidth="1px">
+                  <Text fontWeight="bold" mb={2}>Emitir Bonificación Manual</Text>
+                  <VStack spacing={3} align="stretch">
+                    <Input
+                      size={{ base: "sm", md: "md" }}
+                      placeholder="Motivo"
+                      value={motivoBonificacion}
+                      onChange={(e) => setMotivoBonificacion(e.target.value)}
+                    />
+                    <Select
+                      size={{ base: "sm", md: "md" }}
+                      value={tipoTurnoBono}
+                      onChange={(e) => setTipoTurnoBono(e.target.value)}
+                    >
+                      <option value="individual">Individual</option>
+                      <option value="x2">2 Personas</option>
+                      <option value="x3">3 Personas</option>
+                      <option value="x4">4 Personas</option>
+                    </Select>
+                    <Button
+                      isLoading={cargandoBono}
+                      w={{ base: "100%", md: "auto" }}
+                      onClick={async () => {
+                        if (!motivoBonificacion.trim()) {
+                          toast.error("El motivo es obligatorio");
+                          return;
+                        }
+                        setCargandoBono(true);
+                        const api = axiosAuth(accessToken);
+                        try {
+                          await api.post("/turnos/bonificaciones/crear-manual/", {
+                            usuario_id: detalleUsuario.id,
+                            motivo: motivoBonificacion,
+                            tipo_turno: tipoTurnoBono,
+                          });
+                          toast.success("Bonificación emitida correctamente");
+                          setMotivoBonificacion("");
+                        } catch {
+                          toast.error("Error al emitir bonificación");
+                        } finally {
+                          setCargandoBono(false);
+                        }
+                      }}
+                    >
+                      Emitir Bono
+                    </Button>
+                  </VStack>
+                </Box>
+              )}
+            </ModalBody>
+            <ModalFooter>
+              <Button onClick={onCloseDetalle} size={{ base: "md", md: "lg" }} w={{ base: "100%", md: "auto" }}>
+                Cerrar
+              </Button>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
+      </Box>
+    </PageWrapper>
+  );
+};
 
 export default UsuariosPage;

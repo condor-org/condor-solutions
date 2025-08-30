@@ -648,32 +648,43 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
                         borderColor={input.border}
                         _hover={{ boxShadow: "lg", cursor: isReservado ? "not-allowed" : "pointer", opacity: 0.95 }}
                         onClick={() => !isReservado && handleMobileSlotClick(slot)}
+                        overflow="hidden" // evita desbordes visuales
                       >
-                        <HStack justify="space-between" align="center">
-                          <Box>
-                            <Text fontWeight="semibold">
+                        <HStack
+                          justify="space-between"
+                          align="center"
+                          gap={3}
+                          // Si querés tolerar anchos MUY chicos:
+                          // flexWrap="wrap"
+                        >
+                          <Box flex="1" minW={0}>
+                            <Text fontWeight="semibold" noOfLines={1}>
                               {weekdayLabel(selectedDay)} · {hhmm(slot.start)} hs
                             </Text>
                             <HStack mt={1} spacing={2}>
-                              <Badge variant="outline">{tipoNombre}</Badge>
+                              <Badge variant="outline" noOfLines={1}>
+                                {tipoNombre}
+                              </Badge>
                               <Badge colorScheme={scheme}>{isReservado ? "Reservado" : "Disponible"}</Badge>
                             </HStack>
                           </Box>
 
-                          {/* botón azul como en Reservar Abono */}
                           <AppButton
                             variant={isReservado ? "ghost" : "primary"}
                             size="sm"
-                            isDisabled={isReservado}
+                            flexShrink={0}            // 👈 clave: el botón no se achica (ni desborda)
                             onClick={(e) => {
                               e.stopPropagation();
                               if (!isReservado) handleMobileSlotClick(slot);
                             }}
+                            // Fallback ultra-chico: botón ocupa todo abajo
+                            // w={{ base: "100%", sm: "auto" }}
                           >
                             {isReservado ? "Ocupado" : "Seleccionar"}
                           </AppButton>
                         </HStack>
                       </Box>
+
                     );
                   })}
                 </VStack>

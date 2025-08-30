@@ -6,7 +6,7 @@ import {
   useDisclosure, AlertDialog, AlertDialogOverlay, AlertDialogContent,
   AlertDialogHeader, AlertDialogBody, AlertDialogFooter,
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter,
-  Code, useToast
+  Code, useToast, Stack, SimpleGrid
 } from "@chakra-ui/react";
 import { ArrowBackIcon, CheckIcon, RepeatIcon, DeleteIcon } from "@chakra-ui/icons";
 import { FaExternalLinkAlt, FaBell, FaEnvelopeOpenText } from "react-icons/fa";
@@ -161,10 +161,9 @@ const NotificacionesAdminPage = () => {
     setBusyDelete(true);
     try {
       const ids = items.map(n => n.id);
-      // 🔥 requiere endpoint backend POST /notificaciones/bulk_delete/ { ids }
       await api.post("notificaciones/bulk_delete/", { ids });
       emitNotificationsRefresh();
-      await loadFirstPage(); // recarga lista + unread_count
+      await loadFirstPage();
       toast({ title: "Notificaciones borradas", status: "success" });
     } catch (err) {
       console.error("[NotificacionesAdminPage] bulk_delete failed", err);
@@ -207,15 +206,25 @@ const NotificacionesAdminPage = () => {
   return (
     <Box minH="100vh" bg={bg}>
       <Box maxW="6xl" mx="auto" px={4} py={8}>
-        <HStack justify="space-between" align="center" mb={4}>
-          <HStack spacing={3}>
+        {/* Header + Acciones: responsive */}
+        <Stack
+          direction={{ base: "column", md: "row" }}
+          justify="space-between"
+          align={{ base: "stretch", md: "center" }}
+          spacing={{ base: 3, md: 4 }}
+          mb={4}
+        >
+          {/* Título */}
+          <HStack spacing={3} align="center">
             <Tooltip label="Volver">
               <Button onClick={goBack} leftIcon={<ArrowBackIcon />} variant="ghost" size="sm">
                 Volver
               </Button>
             </Tooltip>
             <FaBell />
-            <Heading as="h2" size="lg">Notificaciones (Admin)</Heading>
+            <Heading as="h2" size={{ base: "md", md: "lg" }}>
+              Notificaciones (Admin)
+            </Heading>
             {unreadCount > 0 && (
               <Badge colorScheme="orange" variant="solid">
                 {unreadCount > 99 ? "99+" : unreadCount}
@@ -223,15 +232,29 @@ const NotificacionesAdminPage = () => {
             )}
           </HStack>
 
-          <HStack spacing={2}>
+          {/* Acciones */}
+          <SimpleGrid columns={{ base: 3, sm: 3, md: 3 }} spacing={2} w={{ base: "100%", md: "auto" }}>
             <Tooltip label="Refrescar">
-              <IconButton aria-label="Refrescar" icon={<RepeatIcon />} onClick={loadFirstPage} variant="ghost" />
+              <IconButton
+                aria-label="Refrescar"
+                icon={<RepeatIcon />}
+                onClick={loadFirstPage}
+                variant="ghost"
+              />
             </Tooltip>
+
             <Tooltip label="Marcar todas como leídas">
-              <Button leftIcon={<CheckIcon />} variant="solid" onClick={markAll} isLoading={busyAll}>
-                Marcar todas
+              <Button
+                leftIcon={<CheckIcon />}
+                variant="solid"
+                onClick={markAll}
+                isLoading={busyAll}
+                size={{ base: "sm", md: "md" }}
+              >
+                Marcar
               </Button>
             </Tooltip>
+
             <Tooltip label="Borrar todas las mostradas">
               <Button
                 leftIcon={<DeleteIcon />}
@@ -240,14 +263,16 @@ const NotificacionesAdminPage = () => {
                 onClick={delAllDlg.onOpen}
                 isLoading={busyDelete}
                 isDisabled={items.length === 0}
+                size={{ base: "sm", md: "md" }}
               >
-                Borrar todas
+                Borrar
               </Button>
             </Tooltip>
-          </HStack>
-        </HStack>
+          </SimpleGrid>
+        </Stack>
 
-        <HStack mb={4} spacing={4} align="center">
+        {/* Filtros */}
+        <Stack direction={{ base: "column", md: "row" }} mb={4} spacing={4} align={{ base: "stretch", md: "center" }}>
           <Checkbox
             isChecked={unreadOnly}
             onChange={(e) => setUnreadOnly(e.target.checked)}
@@ -256,13 +281,14 @@ const NotificacionesAdminPage = () => {
             Sólo no leídas
           </Checkbox>
 
-          <HStack>
+          <HStack spacing={2}>
             <Text fontSize="sm" color={muted}>Tipo:</Text>
             <Select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
-              size="sm"
-              maxW="260px"
+              size={{ base: "sm", md: "sm" }}
+              maxW={{ base: "100%", md: "260px" }}
+              w={{ base: "100%", md: "auto" }}
               bg={input.bg}
             >
               {TYPE_OPTS.map(opt => (
@@ -270,15 +296,16 @@ const NotificacionesAdminPage = () => {
               ))}
             </Select>
           </HStack>
-        </HStack>
+        </Stack>
 
+        {/* Lista */}
         <Box bg={card.bg} color={card.color} rounded="xl" boxShadow="2xl" p={{ base: 4, md: 6 }}>
           <Divider mb={4} />
 
           {loading ? (
             <VStack align="stretch" spacing={3}>
               {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} height="64px" rounded="md" />
+                <Skeleton key={i} height={{ base: "56px", md: "64px" }} rounded="md" />
               ))}
             </VStack>
           ) : items.length === 0 ? (
@@ -296,26 +323,42 @@ const NotificacionesAdminPage = () => {
                   p={3}
                   bg={n.unread ? "orange.50" : "transparent"}
                 >
-                  <HStack justify="space-between" align="start">
+                  <Stack
+                    direction={{ base: "column", md: "row" }}
+                    justify="space-between"
+                    align={{ base: "stretch", md: "start" }}
+                    spacing={{ base: 2, md: 3 }}
+                  >
                     <VStack align="start" spacing={1} w="full">
-                      <HStack>
+                      <HStack spacing={2} wrap="wrap">
                         <Badge colorScheme={severityToScheme(n.severity)}>{n.type}</Badge>
                         {n.unread && <Badge colorScheme="orange">Nuevo</Badge>}
                       </HStack>
                       <Text fontWeight="semibold" noOfLines={1}>{n.title}</Text>
-                      <Text fontSize="sm" color={muted} whiteSpace="pre-wrap">{n.body}</Text>
+                      <Text
+                        fontSize="sm"
+                        color={muted}
+                        whiteSpace="pre-wrap"
+                        noOfLines={{ base: 3, md: undefined }}
+                      >
+                        {n.body}
+                      </Text>
                       <Text fontSize="xs" color={muted}>{formatWhen(n.created_at)}</Text>
                     </VStack>
 
-                    <VStack spacing={1} minW={isMobile ? "auto" : "140px"}>
+                    <HStack
+                      spacing={2}
+                      justify={{ base: "flex-end", md: "flex-start" }}
+                      align="center"
+                    >
                       <Button size="xs" variant="outline" onClick={() => openDetails(n)}>
                         Ver detalle
                       </Button>
                       <Button size="xs" variant="ghost" onClick={() => toggleRead(n)}>
                         {n.unread ? "Marcar leída" : "Marcar no leída"}
                       </Button>
-                    </VStack>
-                  </HStack>
+                    </HStack>
+                  </Stack>
                 </Box>
               ))}
 
@@ -350,7 +393,7 @@ const NotificacionesAdminPage = () => {
       </AlertDialog>
 
       {/* Modal Detalle */}
-      <Modal isOpen={detailsDlg.isOpen} onClose={closeDetails} isCentered size="lg">
+      <Modal isOpen={detailsDlg.isOpen} onClose={closeDetails} isCentered size={{ base: "full", md: "lg" }}>
         <ModalOverlay />
         <ModalContent bg={card.bg} color={card.color}>
           <ModalHeader>
@@ -383,7 +426,7 @@ const NotificacionesAdminPage = () => {
                 {selected.deeplink_path && (
                   <>
                     <Text fontWeight="semibold" mt={2}>Deeplink</Text>
-                    <HStack>
+                    <HStack wrap="wrap" spacing={2}>
                       <Code>{selected.deeplink_path}</Code>
                       <Button
                         size="sm"

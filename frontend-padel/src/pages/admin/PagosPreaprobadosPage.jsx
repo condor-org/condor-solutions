@@ -1,3 +1,4 @@
+// src/pages/admin/PagosPreaprobadosPage.jsx
 import React, { useEffect, useState, useContext } from "react";
 import {
   Box,
@@ -7,6 +8,9 @@ import {
   Flex,
   Button as ChakraButton,
   Spinner,
+  Stack,
+  HStack,
+  useBreakpointValue,
 } from "@chakra-ui/react";
 import Sidebar from "../../components/layout/Sidebar";
 import PageWrapper from "../../components/layout/PageWrapper";
@@ -20,13 +24,14 @@ import {
 } from "../../components/theme/tokens";
 
 const PagosPreaprobadosPage = () => {
-  const { user, logout, accessToken } = useContext(AuthContext);
+  const { accessToken } = useContext(AuthContext);
   const [pagos, setPagos] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const bg = useBodyBg();
   const card = useCardColors();
   const mutedText = useMutedText();
+  const isMobile = useBreakpointValue({ base: true, md: false });
 
   const fetchPagos = () => {
     const api = axiosAuth(accessToken);
@@ -78,13 +83,14 @@ const PagosPreaprobadosPage = () => {
           { label: "Pagos Preaprobados", path: "/admin/pagos-preaprobados" },
         ]}
       />
-      <Box flex="1" p={[2, 4, 8]} bg={bg} color={card.color}>
-        <Heading size="md" mb={4}>
+      <Box flex="1" p={{ base: 4, md: 8 }} bg={bg} color={card.color}>
+        <Heading size={{ base: "md", md: "md" }} mb={{ base: 4, md: 6 }}>
           Pagos Preaprobados
         </Heading>
+
         {loading ? (
-          <Flex align="center" justify="center" h="100px">
-            <Spinner color="blue.300" />
+          <Flex align="center" justify="center" h="120px">
+            <Spinner />
           </Flex>
         ) : pagos.length === 0 ? (
           <Text color={mutedText} textAlign="center">
@@ -97,61 +103,87 @@ const PagosPreaprobadosPage = () => {
                 key={p.id}
                 bg={card.bg}
                 color={card.color}
-                p={4}
-                rounded="md"
-                boxShadow="md"
+                p={{ base: 4, md: 5 }}
+                rounded="xl"
+                boxShadow="2xl"
+                borderWidth="1px"
               >
-                <Flex
+                {/* Contenedor responsive: columna en mobile, fila en desktop */}
+                <Stack
+                  direction={{ base: "column", md: "row" }}
+                  spacing={{ base: 3, md: 4 }}
                   justify="space-between"
-                  align="flex-start"
-                  wrap="wrap"
-                  gap={3}
+                  align={{ base: "stretch", md: "start" }}
                 >
-                  <Box minW={["100%", "260px"]}>
-                    <Text fontWeight="bold" mb={1}>
+                  {/* Bloque de datos */}
+                  <Box flex="1 1 auto" minW={0}>
+                    <Text fontWeight="bold" mb={1} noOfLines={1}>
                       Comprobante #{p.id}
                     </Text>
-                    <Text fontSize="sm" mb={1}>
-                      Turno: {p.turno_id}
-                    </Text>
+
+                    <HStack spacing={2} wrap="wrap" mb={1}>
+                      <Text fontSize="sm">Turno:</Text>
+                      <Text fontSize="sm" fontWeight="semibold">
+                        {p.turno_id}
+                      </Text>
+                    </HStack>
+
                     <Text fontSize="sm" color={mutedText} mb={1}>
                       Fecha: {new Date(p.created_at).toLocaleString()}
                     </Text>
-                    <Text fontSize="sm" mb={1}>
-                      Usuario: <b>{p.turno_usuario_nombre || p.usuario_nombre || "?"}</b>
-                    </Text>
-                    <Text fontSize="sm" color={mutedText} mb={1}>
+
+                    <HStack spacing={2} wrap="wrap" mb={1}>
+                      <Text fontSize="sm">Usuario:</Text>
+                      <Text fontSize="sm" fontWeight="semibold">
+                        {p.turno_usuario_nombre || p.usuario_nombre || "?"}
+                      </Text>
+                    </HStack>
+
+                    <Text fontSize="sm" color={mutedText} mb={1} noOfLines={1}>
                       Email: {p.turno_usuario_email || p.usuario_email || "?"}
                     </Text>
+
                     <Text fontSize="sm" color={mutedText} mb={1}>
-                      Turno a las <b>{p.turno_hora || "?"}</b> con <b>{p.profesor_nombre || "?"}</b>
+                      Turno a las{" "}
+                      <b>{p.turno_hora || "?"}</b> con{" "}
+                      <b>{p.profesor_nombre || "?"}</b>
                     </Text>
 
                     <ChakraButton
                       colorScheme="blue"
-                      size="sm"
+                      size={{ base: "sm", md: "sm" }}
                       variant="outline"
                       mt={2}
                       onClick={() => verComprobante(p.id)}
+                      w={{ base: "100%", md: "auto" }}
                     >
                       Ver comprobante
                     </ChakraButton>
                   </Box>
-                  <Flex gap={2}>
+
+                  {/* Acciones */}
+                  <Stack
+                    direction={{ base: "column", md: "row" }}
+                    spacing={2}
+                    w={{ base: "100%", md: "auto" }}
+                    align={{ base: "stretch", md: "center" }}
+                  >
                     <ChakraButton
                       colorScheme="green"
                       onClick={() => handleAccion(p.id, "aprobar")}
+                      w={{ base: "100%", md: "auto" }}
                     >
                       Completar Pago
                     </ChakraButton>
                     <ChakraButton
                       colorScheme="red"
                       onClick={() => handleAccion(p.id, "rechazar")}
+                      w={{ base: "100%", md: "auto" }}
                     >
                       Rechazar
                     </ChakraButton>
-                  </Flex>
-                </Flex>
+                  </Stack>
+                </Stack>
               </Box>
             ))}
           </VStack>
