@@ -1,8 +1,22 @@
-name: Docker Build & Publish (GHCR) — Release Only
+name: Docker Build & Publish (GHCR)
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag del release (ej: v0.0.12)"
+        required: true
+        type: string
+      platforms:
+        description: "Plataformas para buildx"
+        required: true
+        type: choice
+        default: "linux/amd64"
+        options:
+          - "linux/amd64"
+          - "linux/amd64,linux/arm64"
 
 permissions:
   contents: read
@@ -10,8 +24,15 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
+<<<<<<< HEAD
   PLATFORMS: linux/amd64
   RELEASE_TAG: ${{ github.event.release.tag_name }}
+=======
+  # Para release usa el tag del release; para manual usa el input
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.event.release.tag_name }}
+  # Para release default amd64; para manual usa el input de choice
+  PLATFORMS: ${{ github.event_name == 'workflow_dispatch' && inputs.platforms || 'linux/amd64' }}
+>>>>>>> c096b7468a30df5755a6d2bc4f1b351cff99058f
 
 jobs:
   build-and-push:
