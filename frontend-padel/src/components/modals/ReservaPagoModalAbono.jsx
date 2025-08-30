@@ -185,25 +185,28 @@ const ReservaPagoModalAbono = ({
             </Box>
           )}
 
-          {/* Resumen del cálculo */}
-          <Box
-            mt={{ base: 3, md: 4 }}
-            mb={{ base: 2, md: 3 }}
-            p={3}
-            borderRadius="md"
-            border="1px solid"
-            borderColor={resumenBorder}
-            bg={`${resumenBg}66`}
-            wordBreak="break-word"
-          >
-            <Text fontSize={{ base: "sm", md: "sm" }}>
-              Total estimado:{" "}
-              <b>${Number(totalEstimado).toLocaleString("es-AR")}</b>{" "}
-              = ${Number(precioAbono).toLocaleString("es-AR")} − (
-              {selectedBonos.length} × $
-              {Number(precioUnitario).toLocaleString("es-AR")})
-            </Text>
-          </Box>
+          {/* Resumen del cálculo (solo si hay bonos y el usuario activó alguno) */}
+          {bonosOrdenados.length > 0 && selectedBonos.length > 0 && (
+            <Box
+              mt={{ base: 3, md: 4 }}
+              mb={{ base: 2, md: 3 }}
+              p={3}
+              borderRadius="md"
+              border="1px solid"
+              borderColor={resumenBorder}
+              bg={`${resumenBg}66`}
+              wordBreak="break-word"
+            >
+              <Text fontSize={{ base: "sm", md: "sm" }}>
+                Total estimado:{" "}
+                <b>${Number(totalEstimado).toLocaleString("es-AR")}</b>{" "}
+                = ${Number(precioAbono).toLocaleString("es-AR")} − (
+                {selectedBonos.length} × $
+                {Number(precioUnitario).toLocaleString("es-AR")})
+              </Text>
+            </Box>
+          )}
+
 
           {/* Bonificaciones */}
           {!!bonosOrdenados.length && (

@@ -1,13 +1,20 @@
 // src/auth/AuthContext.js
 
-import React, { createContext, useState, useEffect, useCallback, useContext } from "react";
+import React, { createContext, useState, useEffect, useCallback, useContext, useRef } from "react";
+import axios from "axios";
 import { jwtDecode } from "jwt-decode";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
-import { applyAuthInterceptor } from "./axiosInterceptor"; // <- si no lo usás acá, podés quitarlo
-import { axiosAuth } from "../utils/axiosAuth";
+import { applyAuthInterceptor } from "./axiosInterceptor";
+
+// REACT_APP_API_BASE_URL puede ser "" (same-origin) o "http://localhost:8080"
+const RAW_BASE = process.env.REACT_APP_API_BASE_URL || "";
+const API_BASE = RAW_BASE.replace(/\/+$/, "");
+const API = `${API_BASE}/api`;
 
 export const AuthContext = createContext();
+
+const REFRESH_SAFETY_SECONDS = 60; // refrescar 60s antes del vencimiento
 
 const AuthProviderBase = ({ children, onLogoutNavigate }) => {
   const [user, setUser] = useState(() => {
@@ -19,61 +26,103 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
   const [refreshToken, setRefreshToken] = useState(() => localStorage.getItem("refresh"));
   const [loadingUser, setLoadingUser] = useState(true);
 
+  const refreshTimerRef = useRef(null);
+
+  const clearRefreshTimer = () => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+  };
+
+  const scheduleProactiveRefresh = useCallback(() => {
+    clearRefreshTimer();
+
+    const exp = parseInt(localStorage.getItem("access_exp") || "0", 10);
+    if (!exp) return;
+
+    const now = Math.floor(Date.now() / 1000);
+    const secondsLeft = exp - now - REFRESH_SAFETY_SECONDS;
+
+    if (secondsLeft <= 0) {
+      // si ya está por vencer o vencido, refrescamos enseguida
+      refreshTimerRef.current = setTimeout(() => attemptRefreshToken(), 0);
+    } else {
+      refreshTimerRef.current = setTimeout(() => attemptRefreshToken(), secondsLeft * 1000);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const logout = useCallback(() => {
     console.log("[AUTH] Logout ejecutado.");
+    clearRefreshTimer();
     setAccessToken(null);
     setRefreshToken(null);
     setUser(null);
-    localStorage.clear();
+
+    // limpiamos sólo lo que pusimos nosotros
+    localStorage.removeItem("access");
+    localStorage.removeItem("refresh");
+    localStorage.removeItem("access_exp");
+    localStorage.removeItem("user");
+
+    // removemos header global
+    delete axios.defaults.headers.common["Authorization"];
+
     if (onLogoutNavigate) onLogoutNavigate("/login");
   }, [onLogoutNavigate]);
 
   const attemptRefreshToken = useCallback(async () => {
-    if (!refreshToken) return false;
+    const refresh = localStorage.getItem("refresh");
+    if (!refresh) return false;
+
     try {
       console.log("[AUTH] Intentando refresh token...");
-      const api = axiosAuth(); // instancia sin token
-      const res = await api.post("/token/refresh/", { refresh: refreshToken });
+      const res = await axios.post(`${API}/token/refresh/`, { refresh });
       const { access } = res.data;
-      const decoded = jwtDecode(access);
+      if (!access) throw new Error("Respuesta de refresh sin 'access'");
 
+      const decoded = jwtDecode(access);
       localStorage.setItem("access", access);
       localStorage.setItem("access_exp", decoded.exp);
       setAccessToken(access);
 
+      axios.defaults.headers.common["Authorization"] = `Bearer ${access}`;
       console.log("[AUTH] Refresh token exitoso.");
+
+      scheduleProactiveRefresh(); // reprogramar
       return true;
     } catch (err) {
       console.error("[AUTH] Falló el refresh token. Forzando logout.");
       logout();
       return false;
     }
-  }, [refreshToken, logout]);
+  }, [logout, scheduleProactiveRefresh]);
 
   const login = async (email, password) => {
     console.log("[AUTH] Intentando login con email:", email);
     try {
-      const api = axiosAuth(); // instancia sin token para login
-      const res = await api.post("/token/", { email, password });
+      const res = await axios.post(`${API}/token/`, { email, password });
       const { access, refresh } = res.data;
-      const decoded = jwtDecode(access);
+      if (!access || !refresh) throw new Error("Respuesta de login sin tokens");
 
+      const decoded = jwtDecode(access);
       localStorage.setItem("access", access);
       localStorage.setItem("refresh", refresh);
       localStorage.setItem("access_exp", decoded.exp);
 
       setAccessToken(access);
       setRefreshToken(refresh);
+      axios.defaults.headers.common["Authorization"] = `Bearer ${access}`;
 
       console.log("[AUTH] Login exitoso. Tokens recibidos.");
 
-      const authed = axiosAuth(access);
-      const perfilRes = await authed.get("/auth/yo/");
+      const perfilRes = await axios.get(`${API}/auth/yo/`);
       setUser(perfilRes.data);
       localStorage.setItem("user", JSON.stringify(perfilRes.data));
 
-      toast.success("Inicio de sesión exitoso");
+      scheduleProactiveRefresh();
     } catch (err) {
+      console.error("[AUTH] Error en login:", err?.response?.status, err?.message);
       toast.error("Credenciales inválidas");
       throw err;
     }
@@ -81,17 +130,32 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
 
   useEffect(() => {
     const initializeAuth = async () => {
-      if (accessToken) {
-        const now = Math.floor(Date.now() / 1000);
-        const exp = parseInt(localStorage.getItem("access_exp") || "0", 10);
-        if (exp < now) await attemptRefreshToken();
+      try {
+        if (accessToken) {
+          const now = Math.floor(Date.now() / 1000);
+          const exp = parseInt(localStorage.getItem("access_exp") || "0", 10);
+
+          if (exp < now) {
+            await attemptRefreshToken();
+          } else {
+            axios.defaults.headers.common["Authorization"] = `Bearer ${accessToken}`;
+            scheduleProactiveRefresh();
+          }
+        }
+      } finally {
+        setLoadingUser(false); // señaliza fin de la carga inicial SIEMPRE
       }
-      setLoadingUser(false);
     };
     initializeAuth();
+
+    return () => clearRefreshTimer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, attemptRefreshToken]);
 
-  // Ya no necesitamos setear interceptores/global defaults sobre axios global.
+  // Registramos el interceptor global de axios UNA sola vez, con logout cableado
+  useEffect(() => {
+    applyAuthInterceptor(axios, logout, { apiBasePath: API }); // 👈 asegura usar /api correcto (abs o relative)
+  }, [logout]);
 
   return (
     <AuthContext.Provider value={{ user, login, logout, accessToken, loadingUser }}>

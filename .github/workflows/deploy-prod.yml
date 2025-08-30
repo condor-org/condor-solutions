@@ -1,7 +1,17 @@
 name: Deploy Condor (prod)
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      BACKEND_TAG:
+        description: 'Backend image tag (GHCR)'
+        required: true
+      FRONTEND_TAG:
+        description: 'Frontend image tag (GHCR)'
+        required: true
+      CRON_TAG:
+        description: 'Cron image tag (GHCR)'
+        required: true
 
 permissions:
   contents: read
@@ -10,9 +20,9 @@ permissions:
 env:
   OWNER: ${{ vars.OWNER }}
   IMAGE_PREFIX: ${{ vars.IMAGE_PREFIX }}
-  BACKEND_TAG: ${{ vars.BACKEND_TAG }}
-  FRONTEND_TAG: ${{ vars.FRONTEND_TAG }}
-  CRON_TAG: ${{ vars.CRON_TAG }}
+  BACKEND_TAG: ${{ inputs.BACKEND_TAG }}
+  FRONTEND_TAG: ${{ inputs.FRONTEND_TAG }}
+  CRON_TAG: ${{ inputs.CRON_TAG }}
   LETSENCRYPT_EMAIL: ${{ vars.LETSENCRYPT_EMAIL || 'admin@cnd-ia.com' }}
 
 jobs:

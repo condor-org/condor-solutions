@@ -22,6 +22,10 @@ services:
     env_file: [ .env ]
     environment:
       DJANGO_SETTINGS_MODULE: condor_core.settings.dev
+      # ↓ si usás estos flags de logging en dev, dejalos acá para ambos modos
+      DJANGO_REQUEST_LOG_LEVEL: ERROR
+      DJANGO_MIDDLEWARE_LOG_LEVEL: WARNING
+      DJANGO_LOG_SKIP_CONTAINS: /api/notificaciones/unread_count/,/api/token/refresh/
     depends_on: [ db, redis ]
     restart: always
     mem_limit: "1g"
@@ -52,6 +56,9 @@ services:
     env_file: [ .env ]
     environment:
       DJANGO_SETTINGS_MODULE: condor_core.settings.dev
+      DJANGO_REQUEST_LOG_LEVEL: ERROR
+      DJANGO_MIDDLEWARE_LOG_LEVEL: WARNING
+      DJANGO_LOG_SKIP_CONTAINS: /api/notificaciones/unread_count/,/api/token/refresh/
     depends_on: [ db, redis ]
     restart: always
     mem_limit: "512m"
@@ -62,13 +69,10 @@ services:
   db:
     image: postgres:14
     container_name: postgres_condor
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    env_file: [ .env ]     # usa POSTGRES_DB/USER/PASSWORD del .env
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports: [ "5432:5432" ]
+    ports: [ "5432:5432" ] # si querés usar psql desde el host
     restart: always
     mem_limit: "512m"
     logging:
@@ -78,7 +82,7 @@ services:
   redis:
     image: redis:7
     container_name: redis_condor
-    ports: [ "6379:6379" ]
+    ports: [ "6379:6379" ] # útil si usás redis-cli desde el host
     volumes:
       - redis_data:/data
     restart: always

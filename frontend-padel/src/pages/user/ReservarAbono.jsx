@@ -4,7 +4,9 @@ import { AuthContext } from "../../auth/AuthContext";
 import { axiosAuth } from "../../utils/axiosAuth";
 import {
   Box, Text, HStack, VStack, Select, useToast, Badge, Divider, useDisclosure,
+  FormControl, FormLabel, Stack
 } from "@chakra-ui/react";
+
 import Button from "../../components/ui/Button";
 import { useCardColors, useInputColors, useMutedText } from "../../components/theme/tokens";
 // 👇 Import CON extensión .jsx (clave para evitar que resuelva a un objeto módulo)
@@ -323,58 +325,128 @@ const ReservarAbono = ({ onClose }) => {
       </HStack>
 
       <VStack align="stretch" spacing={3}>
-        <HStack>
-          <Box flex={1}>
-            <Text fontSize="sm" mb={1} color={muted}>Sede</Text>
-            <Select value={sedeId} onChange={e => setSedeId(e.target.value)} bg={input.bg} borderColor={input.border}>
-              <option value="">Seleccioná</option>
-              {sedes.map(s => <option key={s.id} value={s.id}>{s.nombre || s.nombre_publico || `Sede ${s.id}`}</option>)}
-            </Select>
-          </Box>
-
-          <Box flex={1}>
-            <Text fontSize="sm" mb={1} color={muted}>Profesor</Text>
-            <Select value={profesorId} onChange={e => setProfesorId(e.target.value)} bg={input.bg} borderColor={input.border} isDisabled={!sedeId}>
-              <option value="">Seleccioná</option>
-              {profesores.map(p => <option key={p.id} value={p.id}>{p.nombre || p.email || `Profe ${p.id}`}</option>)}
-            </Select>
-          </Box>
-
-          <Box flex={1}>
-            <Text fontSize="sm" mb={1} color={muted}>Día de la semana</Text>
-            <Select value={diaSemana} onChange={e => setDiaSemana(e.target.value)} bg={input.bg} borderColor={input.border} isDisabled={!profesorId}>
-              <option value="">Seleccioná</option>
-              {DIAS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-            </Select>
-          </Box>
-
-          <Box flex={1}>
-            <Text fontSize="sm" mb={1} color={muted}>Tipo de abono</Text>
+        <Stack
+          direction={{ base: "column", md: "row" }}
+          spacing={4}
+          align={{ base: "stretch", md: "end" }}
+          mb={6}
+          w="100%"
+        >
+          {/* Sede */}
+          <FormControl flex={1} minW={0}>
+            <FormLabel color={muted}>Sede</FormLabel>
             <Select
-              value={tipoAbono}
-              onChange={e => setTipoAbono(e.target.value)}
+              value={sedeId}
+              placeholder="Seleccioná"
+              onChange={(e) => {
+                setSedeId(e.target.value);
+                // opcional: limpiás selecciones dependientes
+                setProfesorId("");
+                setDiaSemana("");
+                setTipoAbono("");
+                setHoraFiltro("");
+              }}
               bg={input.bg}
               borderColor={input.border}
-              isDisabled={!profesorId}
+              size={{ base: "md", md: "sm" }}
+              w="100%"
+              rounded="md"
             >
-              <option value="">Seleccioná</option>
-              {ABONO_OPCIONES.map(op => (
-                <option key={op.codigo} value={op.codigo}>{op.nombre}</option>
+              {sedes.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.nombre || s.nombre_publico || `Sede ${s.id}`}
+                </option>
               ))}
             </Select>
-          </Box>
+          </FormControl>
 
-          <Box flex={1}>
-            <Text fontSize="sm" mb={1} color={muted}>Hora (opcional)</Text>
-            <Select value={horaFiltro} onChange={e => setHoraFiltro(e.target.value)} bg={input.bg} borderColor={input.border} isDisabled={diaSemana === ""}>
+          {/* Profesor */}
+          <FormControl flex={1} minW={0} isDisabled={!sedeId}>
+            <FormLabel color={muted}>Profesor</FormLabel>
+            <Select
+              value={profesorId}
+              placeholder="Seleccioná"
+              onChange={(e) => setProfesorId(e.target.value)}
+              bg={input.bg}
+              borderColor={input.border}
+              size={{ base: "md", md: "sm" }}
+              w="100%"
+              rounded="md"
+            >
+              {profesores.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nombre || p.email || `Profe ${p.id}`}
+                </option>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* Día de la semana (para abono se mantiene como día fijo) */}
+          <FormControl flex={1} minW={0} isDisabled={!profesorId}>
+            <FormLabel color={muted}>Día de la semana</FormLabel>
+            <Select
+              value={diaSemana}
+              placeholder="Seleccioná"
+              onChange={(e) => setDiaSemana(e.target.value)}
+              bg={input.bg}
+              borderColor={input.border}
+              size={{ base: "md", md: "sm" }}
+              w="100%"
+              rounded="md"
+            >
+              {DIAS.map((d) => (
+                <option key={d.value} value={d.value}>
+                  {d.label}
+                </option>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* Tipo de abono */}
+          <FormControl flex={1} minW={0} isDisabled={!profesorId}>
+            <FormLabel color={muted}>Tipo de abono</FormLabel>
+            <Select
+              value={tipoAbono}
+              placeholder="Seleccioná"
+              onChange={(e) => setTipoAbono(e.target.value)}
+              bg={input.bg}
+              borderColor={input.border}
+              size={{ base: "md", md: "sm" }}
+              w="100%"
+              rounded="md"
+            >
+              {ABONO_OPCIONES.map((op) => (
+                <option key={op.codigo} value={op.codigo}>
+                  {op.nombre}
+                </option>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* Hora (opcional) */}
+          <FormControl flex={1} minW={0} isDisabled={diaSemana === ""}>
+            <FormLabel color={muted}>Hora (opcional)</FormLabel>
+            <Select
+              value={horaFiltro}
+              onChange={(e) => setHoraFiltro(e.target.value)}
+              bg={input.bg}
+              borderColor={input.border}
+              size={{ base: "md", md: "sm" }}
+              w="100%"
+              rounded="md"
+            >
               <option value="">Todas</option>
               {Array.from({ length: 15 }).map((_, i) => {
                 const h = (8 + i).toString().padStart(2, "0") + ":00:00";
-                return <option key={h} value={h}>{h.slice(0,5)}</option>;
+                return (
+                  <option key={h} value={h}>
+                    {h.slice(0, 5)}
+                  </option>
+                );
               })}
             </Select>
-          </Box>
-        </HStack>
+          </FormControl>
+        </Stack>
 
         <Divider my={2} />
 

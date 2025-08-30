@@ -47,7 +47,7 @@ const visualSets = {
 };
 
 // 🔄 Elegí el set activo para testeos visuales
-const ACTIVE_SET = visualSets.alt;
+const ACTIVE_SET = visualSets.classic;
 
 export const useModalColors = () => {
   const { colorMode } = useColorMode();

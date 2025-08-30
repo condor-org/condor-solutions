@@ -27,7 +27,9 @@ import {
   ModalHeader,
   ModalBody,
   ModalFooter,
-  ModalCloseButton
+  ModalCloseButton,
+  SimpleGrid,
+  Stack,
 } from "@chakra-ui/react";
 import { ArrowBackIcon, CheckIcon, RepeatIcon, DeleteIcon, ViewIcon } from "@chakra-ui/icons";
 import { FaBell, FaEnvelopeOpenText } from "react-icons/fa";
@@ -170,7 +172,6 @@ const NotificacionesPage = () => {
     }
     setBusyDelete(true);
     try {
-      // Borrado masivo por endpoint nuevo
       await api.post("notificaciones/bulk_delete/", { ids });
       emitNotificationsRefresh();
       await loadFirstPage();
@@ -216,29 +217,73 @@ const NotificacionesPage = () => {
   return (
     <Box minH="100vh" bg={bg}>
       <Box maxW="5xl" mx="auto" px={4} py={8}>
-        <HStack justify="space-between" align="center" mb={4}>
-          <HStack spacing={3}>
-            <Tooltip label="Volver">
-              <Button onClick={goBack} leftIcon={<ArrowBackIcon />} variant="ghost" size="sm">
-                Volver
-              </Button>
-            </Tooltip>
-            <FaBell />
-            <Heading as="h2" size="lg">Notificaciones</Heading>
-            {unreadCount > 0 && (
-              <Badge colorScheme="orange" variant="solid">
-                {unreadCount > 99 ? "99+" : unreadCount}
-              </Badge>
-            )}
+        {/* Header */}
+        <Stack spacing={{ base: 2, md: 3 }} mb={4}>
+          {/* Fila 1: volver + título (badge incluido). Acciones solo desktop a la derecha */}
+          <HStack justify="space-between" align="center">
+            <HStack spacing={3} align="center">
+              <Tooltip label="Volver">
+                <Button onClick={goBack} leftIcon={<ArrowBackIcon />} variant="ghost" size="sm">
+                  Volver
+                </Button>
+              </Tooltip>
+              <FaBell />
+              <Heading as="h2" size={{ base: "md", md: "lg" }}>Notificaciones</Heading>
+              {unreadCount > 0 && (
+                <Badge colorScheme="orange" variant="solid">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </Badge>
+              )}
+            </HStack>
+
+            {/* Acciones en desktop */}
+            <HStack spacing={2} display={{ base: "none", md: "flex" }}>
+              <Tooltip label="Refrescar">
+                <IconButton
+                  aria-label="Refrescar"
+                  icon={<RepeatIcon />}
+                  onClick={loadFirstPage}
+                  variant="ghost"
+                />
+              </Tooltip>
+              <Tooltip label="Marcar todas como leídas">
+                <Button leftIcon={<CheckIcon />} variant="solid" onClick={markAll} isLoading={busyAll}>
+                  Marcar
+                </Button>
+              </Tooltip>
+              <Tooltip label="Borrar todas las mostradas">
+                <Button
+                  leftIcon={<DeleteIcon />}
+                  variant="outline"
+                  colorScheme="red"
+                  onClick={delAllDlg.onOpen}
+                  isLoading={busyDelete}
+                >
+                  Borrar
+                </Button>
+              </Tooltip>
+            </HStack>
           </HStack>
 
-          <HStack spacing={2}>
+          {/* Acciones en mobile: grid 3 columnas */}
+          <SimpleGrid columns={3} spacing={2} display={{ base: "grid", md: "none" }}>
             <Tooltip label="Refrescar">
-              <IconButton aria-label="Refrescar" icon={<RepeatIcon />} onClick={loadFirstPage} variant="ghost" />
+              <IconButton
+                aria-label="Refrescar"
+                icon={<RepeatIcon />}
+                onClick={loadFirstPage}
+                variant="ghost"
+              />
             </Tooltip>
             <Tooltip label="Marcar todas como leídas">
-              <Button leftIcon={<CheckIcon />} variant="solid" onClick={markAll} isLoading={busyAll}>
-                Marcar todas
+              <Button
+                leftIcon={<CheckIcon />}
+                variant="solid"
+                onClick={markAll}
+                isLoading={busyAll}
+                size="sm"
+              >
+                Marcar
               </Button>
             </Tooltip>
             <Tooltip label="Borrar todas las mostradas">
@@ -248,14 +293,16 @@ const NotificacionesPage = () => {
                 colorScheme="red"
                 onClick={delAllDlg.onOpen}
                 isLoading={busyDelete}
+                size="sm"
               >
-                Borrar todas
+                Borrar
               </Button>
             </Tooltip>
-          </HStack>
-        </HStack>
+          </SimpleGrid>
+        </Stack>
 
-        <HStack mb={4} spacing={4}>
+        {/* Filtros */}
+        <Stack direction={{ base: "column", md: "row" }} mb={4} spacing={4}>
           <Checkbox
             isChecked={unreadOnly}
             onChange={(e) => setUnreadOnly(e.target.checked)}
@@ -263,7 +310,7 @@ const NotificacionesPage = () => {
           >
             Sólo no leídas
           </Checkbox>
-        </HStack>
+        </Stack>
 
         <Box bg={card.bg} color={card.color} rounded="xl" boxShadow="2xl" p={{ base: 4, md: 6 }}>
           <Divider mb={4} />
@@ -271,7 +318,7 @@ const NotificacionesPage = () => {
           {loading ? (
             <VStack align="stretch" spacing={3}>
               {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} height="64px" rounded="md" />
+                <Skeleton key={i} height={{ base: "56px", md: "64px" }} rounded="md" />
               ))}
             </VStack>
           ) : visible.length === 0 ? (
@@ -289,18 +336,30 @@ const NotificacionesPage = () => {
                   p={3}
                   bg={n.unread ? "orange.50" : "transparent"}
                 >
-                  <HStack justify="space-between" align="start">
+                  <Stack
+                    direction={{ base: "column", md: "row" }}
+                    justify="space-between"
+                    align={{ base: "stretch", md: "start" }}
+                    spacing={{ base: 2, md: 3 }}
+                  >
                     <VStack align="start" spacing={1} w="full">
                       <HStack>
                         <Badge colorScheme={severityToScheme(n.severity)}>{n.type}</Badge>
                         {n.unread && <Badge colorScheme="orange">Nuevo</Badge>}
                       </HStack>
                       <Text fontWeight="semibold" noOfLines={1}>{n.title}</Text>
-                      <Text fontSize="sm" color={muted} whiteSpace="pre-wrap">{n.body}</Text>
+                      <Text
+                        fontSize="sm"
+                        color={muted}
+                        whiteSpace="pre-wrap"
+                        noOfLines={{ base: 3, md: undefined }}
+                      >
+                        {n.body}
+                      </Text>
                       <Text fontSize="xs" color={muted}>{formatWhen(n.created_at)}</Text>
                     </VStack>
 
-                    <VStack spacing={1} minW={isMobile ? "auto" : "120px"}>
+                    <HStack spacing={2} justify={{ base: "flex-end", md: "flex-start" }} align="center">
                       <Tooltip label="Ver detalles">
                         <IconButton
                           aria-label="Ver detalles"
@@ -313,8 +372,8 @@ const NotificacionesPage = () => {
                       <Button size="xs" variant="ghost" onClick={() => toggleRead(n)}>
                         {n.unread ? "Marcar leída" : "Marcar no leída"}
                       </Button>
-                    </VStack>
-                  </HStack>
+                    </HStack>
+                  </Stack>
                 </Box>
               ))}
 
@@ -331,7 +390,7 @@ const NotificacionesPage = () => {
       </Box>
 
       {/* Confirmación borrar todas (las visibles) */}
-      <AlertDialog isOpen={delAllDlg.isOpen} onClose={delAllDlg.onClose} isCentered>
+      <AlertDialog isOpen={delAllDlg.isOpen} onClose={delAllDlg.onClose} isCentered size={{ base: "xs", md: "md" }}>
         <AlertDialogOverlay />
         <AlertDialogContent>
           <AlertDialogHeader fontWeight="bold">Borrar notificaciones</AlertDialogHeader>
@@ -349,7 +408,7 @@ const NotificacionesPage = () => {
       </AlertDialog>
 
       {/* Modal de detalles */}
-      <Modal isOpen={detailDlg.isOpen} onClose={closeDetail} size="lg" isCentered>
+      <Modal isOpen={detailDlg.isOpen} onClose={closeDetail} size={{ base: "full", md: "lg" }} isCentered>
         <ModalOverlay />
         <ModalContent>
           <ModalHeader>Detalle de notificación</ModalHeader>

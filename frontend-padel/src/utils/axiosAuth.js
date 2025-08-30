@@ -3,13 +3,13 @@ import axios from "axios";
 import { applyAuthInterceptor } from "../auth/axiosInterceptor";
 import { API_BASE_URL } from "../config/runtime";
 
-export const axiosAuth = (token) => {
+export const axiosAuth = (token, onLogout) => {
   const instance = axios.create({
     baseURL: API_BASE_URL, // "/api"
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
 
-  // logs útiles y sin undefined
+  // log ya lo tenés en el request, ok
   instance.interceptors.request.use((config) => {
     const base = config.baseURL?.replace(/\/+$/, "") || "";
     const url  = `${base}${config.url || ""}`;
@@ -17,6 +17,7 @@ export const axiosAuth = (token) => {
     return config;
   });
 
-  applyAuthInterceptor(instance);
+  // 👇 ahora sí pasamos el logoutCallback
+  applyAuthInterceptor(instance, onLogout);
   return instance;
 };

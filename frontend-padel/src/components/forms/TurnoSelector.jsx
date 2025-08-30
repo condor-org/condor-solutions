@@ -1,8 +1,7 @@
 // src/components/forms/TurnoSelector.jsx
-
 import React from 'react';
 import {
-  FormControl, FormLabel, Select, useColorModeValue, Stack
+  FormControl, FormLabel, Select, Input, useColorModeValue, Stack, useBreakpointValue
 } from '@chakra-ui/react';
 
 const LABELS = {
@@ -22,14 +21,20 @@ const TurnoSelector = ({
   onSedeChange,
   onProfesorChange,
   onTipoClaseChange,
+  // 👇 nuevas props para el Día
+  day,                 // string "YYYY-MM-DD"
+  onDayChange,         // fn(e.target.value)
+  minDay,              // string "YYYY-MM-DD"
+  maxDay,              // string "YYYY-MM-DD"
   disabled = false,
 }) => {
   const inputBg = useColorModeValue('white', 'gray.700');
   const inputBorder = useColorModeValue('gray.300', 'blue.400');
   const textColor = useColorModeValue('gray.800', 'white');
   const mutedText = useColorModeValue('gray.600', 'gray.400');
+  const isMobile = useBreakpointValue({ base: true, md: false });
 
-  const labelTipo = (t) => (t?.nombre /* por si viene del backend */) || LABELS[t?.codigo] || "Tipo";
+  const labelTipo = (t) => (t?.nombre) || LABELS[t?.codigo] || "Tipo";
 
   return (
     <Stack
@@ -37,7 +42,6 @@ const TurnoSelector = ({
       spacing={4}
       align={{ base: 'stretch', md: 'end' }}
       mb={6}
-      // evita que hijos con min-width implícito rompan el layout
       w="100%"
     >
       {/* Sede */}
@@ -48,7 +52,7 @@ const TurnoSelector = ({
           placeholder="Seleccionar sede"
           onChange={(e) => {
             onSedeChange?.(e.target.value);
-            onTipoClaseChange?.(""); // limpia tipo de clase al cambiar sede
+            onTipoClaseChange?.(""); // limpia tipo al cambiar sede
           }}
           bg={inputBg}
           color={textColor}
@@ -112,6 +116,26 @@ const TurnoSelector = ({
           ))}
         </Select>
       </FormControl>
+
+      {/* Día (solo mobile) */}
+      {isMobile && (
+        <FormControl flex={1} minW={0} isDisabled={!profesorId || disabled}>
+          <FormLabel color={mutedText}>Día</FormLabel>
+          <Input
+            type="date"
+            value={day || ""}
+            onChange={(e) => onDayChange?.(e.target.value)}
+            min={minDay}
+            max={maxDay}
+            bg={inputBg}
+            color={textColor}
+            borderColor={inputBorder}
+            rounded="md"
+            w="100%"
+            size={{ base: 'md', md: 'sm' }}
+          />
+        </FormControl>
+      )}
     </Stack>
   );
 };

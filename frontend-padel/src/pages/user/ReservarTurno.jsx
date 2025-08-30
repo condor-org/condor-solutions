@@ -5,6 +5,7 @@ import FullCalendar from "@fullcalendar/react";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
+import AppButton from "../../components/ui/Button";
 import {
   Box, Button, Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter,
   ModalCloseButton, Input, Text, useDisclosure, useToast, Select,
@@ -19,6 +20,27 @@ import { CloseIcon } from "@chakra-ui/icons";
 import TurnoSelector from "../../components/forms/TurnoSelector.jsx";
 import TurnoCalendar from "../../components/calendar/TurnoCalendar.jsx";
 import ReservaPagoModal from "../../components/modals/ReservaPagoModal.jsx";
+
+
+const isoHoy = new Date().toISOString().slice(0, 10);
+const hhmm = (iso) => (iso?.split("T")[1]?.slice(0,5) || "");
+// === Fechas en horario local (evita el corrimiento por UTC) ===
+const toLocalDate = (isoYmd) => {
+  if (!isoYmd) return null;
+  const [y, m, d] = isoYmd.split("-").map(Number);
+  return new Date(y, m - 1, d); // local time, sin shift
+};
+
+const weekdayLabel = (isoYmd) =>
+  toLocalDate(isoYmd)?.toLocaleDateString("es-AR", { weekday: "long" }) || "";
+
+const longDayLabel = (isoYmd) =>
+  toLocalDate(isoYmd)?.toLocaleDateString("es-AR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+  }) || "";
+
 
 // Helper genérico para traer todas las páginas de un endpoint DRF
 async function fetchAllPages(api, url, { params = {}, maxPages = 50, pageSize = 100, logTag = "fetchAllPages" } = {}) {
@@ -116,6 +138,55 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
 
   // ¿hay bono del mismo tipo?
   const tieneBonoDeEsteTipo = bonificaciones.length > 0;
+
+
+    // 👇 en el componente ReservarTurno...
+  const isMobile = useBreakpointValue({ base: true, md: false });
+
+  // Día seleccionado (sólo mobile)
+  const [selectedDay, setSelectedDay] = useState(isoHoy);
+
+  // Fechas disponibles (derivadas de turnos)
+  const availableDays = React.useMemo(() => {
+    const s = new Set(
+      (turnos || []).map(e => (e.start || "").slice(0,10)).filter(Boolean)
+    );
+    return Array.from(s).sort(); // yyyy-mm-dd
+  }, [turnos]);
+
+  // Inicializar/corregir selectedDay cuando cambian los turnos
+  useEffect(() => {
+    if (!availableDays.length) {
+      setSelectedDay(isoHoy);
+      return;
+    }
+    const firstFuture = availableDays.find(d => d >= isoHoy) || availableDays[0];
+    if (!availableDays.includes(selectedDay)) {
+      setSelectedDay(firstFuture);
+    }
+  }, [availableDays]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Slots del día seleccionado (sólo mobile)
+  const slotsOfDay = React.useMemo(() => {
+    if (!selectedDay) return [];
+    return (turnos || [])
+      .filter(e => (e.start || "").slice(0,10) === selectedDay)
+      .slice()
+      .sort((a,b) => (a.start < b.start ? -1 : 1));
+  }, [turnos, selectedDay]);
+
+  // Click en item (simula FullCalendar eventClick)
+  const handleMobileSlotClick = (slot) => {
+    const info = {
+      event: {
+        id: slot.id,
+        title: slot.title,
+        extendedProps: slot.extendedProps, // acá vive estado, etc.
+      },
+      timeText: `${hhmm(slot.start)} - ${hhmm(slot.end)}`,
+    };
+    handleEventClick(info);
+  };
 
   // si cambia el tipo y ya no hay bono, apago el toggle
   useEffect(() => {
@@ -509,7 +580,6 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
         <>
           <HStack justify="space-between" mb={4}>
             <Text fontSize="2xl" fontWeight="bold">Reserva de Turnos</Text>
-            <Button variant="secondary" onClick={abrirMisTurnos}>Mis turnos</Button>
           </HStack>
   
           <TurnoSelector
@@ -529,9 +599,87 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
             }}
             onProfesorChange={setProfesorId}
             onTipoClaseChange={setTipoClaseId}
+            // 👇 nuevas props para el Día en mobile
+            day={selectedDay}
+            onDayChange={setSelectedDay}
+            minDay={isoHoy}
+            maxDay={availableDays.length ? availableDays[availableDays.length - 1] : undefined}
           />
-  
-          <Box bg={card.bg} rounded="md" p={6} boxShadow="lg" overflow="hidden" minH="500px" mt={4}>
+
+
+                
+          {isMobile ? (
+            <VStack align="stretch" spacing={4}>
+              <Divider my={2} />
+
+              <Text fontWeight="semibold" mt={1}>
+                Turnos disponibles
+              </Text>
+
+              {!slotsOfDay.length ? (
+                <Box
+                  border="1px dashed"
+                  borderColor={input.border}
+                  rounded="md"
+                  p={4}
+                  textAlign="center"
+                  opacity={0.8}
+                >
+                  No hay turnos para el {longDayLabel(selectedDay)}
+                </Box>
+              ) : (
+                <VStack align="stretch" spacing={3}>
+                  {slotsOfDay.map((slot, idx) => {
+                    const isReservado = slot?.extendedProps?.estado === "reservado";
+                    const scheme = isReservado ? "red" : "green";
+                    const tipoNombre =
+                      slot?.extendedProps?.tipo_clase?.nombre ||
+                      slot?.extendedProps?.tipo_clase_nombre ||
+                      slot?.title?.replace(/^(🔴|🟢)\s*/, "") ||
+                      "Turno";
+
+                    return (
+                      <Box
+                        key={slot.id ?? `${slot.start}-${idx}`}
+                        p={3}
+                        bg={card.bg}
+                        rounded="md"
+                        borderWidth="1px"
+                        borderColor={input.border}
+                        _hover={{ boxShadow: "lg", cursor: isReservado ? "not-allowed" : "pointer", opacity: 0.95 }}
+                        onClick={() => !isReservado && handleMobileSlotClick(slot)}
+                      >
+                        <HStack justify="space-between" align="center">
+                          <Box>
+                            <Text fontWeight="semibold">
+                              {weekdayLabel(selectedDay)} · {hhmm(slot.start)} hs
+                            </Text>
+                            <HStack mt={1} spacing={2}>
+                              <Badge variant="outline">{tipoNombre}</Badge>
+                              <Badge colorScheme={scheme}>{isReservado ? "Reservado" : "Disponible"}</Badge>
+                            </HStack>
+                          </Box>
+
+                          {/* botón azul como en Reservar Abono */}
+                          <AppButton
+                            variant={isReservado ? "ghost" : "primary"}
+                            size="sm"
+                            isDisabled={isReservado}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!isReservado) handleMobileSlotClick(slot);
+                            }}
+                          >
+                            {isReservado ? "Ocupado" : "Seleccionar"}
+                          </AppButton>
+                        </HStack>
+                      </Box>
+                    );
+                  })}
+                </VStack>
+              )}
+            </VStack>
+          ) : (
             <TurnoCalendar
               events={turnos}
               onEventClick={handleEventClick}
@@ -539,7 +687,12 @@ const ReservarTurno = ({ onClose, defaultMisTurnos = false }) => {
               slotMinTime="07:00:00"
               slotMaxTime="23:00:00"
             />
-          </Box>
+          )}
+
+
+
+        
+
   
           <ReservaPagoModal
             isOpen={pagoDisc.isOpen}
