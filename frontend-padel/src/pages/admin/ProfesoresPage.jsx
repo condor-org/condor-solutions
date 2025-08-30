@@ -11,7 +11,6 @@ import { AuthContext } from "../../auth/AuthContext";
 import { toast } from "react-toastify";
 import Sidebar from "../../components/layout/Sidebar";
 import Button from "../../components/ui/Button";
-import Input from "../../components/ui/Input";
 import PageWrapper from "../../components/layout/PageWrapper";
 
 import {
@@ -321,23 +320,81 @@ const ProfesoresPage = () => {
         {/* MODAL FORM */}
         <Modal isOpen={isOpen} onClose={() => { onClose(); resetForm(); }} isCentered size={isMobile ? "full" : "4xl"}>
           <ModalOverlay />
-          <ModalContent bg={modalTok.bg} color={modalTok.color} maxW={isMobile ? "100vw" : "900px"} mx={isMobile ? 1 : "auto"}>
+          <ModalContent bg={modalTok.bg} color={modalTok.color} maxW={isMobile ? "100vw" : "900px"} mx={isMobile ? 1 : "auto"}  sx={{
+                'input, select, textarea': {
+                  fontSize: { base: '16px', md: 'inherit' }
+                }
+              }}>
             <ModalHeader>{editingId ? "Editar Profesor" : "Nuevo Profesor"}</ModalHeader>
             <ModalCloseButton />
             <ModalBody maxH="70vh" overflowY="auto">
               <form id="prof-form" onSubmit={handleSubmit}>
-                <VStack spacing={4} align="stretch">
-                  <Input size={{ base: "sm", md: "md" }} label="Nombre" value={nombre} onChange={e => setNombre(e.target.value)} />
-                  <Input size={{ base: "sm", md: "md" }} label="Apellido" value={apellido} onChange={e => setApellido(e.target.value)} />
-                  <Input size={{ base: "sm", md: "md" }} label="Email" value={email} onChange={e => setEmail(e.target.value)} type="email" />
-                  <Input size={{ base: "sm", md: "md" }} label="Teléfono" value={telefono} onChange={e => setTelefono(e.target.value)} />
-                  <Input size={{ base: "sm", md: "md" }} label="Especialidad" value={especialidad} onChange={e => setEspecialidad(e.target.value)} />
-                  <Input size={{ base: "sm", md: "md" }} label="Nombre Público" value={nombrePublico} onChange={e => setNombrePublico(e.target.value)} />
-                  <Input size={{ base: "sm", md: "md" }} label="Contraseña (dejar vacío para no cambiar)" type="password" value={password} onChange={e => setPassword(e.target.value)} />
-                  {user.tipo_usuario === "super_admin" && (
-                    <Input size={{ base: "sm", md: "md" }} label="ID del Cliente" value={clienteId} onChange={e => setClienteId(e.target.value)} />
-                  )}
-                </VStack>
+              <VStack spacing={4} align="stretch">
+                <ChakraInput
+                  placeholder="Nombre"
+                  value={nombre}
+                  onChange={e => setNombre(e.target.value)}
+                  size="md"
+                  fontSize={{ base: "16px", md: "inherit" }}
+                />
+                <ChakraInput
+                  placeholder="Apellido"
+                  value={apellido}
+                  onChange={e => setApellido(e.target.value)}
+                  size="md"
+                  fontSize={{ base: "16px", md: "inherit" }}
+                />
+                <ChakraInput
+                  placeholder="Email"
+                  type="email"
+                  inputMode="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  size="md"
+                  fontSize={{ base: "16px", md: "inherit" }}
+                />
+                <ChakraInput
+                  placeholder="Teléfono"
+                  inputMode="tel"
+                  value={telefono}
+                  onChange={e => setTelefono(e.target.value)}
+                  size="md"
+                  fontSize={{ base: "16px", md: "inherit" }}
+                />
+                <ChakraInput
+                  placeholder="Especialidad"
+                  value={especialidad}
+                  onChange={e => setEspecialidad(e.target.value)}
+                  size="md"
+                  fontSize={{ base: "16px", md: "inherit" }}
+                />
+                <ChakraInput
+                  placeholder="Nombre Público"
+                  value={nombrePublico}
+                  onChange={e => setNombrePublico(e.target.value)}
+                  size="md"
+                  fontSize={{ base: "16px", md: "inherit" }}
+                />
+                <ChakraInput
+                  placeholder="Contraseña (dejar vacío para no cambiar)"
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  size="md"
+                  fontSize={{ base: "16px", md: "inherit" }}
+                />
+                {user.tipo_usuario === "super_admin" && (
+                  <ChakraInput
+                    placeholder="ID del Cliente"
+                    inputMode="numeric"
+                    value={clienteId}
+                    onChange={e => setClienteId(e.target.value)}
+                    size="md"
+                    fontSize={{ base: "16px", md: "inherit" }}
+                  />
+                )}
+              </VStack>
+
 
                 <Heading size="xs" mt={6} mb={3}>Disponibilidades</Heading>
                 <Box bg={card.bg} color={card.color} p={{ base: 2, md: 4 }} rounded="md">

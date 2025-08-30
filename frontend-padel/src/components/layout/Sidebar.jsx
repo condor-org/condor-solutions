@@ -62,8 +62,7 @@ const Sidebar = ({ links }) => {
 
   return (
     <Box
-      // Mobile: barra arriba; Desktop: sidebar a la izquierda
-      bg={bg}
+      bg={{ base: "transparent", md: bg }}             // mobile sin fondo
       color={textColor}
       w={{ base: "100%", md: "56" }}
       minH={{ base: "auto", md: "100vh" }}
@@ -72,18 +71,16 @@ const Sidebar = ({ links }) => {
       position={{ base: "static", md: "sticky" }}
       top={{ base: "auto", md: 0 }}
       minW={0}
-      boxShadow={{ base: "sm", md: "none" }}
-      borderRightWidth={{ base: "0", md: "1px" }}
+      boxShadow={{ base: "none", md: "none" }}         // mobile sin sombra
+      borderRightWidth={{ base: 0, md: 1 }}            // mobile sin borde
       borderRightColor={{ base: "transparent", md: borderRight }}
       zIndex={2}
     >
-      {/* Header (siempre visible). En mobile incluye toggle */}
+      {/* Header: título + hamburguesa (desktop igual; mobile con toggle) */}
       <HStack justify="space-between" align="center" mb={{ base: 2, md: 6 }}>
         <Heading size={{ base: "sm", md: "md" }} color={headingColor}>
           Menú Admin
         </Heading>
-
-        {/* Toggle sólo en mobile */}
         <IconButton
           display={{ base: "inline-flex", md: "none" }}
           size="sm"
@@ -95,32 +92,14 @@ const Sidebar = ({ links }) => {
         />
       </HStack>
 
-      {/* Divider sutil en mobile */}
       <Divider display={{ base: "block", md: "none" }} mb={2} />
 
-      {/* Contenido:
-          - Mobile: Collapse vertical con scroll si es largo
-          - Desktop: Lista fija vertical con scroll propio si excede la pantalla */}
+      {/* Desktop: lista fija (sin cambios) */}
       <Box
         overflowY={{ base: "visible", md: "auto" }}
-        maxH={{ base: "none", md: "calc(100vh - 88px)" }} // deja espacio para el header del sidebar
+        maxH={{ base: "none", md: "calc(100vh - 88px)" }}
         pr={{ md: 1 }}
       >
-        {/* Mobile: colapsable */}
-        <Collapse in={isOpen} animateOpacity style={{ overflow: "visible" }}>
-          <VStack
-            spacing={{ base: 3, md: 4 }}
-            align="stretch"
-            display={{ base: "flex", md: "none" }}
-            mt={{ base: 2, md: 0 }}
-          >
-            {links.map((link) => (
-              <Item key={link.path} {...link} />
-            ))}
-          </VStack>
-        </Collapse>
-
-        {/* Desktop: siempre visible */}
         <VStack
           spacing={{ base: 3, md: 4 }}
           align="stretch"
@@ -131,6 +110,20 @@ const Sidebar = ({ links }) => {
           ))}
         </VStack>
       </Box>
+
+      {/* Mobile: menú que se despliega hacia abajo (Collapse) */}
+      <Collapse in={isOpen} animateOpacity style={{ overflow: "visible" }}>
+        <VStack
+          spacing={3}
+          align="stretch"
+          display={{ base: "flex", md: "none" }}
+          mt={{ base: 2, md: 0 }}
+        >
+          {links.map((link) => (
+            <Item key={link.path} {...link} />
+          ))}
+        </VStack>
+      </Collapse>
     </Box>
   );
 };

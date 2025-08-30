@@ -10,7 +10,7 @@ import {
 import { DeleteIcon, EditIcon } from "@chakra-ui/icons";
 import Sidebar from "../../components/layout/Sidebar";
 import Button from "../../components/ui/Button";
-import Input from "../../components/ui/Input";
+import { Input as ChakraInput } from "@chakra-ui/react";
 import PageWrapper from "../../components/layout/PageWrapper";
 import { AuthContext } from "../../auth/AuthContext";
 import { axiosAuth } from "../../utils/axiosAuth";
@@ -286,42 +286,75 @@ const UsuariosPage = () => {
         {/* MODAL crear/editar */}
         <Modal isOpen={isOpen} onClose={() => { onClose(); resetForm(); }} isCentered size={isMobile ? "full" : "md"}>
           <ModalOverlay />
-          <ModalContent bg={modal.bg} color={modal.color}>
+          <ModalContent bg={modal.bg} color={modal.color} sx={{
+              'input, select, textarea': {
+                fontSize: { base: '16px', md: 'inherit' }
+              }
+            }}>
             <ModalHeader>{editingId ? "Editar Usuario" : "Agregar Usuario"}</ModalHeader>
             <ModalCloseButton />
             <ModalBody maxH="70vh" overflowY="auto">
               <form id="usuario-form" onSubmit={handleSubmit}>
-                <VStack spacing={4} align="stretch">
-                  <Input size={{ base: "sm", md: "md" }} label="Nombre" value={nombre} onChange={e => setNombre(e.target.value)} />
-                  <Input size={{ base: "sm", md: "md" }} label="Apellido" value={apellido} onChange={e => setApellido(e.target.value)} />
-                  <Input size={{ base: "sm", md: "md" }} label="Teléfono" value={telefono} onChange={e => setTelefono(e.target.value)} />
-                  <Select
-                    size={{ base: "sm", md: "md" }}
-                    bg={input.bg}
-                    color={input.color}
-                    value={tipoUsuario}
-                    onChange={e => setTipoUsuario(e.target.value)}
-                  >
-                    <option value="admin_cliente">Admin del Cliente</option>
-                    <option value="empleado_cliente">Empleado del Cliente</option>
-                    <option value="usuario_final">Usuario Final</option>
-                  </Select>
-                  <Input size={{ base: "sm", md: "md" }} label="Email" value={email} onChange={e => setEmail(e.target.value)} type="email" />
-                  {!editingId && (
-                    <Input
-                      size={{ base: "sm", md: "md" }}
-                      label="Contraseña"
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      type="password"
-                      autoComplete="new-password"
-                    />
-                  )}
-                  <HStack justify="space-between">
-                    <Text>Activo</Text>
-                    <Switch isChecked={activo} onChange={e => setActivo(e.target.checked)} colorScheme="green" />
-                  </HStack>
-                </VStack>
+              <VStack spacing={4} align="stretch">
+                <ChakraInput
+                  placeholder="Nombre"
+                  value={nombre}
+                  onChange={e => setNombre(e.target.value)}
+                  size="md"
+                  fontSize={{ base: "16px", md: "inherit" }}
+                />
+                <ChakraInput
+                  placeholder="Apellido"
+                  value={apellido}
+                  onChange={e => setApellido(e.target.value)}
+                  size="md"
+                  fontSize={{ base: "16px", md: "inherit" }}
+                />
+                <ChakraInput
+                  placeholder="Teléfono"
+                  inputMode="tel"
+                  value={telefono}
+                  onChange={e => setTelefono(e.target.value)}
+                  size="md"
+                  fontSize={{ base: "16px", md: "inherit" }}
+                />
+                <Select
+                  size="md"
+                  fontSize={{ base: "16px", md: "inherit" }}
+                  bg={input.bg}
+                  color={input.color}
+                  value={tipoUsuario}
+                  onChange={e => setTipoUsuario(e.target.value)}
+                >
+                  <option value="admin_cliente">Admin del Cliente</option>
+                  <option value="empleado_cliente">Empleado del Cliente</option>
+                  <option value="usuario_final">Usuario Final</option>
+                </Select>
+                <ChakraInput
+                  placeholder="Email"
+                  type="email"
+                  inputMode="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  size="md"
+                  fontSize={{ base: "16px", md: "inherit" }}
+                />
+                {!editingId && (
+                  <ChakraInput
+                    placeholder="Contraseña"
+                    type="password"
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    size="md"
+                    fontSize={{ base: "16px", md: "inherit" }}
+                  />
+                )}
+                <HStack justify="space-between">
+                  <Text>Activo</Text>
+                  <Switch isChecked={activo} onChange={e => setActivo(e.target.checked)} colorScheme="green" />
+                </HStack>
+              </VStack>
               </form>
             </ModalBody>
             <ModalFooter>
@@ -374,12 +407,14 @@ const UsuariosPage = () => {
                 <Box mt={4} p={4} bg={card.bg} borderRadius="md" borderWidth="1px">
                   <Text fontWeight="bold" mb={2}>Emitir Bonificación Manual</Text>
                   <VStack spacing={3} align="stretch">
-                    <Input
-                      size={{ base: "sm", md: "md" }}
-                      placeholder="Motivo"
-                      value={motivoBonificacion}
-                      onChange={(e) => setMotivoBonificacion(e.target.value)}
-                    />
+                  <ChakraInput
+                    placeholder="Motivo"
+                    value={motivoBonificacion}
+                    onChange={(e) => setMotivoBonificacion(e.target.value)}
+                    size="md"
+                    fontSize={{ base: "16px", md: "inherit" }}
+                  />
+
                     <Select
                       size={{ base: "sm", md: "md" }}
                       value={tipoTurnoBono}
