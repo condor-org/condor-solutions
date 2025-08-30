@@ -24,15 +24,10 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-<<<<<<< HEAD
-  PLATFORMS: linux/amd64
-  RELEASE_TAG: ${{ github.event.release.tag_name }}
-=======
   # Para release usa el tag del release; para manual usa el input
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.event.release.tag_name }}
   # Para release default amd64; para manual usa el input de choice
   PLATFORMS: ${{ github.event_name == 'workflow_dispatch' && inputs.platforms || 'linux/amd64' }}
->>>>>>> c096b7468a30df5755a6d2bc4f1b351cff99058f
 
 jobs:
   build-and-push:
