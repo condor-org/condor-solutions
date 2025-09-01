@@ -364,8 +364,133 @@ class ComprobanteService:
         """
         Valida comprobante usando datos de ConfiguracionPago o dict recibido
         desde otra app (ej: turnos_padel).
+
+        Reglas:
+        - La fecha se EXTRAE del texto del comprobante.
+        - La validación es estrictamente por DÍA (ignora hora): debe ser igual a timezone.localdate().
         """
+        import re
+        import unicodedata
+        from datetime import datetime
+
         texto = ComprobanteService._extract_text(file_obj)
+
+        # ===== Helpers locales (robustos y autocontenidos) =====
+        _SEP = r"[-/\.]"
+        _WS  = r"(?:\s|\u00A0|\u202F|\u2007|\u200B|\u2060)*"
+
+        _MONTH_ABBR = {
+            "ene": 1, "feb": 2, "mar": 3, "abr": 4, "may": 5, "jun": 6,
+            "jul": 7, "ago": 8, "sep": 9, "set": 9, "oct": 10, "nov": 11, "dic": 12,
+            "jan": 1, "apr": 4, "aug": 8, "oct": 10, "dec": 12,  # EN extras
+        }
+
+        def _month_from_abbr(token: str) -> int | None:
+            if not token:
+                return None
+            return _MONTH_ABBR.get(token.strip().lower()[:3])
+
+        def _normalize_text(s: str) -> str:
+            if not s:
+                return ""
+            s = unicodedata.normalize("NFKC", s)
+            # zero-width / joiners
+            s = s.replace("\u200B", "").replace("\u2060", "")
+            # NBSP variants -> espacio normal
+            s = s.replace("\u00A0", " ").replace("\u202F", " ").replace("\u2007", " ")
+            # slashes/hyphens “raros” -> ASCII
+            s = s.replace("\u2044", "/").replace("\u2215", "/").replace("\uFF0F", "/")
+            s = s.replace("\u2010", "-").replace("\u2011", "-").replace("\u2212", "-")
+            # colapsa espacios horizontales (dejamos \n)
+            s = re.sub(r"[ \t\r\f\v]+", " ", s)
+            return s
+
+        def _extract_fecha_solo_dia(texto_: str):
+            """
+            Devuelve datetime.date o None.
+            Prioridades:
+              1) dd/mm/yyyy (y variantes con -, .)
+              2) yyyy/mm/dd (y variantes)
+              3) '18 de junio de 2025'
+              4) ISO 'YYYY-MM-DD'
+              5) dd/MES_ABREV/yyyy o 'dd MES yyyy' (ES/EN)
+              6) dd/mm/yy (al final, con guardia)
+              7) Fallback con dateutil (si está)
+            """
+            s = _normalize_text(texto_ or "")
+
+            # 1) dd/mm/yyyy, dd-mm-yyyy, dd.mm.yyyy
+            m = re.search(fr"(?<!\d)(\d{{1,2}}){_WS}{_SEP}{_WS}(\d{{1,2}}){_WS}{_SEP}{_WS}(\d{{4}})", s)
+            if m:
+                d, mth, yyyy = map(int, m.groups())
+                try:
+                    return datetime(yyyy, mth, d).date()
+                except ValueError:
+                    pass
+
+            # 2) yyyy/mm/dd, yyyy-mm-dd, yyyy.mm.dd
+            m = re.search(fr"(?<!\d)(\d{{4}}){_WS}{_SEP}{_WS}(\d{{1,2}}){_WS}{_SEP}{_WS}(\d{{1,2}})", s)
+            if m:
+                yyyy, mm, dd = map(int, m.groups())
+                try:
+                    return datetime(yyyy, mm, dd).date()
+                except ValueError:
+                    pass
+
+            # 3) '18 de junio de 2025'
+            m = re.search(r"(?i)(\d{1,2})\s+de\s+([a-záéíóúñ]+)\s+de\s+(\d{4})", s)
+            if m:
+                d, mes_texto, yyyy = m.groups()
+                meses = {
+                    "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+                    "julio": 7, "agosto": 8, "septiembre": 9, "setiembre": 9, "octubre": 10,
+                    "noviembre": 11, "diciembre": 12
+                }
+                mes = meses.get(mes_texto.lower())
+                if mes:
+                    try:
+                        return datetime(int(yyyy), mes, int(d)).date()
+                    except ValueError:
+                        pass
+
+            # 4) ISO 'YYYY-MM-DD'
+            m = re.search(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})", s)
+            if m:
+                yyyy, mm, dd = map(int, m.groups())
+                try:
+                    return datetime(yyyy, mm, dd).date()
+                except ValueError:
+                    pass
+
+            # 5) dd/MES_ABREV/yyyy o "dd MES yyyy" (ES/EN, may/minus)
+            m = re.search(r"(?i)(?<!\d)(\d{1,2})[ /-]([A-Za-z]{3,})[ /-](\d{4})", s)
+            if m:
+                d_str, mon_token, yyyy_str = m.groups()
+                mes = _month_from_abbr(mon_token)
+                if mes:
+                    try:
+                        return datetime(int(yyyy_str), mes, int(d_str)).date()
+                    except ValueError:
+                        pass
+
+            # 6) dd/mm/yy, dd-mm-yy, dd.mm.yy  (al final, con guardia para no “chupar” 2025)
+            m = re.search(fr"(?<!\d)(\d{{1,2}}){_WS}{_SEP}{_WS}(\d{{1,2}}){_WS}{_SEP}{_WS}(\d{{2}})(?!\d)", s)
+            if m:
+                d, mth, yy = map(int, m.groups())
+                try:
+                    return datetime(2000 + yy, mth, d).date()
+                except ValueError:
+                    pass
+
+            # 7) Fallback con dateutil
+            if HAS_DATEUTIL:
+                try:
+                    dt = dateutil.parser.parse(s, fuzzy=True, dayfirst=True)
+                    return dt.date()
+                except Exception:
+                    pass
+            return None
+        # ===== fin helpers =====
 
         # 📌 Obtener valores de config (acepta modelo o dict)
         cbu = getattr(config, "cbu", config.get("cbu"))
@@ -383,10 +508,24 @@ class ComprobanteService:
         if monto is None:
             raise ValidationError("No se pudo extraer el monto del comprobante.")
 
-        # 📌 Extraer fecha
-        fecha_dt = ComprobanteService._extract_fecha(texto)
-        if fecha_dt is None:
-            raise ValidationError("No se pudo extraer la fecha del comprobante.")
+        # 📌 Extraer fecha → comparar SOLO por DÍA con hoy
+        fecha_doc = _extract_fecha_solo_dia(texto)
+        if fecha_doc is None:
+            # fallback al extractor actual y truncar a día
+            fecha_dt_tmp = ComprobanteService._extract_fecha(texto)
+            if not fecha_dt_tmp:
+                raise ValidationError("No se pudo extraer la fecha del comprobante.")
+            fecha_doc = fecha_dt_tmp.date()
+
+        hoy = timezone.localdate()
+        if fecha_doc != hoy:
+            raise ValidationError(
+                f"El comprobante tiene fecha inválida: {fecha_doc}. "
+                f"Debe ser del día de hoy ({hoy})."
+            )
+
+        # Para almacenar/loggear un ISO con tz: 00:00 local del día extraído
+        fecha_dt = timezone.make_aware(datetime(fecha_doc.year, fecha_doc.month, fecha_doc.day, 0, 0, 0))
 
         # 📌 Validar CBU / Alias
         cbu_dest, alias_dest = ComprobanteService._extract_cbu_alias_destinatario(
@@ -401,16 +540,7 @@ class ComprobanteService:
         if monto < monto_esperado:
             raise ValidationError(f"Monto {monto} menor al esperado {monto_esperado}.")
 
-        # 📌 Validar fecha vencida
-        fecha_dt = timezone.make_aware(fecha_dt)
-        minutos_transcurridos = (timezone.now() - fecha_dt).total_seconds() / 60
-        if minutos_transcurridos > tiempo_max:
-            raise ValidationError(
-                f"El comprobante tiene fecha vencida: {fecha_dt}. "
-                f"Máximo permitido: {tiempo_max} min."
-            )
-
-        # 📌 Validar coincidencia CBU/Alias
+        # 📌 Validar coincidencia CBU/Alias (si vienen en config)
         if cbu and cbu_dest != cbu:
             if not (alias and alias_dest == alias):
                 raise ValidationError(f"CBU {cbu_dest} no coincide con el configurado {cbu}.")
@@ -426,135 +556,114 @@ class ComprobanteService:
             "nro_referencia": None
         }
 
-
     @classmethod
     @transaction.atomic
     def upload_comprobante(
         cls,
         turno_id: int,
+        tipo_clase_id: int,   # para derivar alias/CBU/monto desde la sede
         file_obj,
         usuario,
         cliente=None,
         ip_cliente=None,
         user_agent=None,
-        cbu_cvu=None,
-        alias=None,
-        monto=None
     ) -> ComprobantePago:
-
+        # 0) Archivo
         max_mb = 200
         if file_obj.size > max_mb * 1024 * 1024:
             raise ValidationError(f"El archivo supera el tamaño máximo de {max_mb} MB")
-
         allowed_exts = {"pdf", "png", "jpg", "jpeg", "bmp", "webp"}
         ext = file_obj.name.rsplit(".", 1)[-1].lower()
         if ext not in allowed_exts:
             allowed = ", ".join(sorted(allowed_exts))
-            raise ValidationError(
-                f"Extensión no permitida: «{ext}». Solo se permiten: {allowed}"
-            )
+            raise ValidationError(f"Extensión no permitida: «{ext}». Solo se permiten: {allowed}")
 
-        # 🔍 Obtener turno
+        # 1) Turno + permisos
         try:
             turno = Turno.objects.select_related("usuario", "lugar").get(pk=turno_id)
         except Turno.DoesNotExist:
             raise ValidationError("Turno no existe.")
-
         if turno.content_type != ContentType.objects.get_for_model(Prestador):
             raise ValidationError("El turno no está asociado a un prestador válido.")
-
         prestador = turno.recurso
         if prestador.cliente_id != (cliente or usuario.cliente).id:
             raise PermissionDenied("No tenés acceso a este turno.")
-
-        # 🔒 Permisos
         tipo_usuario = getattr(usuario, "tipo_usuario", None)
-        if tipo_usuario == "super_admin":
-            pass
-        elif tipo_usuario == "admin_cliente":
+        if tipo_usuario == "admin_cliente":
             if prestador.cliente_id != usuario.cliente.id:
                 raise PermissionDenied("No tenés permiso para operar sobre este turno.")
-        else:
-            if turno.usuario is not None and turno.usuario != usuario:
+        elif tipo_usuario != "super_admin":
+            if turno.usuario_id is not None and turno.usuario_id != usuario.id:
                 raise PermissionDenied("No tenés permiso para modificar este turno.")
 
-        # 🔄 Verificar comprobante duplicado
+        # 2) Tipo de clase (sede + precio oficial)
+        from apps.turnos_padel.models import TipoClasePadel
+        try:
+            tipo_clase = TipoClasePadel.objects.select_related(
+                "configuracion_sede", "configuracion_sede__sede"
+            ).get(pk=tipo_clase_id)
+        except TipoClasePadel.DoesNotExist:
+            raise ValidationError("Tipo de clase no existe.")
+        sede_tipo = getattr(tipo_clase.configuracion_sede, "sede", None)
+        if turno.lugar_id and sede_tipo and turno.lugar_id != sede_tipo.id:
+            raise ValidationError("El tipo de clase no corresponde a la sede del turno.")
+
+        alias_cfg = getattr(tipo_clase.configuracion_sede, "alias", None)
+        cbu_cfg = getattr(tipo_clase.configuracion_sede, "cbu_cvu", None)
+        monto_oficial = float(getattr(tipo_clase, "precio", 0) or 0)
+
+        # 3) Anti-duplicado por hash
+        file_obj.seek(0)
         checksum = cls._generate_hash(file_obj)
         if ComprobantePago.objects.filter(hash_archivo=checksum).exists():
             raise ValidationError("Comprobante duplicado.")
 
-        # ✅ Configuración
-        if all([cbu_cvu, alias, monto]):
-            logger.debug(
-                "[upload_comprobante] Datos recibidos directamente → CBU: %s, Alias: %s, Monto: %s",
-                cbu_cvu,
-                alias,
-                monto,
-            )
-            config_data = {
-                "cbu": cbu_cvu,
-                "alias": alias,
-                "monto_esperado": monto,
-                "tiempo_maximo_minutos": ANTIGUEDAD_MAXIMA_DE_COMPROBANTE_EN_MINUTOS
-            }
-        else:
-            config = cls._get_configuracion(cliente or usuario.cliente)
-            logger.debug(
-                "[upload_comprobante] Configuración de la sede → CBU: %s, Alias: %s, Monto: %s",
-                config.cbu,
-                config.alias,
-                config.monto_esperado,
-            )
-            config_data = {
-                "cbu": config.cbu,
-                "alias": config.alias,
-                "monto_esperado": config.monto_esperado,
-                "tiempo_maximo_minutos": config.tiempo_maximo_minutos
-            }
-
-        # 🔍 Antes de validar
+        # 4) OCR / validaciones (sin ConfiguracionPago)
+        config_data = {
+            "cbu": cbu_cfg,
+            "alias": alias_cfg,
+            "monto_esperado": monto_oficial,  # referencia autoritativa para el intento
+            "tiempo_maximo_minutos": ANTIGUEDAD_MAXIMA_DE_COMPROBANTE_EN_MINUTOS,
+        }
         logger.debug(
-            "[upload_comprobante] Monto que se pasa a _parse_and_validate: %s",
-            config_data["monto_esperado"],
+            "[upload_comprobante.turno] Validando OCR → CBU:%s | Alias:%s | MontoEsp:%s",
+            cbu_cfg, alias_cfg, monto_oficial
         )
-
         datos = cls._parse_and_validate(file_obj, config_data)
 
-        # 🧾 Asociar comprobante
-        turno.usuario = usuario
-        turno.estado = "reservado"
-        turno.save(update_fields=["usuario", "estado"])
-
+        # 5) Persistir comprobante (NO tocar Turno acá)
         comprobante = ComprobantePago.objects.create(
             turno=turno,
             archivo=file_obj,
             hash_archivo=checksum,
             datos_extraidos=datos,
-            cliente=cliente or usuario.cliente
+            cliente=cliente or usuario.cliente,
         )
 
-        alias_dest = datos.get("alias")
-        cbu_dest = datos.get("cbu_destino")
-
-        # Si falta alias pero tenemos CBU
+        # 6) Crear PagoIntento (pre_aprobado) con datos de sede / OCR
+        alias_dest = datos.get("alias") or alias_cfg
+        cbu_dest = datos.get("cbu_destino") or cbu_cfg
         if not alias_dest and cbu_dest:
             alias_dest = f"Usando CBU/CVU {cbu_dest}"
-
-        # Si falta CBU pero tenemos alias
         if not cbu_dest and alias_dest:
             cbu_dest = f"Usando alias {alias_dest}"
 
-        # 💰 Intento de pago
         PagoIntento.objects.create(
             cliente=comprobante.cliente,
             usuario=usuario,
             estado="pre_aprobado",
-            monto_esperado=datos.get("monto", config_data["monto_esperado"]),
+            monto_esperado=monto_oficial,   # precio oficial, no el OCR
             moneda="ARS",
             alias_destino=alias_dest,
             cbu_destino=cbu_dest,
             origen=comprobante,
-            tiempo_expiracion=timezone.now() + timezone.timedelta(minutes=config_data["tiempo_maximo_minutos"]),
+            tiempo_expiracion=timezone.now() + timezone.timedelta(
+                minutes=ANTIGUEDAD_MAXIMA_DE_COMPROBANTE_EN_MINUTOS
+            ),
         )
 
+        logger.info(
+            "[turno.comprobante][ok] comp_id=%s turno=%s monto=%s alias=%s cbu=%s",
+            comprobante.id, turno.id, monto_oficial, alias_cfg, cbu_cfg
+        )
         return comprobante

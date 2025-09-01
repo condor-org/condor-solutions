@@ -21,23 +21,52 @@ from apps.turnos_core.views import (
 
 
 router = DefaultRouter()
+# CRUD de sedes (lugares), accesibles según cliente
 router.register(r'sedes', LugarViewSet, basename='sedes')
+
+# CRUD de bloqueos de turnos (por prestador/sede)
 router.register(r'bloqueos-turnos', BloqueoTurnosViewSet, basename='bloqueos-turnos')
+
+# CRUD de prestadores (profesores), incluye subrutas para bloqueos
 router.register(r'prestadores', PrestadorViewSet, basename='prestadores')
+
+# CRUD de disponibilidades horarias de los prestadores
 router.register(r'disponibilidades', DisponibilidadViewSet, basename='disponibilidades')
 
 urlpatterns = [
+    # GET → lista turnos visibles para el usuario actual (según rol, filtros estado/upcoming)
     path("", TurnoListView.as_view(), name="turno-list"),
-    path("reservar/", TurnoReservaView.as_view(), name="turno-reserva"),
-    path("disponibles/", TurnosDisponiblesView.as_view(), name="turno-disponibles"),
-    path("generar/", GenerarTurnosView.as_view(), name="generar-turnos"),
-    path("bonificaciones/crear-manual/", CrearBonificacionManualView.as_view(), name="crear-bonificacion-manual"),
-    path("bonificados/mios/", bonificaciones_mias, name="bonificaciones-mias"),
-    path("turnos/bonificados/mios/<int:tipo_clase_id>/", bonificaciones_mias, name="bonificaciones_mias_por_tipo"),
-    path("prestador/mio/", prestador_actual),
-    path("cancelar/", CancelarTurnoView.as_view(), name="cancelar-turno"),
-    path("", include(router.urls)),
-    path("admin/cancelar_por_sede/", CancelarPorSedeAdminView.as_view(), name="cancelar-por-sede"),
-    path("prestadores/<int:prestador_id>/cancelar_en_rango/", CancelarPorPrestadorAdminView.as_view(), name="cancelar-por-prestador"),
 
+    # POST → reservar un turno (con comprobante o usando bonificación)
+    path("reservar/", TurnoReservaView.as_view(), name="turno-reserva"),
+
+    # GET → consultar turnos disponibles/reservados futuros de un prestador en una sede (opcional fecha)
+    path("disponibles/", TurnosDisponiblesView.as_view(), name="turno-disponibles"),
+
+    # POST → generar slots de turnos automáticamente a partir de disponibilidades
+    path("generar/", GenerarTurnosView.as_view(), name="generar-turnos"),
+
+    # POST → admins crean manualmente una bonificación (voucher) para un usuario
+    path("bonificaciones/crear-manual/", CrearBonificacionManualView.as_view(), name="crear-bonificacion-manual"),
+
+    # GET → bonificaciones vigentes del usuario actual
+    path("bonificados/mios/", bonificaciones_mias, name="bonificaciones-mias"),
+
+    # GET → bonificaciones vigentes filtradas por tipo de clase (x1..x4)
+    path("turnos/bonificados/mios/<int:tipo_clase_id>/", bonificaciones_mias, name="bonificaciones_mias_por_tipo"),
+
+    # GET → devuelve el prestador asociado al usuario logueado (si existe)
+    path("prestador/mio/", prestador_actual),
+
+    # POST → cancelar un turno propio (si cumple política de cancelación)
+    path("cancelar/", CancelarTurnoView.as_view(), name="cancelar-turno"),
+
+    # Incluye todas las rutas de los ViewSets (sedes, bloqueos, prestadores, disponibilidades)
+    path("", include(router.urls)),
+
+    # POST → admins cancelan en masa turnos de una sede en un rango de fechas/horas
+    path("admin/cancelar_por_sede/", CancelarPorSedeAdminView.as_view(), name="cancelar-por-sede"),
+
+    # POST → admins cancelan en masa turnos de un prestador (opcional filtrar por sede y rango horario)
+    path("prestadores/<int:prestador_id>/cancelar_en_rango/", CancelarPorPrestadorAdminView.as_view(), name="cancelar-por-prestador"),
 ]
