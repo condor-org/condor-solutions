@@ -16,6 +16,7 @@ import {
   Stack,
   Skeleton,
   useToast,
+  SimpleGrid,
 } from "@chakra-ui/react";
 import { FaCalendarPlus, FaListUl, FaIdCard, FaClock, FaGift } from "react-icons/fa";
 import { useBodyBg, useCardColors, useMutedText } from "../../components/theme/tokens";
@@ -241,29 +242,77 @@ const JugadorDashboard = () => {
 
       <Divider my={4} />
 
-      {/* ÚNICO lugar de acciones */}
-      <HStack spacing={3} wrap="wrap">
-        <Button onClick={() => quickTo("reservar")} variant="primary">
-          <HStack><Icon as={FaCalendarPlus} /><Text>Reservar turno</Text></HStack>
+      {/* Acciones */}
+      <SimpleGrid columns={{ base: 2, sm: 2, md: 4 }} spacing={3} mt={2}>
+        <Button
+          onClick={() => quickTo("reservar")}
+          variant="primary"
+          w="100%"
+          size={{ base: "sm", md: "md" }}
+          py={{ base: 5, md: 0 }}
+        >
+          <HStack w="100%" justify="center">
+            <Icon as={FaCalendarPlus} />
+            <Text>Reservar turno</Text>
+          </HStack>
         </Button>
-        <Button onClick={() => quickTo("mis")} variant="secondary">
-          <HStack><Icon as={FaListUl} /><Text>Mis reservas</Text></HStack>
+
+        <Button
+          onClick={() => quickTo("mis")}
+          variant="secondary"
+          w="100%"
+          size={{ base: "sm", md: "md" }}
+          py={{ base: 5, md: 0 }}
+        >
+          <HStack w="100%" justify="center">
+            <Icon as={FaListUl} />
+            <Text>Mis reservas</Text>
+          </HStack>
         </Button>
-        <Button onClick={() => quickTo("abono")} variant="secondary">
-          <HStack><Icon as={FaIdCard} /><Text>Reservar abono</Text></HStack>
+
+        <Button
+          onClick={() => quickTo("abono")}
+          variant="secondary"
+          w="100%"
+          size={{ base: "sm", md: "md" }}
+          py={{ base: 5, md: 0 }}
+        >
+          <HStack w="100%" justify="center">
+            <Icon as={FaIdCard} />
+            <Text>Reservar abono</Text>
+          </HStack>
         </Button>
-        <Button onClick={() => quickTo("bonis")} variant="secondary">
-          <HStack><Icon as={FaGift} /><Text>Bonificaciones</Text></HStack>
+
+        <Button
+          onClick={() => quickTo("bonis")}
+          variant="secondary"
+          w="100%"
+          size={{ base: "sm", md: "md" }}
+          py={{ base: 5, md: 0 }}
+        >
+          <HStack w="100%" justify="center">
+            <Icon as={FaGift} />
+            <Text>Bonificaciones</Text>
+          </HStack>
         </Button>
-      </HStack>
+      </SimpleGrid>
+
     </Box>
   );
 
   return (
     <Box minH="100vh" bg={bg} color={card.color}>
       <Box maxW="5xl" mx="auto" px={4} py={8}>
-        <Heading as="h2" size="xl" mb={6}>
-          Bienvenido, {user?.email}
+       <Heading
+          as="h2"
+          size={{ base: "lg", md: "xl" }}
+          mb={{ base: 4, md: 6 }}
+          lineHeight="1.2"
+        >
+          Bienvenido,
+          <Box as="span" display="block" fontWeight="semibold">
+            {user?.email}
+          </Box>
         </Heading>
 
         <ProximoTurnoCard />

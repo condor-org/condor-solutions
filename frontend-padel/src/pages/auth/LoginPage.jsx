@@ -67,14 +67,14 @@ const LoginPage = () => {
           Ingresar
         </Button>
 
-        <Button
+        {/* <Button
           variant="outline"
           width="full"
           mt={2}
           onClick={() => navigate("/registro")}
         >
           Registrarse
-        </Button>
+        </Button> */}
 
         {error && (
           <Text color="red.400" fontSize="sm" mt={3} textAlign="center">

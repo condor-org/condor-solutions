@@ -17,7 +17,7 @@ TYPE_RESERVA_TURNO = "RESERVA_TURNO"
 TYPE_RESERVA_ABONO = "RESERVA_ABONO"
 TYPE_CANCELACION_TURNO = "CANCELACION_TURNO"
 TYPE_ABONO_RENOVADO = "ABONO_RENOVADO"
-
+TYPE_BONIFICACION_CREADA = "BONIFICACION_CREADA"
 
 
 def _json_safe(obj):
@@ -51,6 +51,35 @@ def _render_inapp_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
     Render mínimo sin plantillas (MVP). Devuelve (title, body, deeplink_path).
     ctx debe traer lo necesario según notif_type.
     """
+    if notif_type == TYPE_BONIFICACION_CREADA:
+        # Contexto esperado (flexible): 
+        #   bonificacion_id, tipo_turno (x1/x2/x3/x4 o alias), motivo, valido_hasta,
+        #   turno_id (opcional si proviene de cancelación), fecha, hora, sede_nombre.
+        tipo = ctx.get("tipo_turno") or ctx.get("tipo") or ""
+        motivo = ctx.get("motivo")
+        vence = ctx.get("valido_hasta")
+        fecha = ctx.get("fecha")
+        hora = ctx.get("hora")
+        sede = ctx.get("sede_nombre")
+
+        title = "Nueva bonificación disponible"
+
+        partes = []
+        if tipo:
+            partes.append(f"tipo {tipo}")
+        if sede:
+            partes.append(f"para {sede}")
+        if fecha and hora:
+            partes.append(f"(origen: {fecha} {hora})")
+        if motivo:
+            partes.append(f"— {motivo}")
+        if vence:
+            partes.append(f"• vence {vence}")
+
+        body = " ".join(partes) if partes else "Podés usarla para reservar tu próximo turno."
+        # Para usuarios finales, link directo a sus bonificaciones
+        return title, body, "/bonificaciones"
+
     if notif_type == TYPE_CANCELACIONES_TURNOS:
         n = ctx.get("n_cancelados", 1)
         sede = ctx.get("sede_nombre") or "la sede"

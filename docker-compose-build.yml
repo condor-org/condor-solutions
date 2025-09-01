@@ -1,0 +1,30 @@
+version: '3.9'
+
+services:
+  backend:
+    image: condor-backend:local
+    build:
+      context: ./backend
+      dockerfile: docker/Dockerfile
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    image: condor-frontend:local
+    build:
+      context: ./frontend-padel
+      dockerfile: docker/Dockerfile
+      args:
+        REACT_ENV: development
+    # si querés mapear código en caliente:
+    # volumes:
+    #   - ./frontend-padel:/app
+
+  cron:
+    image: condor-cron:local
+    build:
+      context: ./backend
+      dockerfile: docker/Dockerfile.cron
+    volumes:
+      - ./backend:/app
+      - /etc/localtime:/etc/localtime:ro

@@ -18,7 +18,9 @@ import {
   FormErrorMessage,
   Select,
   Alert,
-  AlertIcon
+  AlertIcon,
+  SimpleGrid,
+  Stack
 } from "@chakra-ui/react";
 import { axiosAuth } from "../../utils/axiosAuth";
 import { AuthContext } from "../../auth/AuthContext";
@@ -46,7 +48,6 @@ const CLASE_OPCIONES = [
 ];
 
 const SedesPage = () => {
-  
   const { accessToken } = useContext(AuthContext);
 
   const [sedes, setSedes] = useState([]);
@@ -62,7 +63,7 @@ const SedesPage = () => {
   const mutedText = useMutedText();
   const isMobile = useBreakpointValue({ base: true, md: false });
 
-  // 🔹 Cargar sedes
+  // Cargar sedes
   useEffect(() => {
     if (!accessToken) return;
     const api = axiosAuth(accessToken);
@@ -102,7 +103,7 @@ const SedesPage = () => {
 
       const conf = sede.configuracion_padel || {};
 
-      // Tipos de Clase: normalizo y agrego nombre legible desde el código
+      // Tipos de Clase
       const tiposClase = (conf.tipos_clase || []).map(t => ({
         ...(t.id ? { id: t.id } : {}),
         codigo: t.codigo,
@@ -111,7 +112,7 @@ const SedesPage = () => {
         activo: !!t.activo,
       }));
 
-      // Tipos de Abono: normalizo y agrego nombre legible desde el código
+      // Tipos de Abono
       const tiposAbono = (conf.tipos_abono || []).map(t => ({
         ...(t.id ? { id: t.id } : {}),
         codigo: t.codigo,
@@ -126,9 +127,6 @@ const SedesPage = () => {
         tiposClase,
         tiposAbono,
       });
-
-
-      
     } catch {
       toast.error("Error al cargar datos de sede");
     }
@@ -137,26 +135,24 @@ const SedesPage = () => {
   const validate = () => {
     let valid = true;
     const newErrors = { alias: "", cbu: "", tiposClase: {}, tiposAbono: {} };
-  
+
     if (!config.alias.trim()) { newErrors.alias = "El alias es obligatorio"; valid = false; }
     if (!/^\d{22}$/.test(config.cbu)) { newErrors.cbu = "El CBU debe tener 22 dígitos"; valid = false; }
-  
-    // Tipos de Clase
+
     (config.tiposClase || []).forEach((t, idx) => {
       const inval = !t?.codigo || t?.precio === "" || isNaN(Number(t?.precio));
       if (inval) { newErrors.tiposClase[idx] = "Datos inválidos"; valid = false; }
     });
-  
-    // Tipos de Abono
+
     (config.tiposAbono || []).forEach((t, idx) => {
       const inval = !t?.codigo || t?.precio === "" || isNaN(Number(t?.precio));
       if (inval) { newErrors.tiposAbono[idx] = "Datos inválidos"; valid = false; }
     });
-  
+
     setErrors(newErrors);
     return valid;
   };
-  
+
   const handleAddTipoClase = () => {
     setConfig(prev => ({
       ...prev,
@@ -178,7 +174,7 @@ const SedesPage = () => {
       toast.error("Corrige los errores antes de guardar");
       return;
     }
-  
+
     const payload = {
       ...form,
       configuracion_padel: {
@@ -198,8 +194,7 @@ const SedesPage = () => {
         })),
       }
     };
-    
-  
+
     const api = axiosAuth(accessToken);
     try {
       if (editingId) {
@@ -209,11 +204,10 @@ const SedesPage = () => {
         await api.post("padel/sedes/", payload);
         toast.success("Sede creada");
       }
-  
+
       resetForm();
       const res = await api.get("padel/sedes/");
       setSedes(res.data.results || res.data);
-  
     } catch (error) {
       console.error("[handleSubmit][Error]", error);
       toast.error("Error al guardar sede");
@@ -245,96 +239,172 @@ const SedesPage = () => {
           { label: "Pagos Preaprobados", path: "/admin/pagos-preaprobados" },
         ]}
       />
-      <Box flex="1" p={8} bg={bg} color={cardColors.color}>
-        <Heading size="md" mb={4}>Sedes</Heading>
 
-        <Flex justify="flex-end" mb={6}>
-          <Button onClick={handleNew} size={isMobile ? "md" : "lg"}>
+      <Box flex="1" p={{ base: 4, md: 8 }} bg={bg} color={cardColors.color}>
+        <Stack
+          direction={{ base: "column", md: "row" }}
+          justify="space-between"
+          align={{ base: "stretch", md: "center" }}
+          mb={{ base: 4, md: 6 }}
+          spacing={{ base: 3, md: 4 }}
+        >
+          <Heading size="md">Sedes</Heading>
+          <Button onClick={handleNew} w={{ base: "100%", md: "auto" }}>
             Crear nueva sede
           </Button>
-        </Flex>
+        </Stack>
 
         {showForm && (
-          <Box as="form" onSubmit={handleSubmit} bg={cardColors.bg} p={4} rounded="md" mb={6}>
-            <Input placeholder="Nombre" value={form.nombre} onChange={(e) => setForm(prev => ({ ...prev, nombre: e.target.value }))} required mb={4} />
-            <Input placeholder="Dirección" value={form.direccion} onChange={(e) => setForm(prev => ({ ...prev, direccion: e.target.value }))} mb={4} />
-            <Input placeholder="Referente" value={form.referente} onChange={(e) => setForm(prev => ({ ...prev, referente: e.target.value }))} mb={4} />
-            <Input placeholder="Teléfono" value={form.telefono} onChange={(e) => setForm(prev => ({ ...prev, telefono: e.target.value }))} mb={4} />
-
-            <Divider my={4} />
-            <Heading size="sm" mb={2}>Configuración de Pago</Heading>
-            <FormControl isInvalid={!!errors.alias} mb={3}>
-              <FormLabel>Alias</FormLabel>
-              <Input value={config.alias} onChange={(e) => setConfig(prev => ({ ...prev, alias: e.target.value }))} />
-              {errors.alias && <FormErrorMessage>{errors.alias}</FormErrorMessage>}
-            </FormControl>
-            <FormControl isInvalid={!!errors.cbu} mb={3}>
-              <FormLabel>CBU</FormLabel>
-              <Input value={config.cbu} onChange={(e) => setConfig(prev => ({ ...prev, cbu: e.target.value }))} />
-              {errors.cbu && <FormErrorMessage>{errors.cbu}</FormErrorMessage>}
-            </FormControl>
-
-            <Heading size="sm" mt={4} mb={2}>Tipos de Clase</Heading>
-            {config.tiposClase.map((tipo, idx) => (
-              <FormControl key={idx} isInvalid={!!errors.tiposClase[idx]} mb={2}>
-                <Flex gap={2} wrap="wrap">
-                  <Select
-                    value={tipo.codigo || ""}
-                    flex="2"
-                    placeholder="Seleccionar tipo de clase"
-                    onChange={(e) => {
-                      const codigo = e.target.value;
-                      const opcion = CLASE_OPCIONES.find(o => o.codigo === codigo);
-                      setConfig(prev => {
-                        const arr = [...prev.tiposClase];
-                        arr[idx] = { ...arr[idx], codigo, nombre: opcion?.nombre || "" };
-                        return { ...prev, tiposClase: arr };
-                      });
-                    }}
-                  >
-                    {CLASE_OPCIONES.map(op => (
-                      <option key={op.codigo} value={op.codigo}>{op.nombre}</option>
-                    ))}
-                  </Select>
-
-                  <Input
-                    type="number"
-                    value={tipo.precio}
-                    flex="1"
-                    placeholder="Precio"
-                    onChange={(e) => {
-                      const precio = e.target.value;
-                      setConfig(prev => {
-                        const arr = [...prev.tiposClase];
-                        arr[idx] = { ...arr[idx], precio };
-                        return { ...prev, tiposClase: arr };
-                      });
-                    }}
-                  />
-
-                  <IconButton
-                    icon={<DeleteIcon />}
-                    aria-label="Eliminar tipo"
-                    colorScheme="red"
-                    size="sm"
-                    onClick={() => handleRemoveTipoClase(idx)}
-                  />
-                </Flex>
-                {errors.tiposClase[idx] && <FormErrorMessage>{errors.tiposClase[idx]}</FormErrorMessage>}
+          <Box
+            as="form"
+            onSubmit={handleSubmit}
+            bg={cardColors.bg}
+            p={{ base: 4, md: 6 }}
+            rounded="xl"
+            boxShadow="2xl"
+            borderWidth="1px"
+            mb={{ base: 6, md: 8 }}
+          >
+            {/* Datos básicos */}
+            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+              <FormControl isRequired>
+                <FormLabel>Nombre</FormLabel>
+                <Input
+                  placeholder="Nombre"
+                  value={form.nombre}
+                  onChange={(e) => setForm(prev => ({ ...prev, nombre: e.target.value }))}
+                  size={{ base: "sm", md: "md" }}
+                />
               </FormControl>
-            ))}
 
-            <Button leftIcon={<AddIcon />} onClick={() => {
-              setConfig(prev => ({
-                ...prev,
-                tiposClase: [...prev.tiposClase, { codigo: "", nombre: "", precio: 0, activo: true }]
-              }));
-            }} size="sm" mt={2}>
-              Agregar Tipo de Clase
-            </Button>
+              <FormControl>
+                <FormLabel>Dirección</FormLabel>
+                <Input
+                  placeholder="Dirección"
+                  value={form.direccion}
+                  onChange={(e) => setForm(prev => ({ ...prev, direccion: e.target.value }))}
+                  size={{ base: "sm", md: "md" }}
+                />
+              </FormControl>
 
+              <FormControl>
+                <FormLabel>Referente</FormLabel>
+                <Input
+                  placeholder="Referente"
+                  value={form.referente}
+                  onChange={(e) => setForm(prev => ({ ...prev, referente: e.target.value }))}
+                  size={{ base: "sm", md: "md" }}
+                />
+              </FormControl>
 
-            <Heading size="sm" mt={6} mb={2}>Tipos de Abono</Heading>
+              <FormControl>
+                <FormLabel>Teléfono</FormLabel>
+                <Input
+                  placeholder="Teléfono"
+                  value={form.telefono}
+                  onChange={(e) => setForm(prev => ({ ...prev, telefono: e.target.value }))}
+                  size={{ base: "sm", md: "md" }}
+                />
+              </FormControl>
+            </SimpleGrid>
+
+            <Divider my={{ base: 4, md: 6 }} />
+
+            {/* Configuración de Pago */}
+            <Heading size="sm" mb={2}>Configuración de Pago</Heading>
+            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+              <FormControl isInvalid={!!errors.alias}>
+                <FormLabel>Alias</FormLabel>
+                <Input
+                  value={config.alias}
+                  onChange={(e) => setConfig(prev => ({ ...prev, alias: e.target.value }))}
+                  size={{ base: "sm", md: "md" }}
+                />
+                {errors.alias && <FormErrorMessage>{errors.alias}</FormErrorMessage>}
+              </FormControl>
+
+              <FormControl isInvalid={!!errors.cbu}>
+                <FormLabel>CBU</FormLabel>
+                <Input
+                  value={config.cbu}
+                  onChange={(e) => setConfig(prev => ({ ...prev, cbu: e.target.value }))}
+                  size={{ base: "sm", md: "md" }}
+                />
+                {errors.cbu && <FormErrorMessage>{errors.cbu}</FormErrorMessage>}
+              </FormControl>
+            </SimpleGrid>
+
+            {/* Tipos de Clase */}
+            <Heading size="sm" mt={{ base: 4, md: 6 }} mb={2}>Tipos de Clase</Heading>
+            <VStack align="stretch" spacing={2}>
+              {config.tiposClase.map((tipo, idx) => (
+                <FormControl key={idx} isInvalid={!!errors.tiposClase[idx]}>
+                  <Flex gap={2} wrap="wrap">
+                    <Select
+                      value={tipo.codigo || ""}
+                      flex={{ base: "100%", md: "2" }}
+                      placeholder="Seleccionar tipo de clase"
+                      onChange={(e) => {
+                        const codigo = e.target.value;
+                        const opcion = CLASE_OPCIONES.find(o => o.codigo === codigo);
+                        setConfig(prev => {
+                          const arr = [...prev.tiposClase];
+                          arr[idx] = { ...arr[idx], codigo, nombre: opcion?.nombre || "" };
+                          return { ...prev, tiposClase: arr };
+                        });
+                      }}
+                      size={{ base: "sm", md: "md" }}
+                    >
+                      {CLASE_OPCIONES.map(op => (
+                        <option key={op.codigo} value={op.codigo}>{op.nombre}</option>
+                      ))}
+                    </Select>
+
+                    <Input
+                      type="number"
+                      value={tipo.precio}
+                      flex={{ base: "100%", md: "1" }}
+                      placeholder="Precio"
+                      onChange={(e) => {
+                        const precio = e.target.value;
+                        setConfig(prev => {
+                          const arr = [...prev.tiposClase];
+                          arr[idx] = { ...arr[idx], precio };
+                          return { ...prev, tiposClase: arr };
+                        });
+                      }}
+                      size={{ base: "sm", md: "md" }}
+                    />
+
+                    <IconButton
+                      icon={<DeleteIcon />}
+                      aria-label="Eliminar tipo"
+                      colorScheme="red"
+                      size="sm"
+                      onClick={() => handleRemoveTipoClase(idx)}
+                    />
+                  </Flex>
+                  {errors.tiposClase[idx] && <FormErrorMessage>{errors.tiposClase[idx]}</FormErrorMessage>}
+                </FormControl>
+              ))}
+
+              <Button
+                leftIcon={<AddIcon />}
+                onClick={() => {
+                  setConfig(prev => ({
+                    ...prev,
+                    tiposClase: [...prev.tiposClase, { codigo: "", nombre: "", precio: 0, activo: true }]
+                  }));
+                }}
+                size="sm"
+                w={{ base: "100%", md: "auto" }}
+              >
+                Agregar Tipo de Clase
+              </Button>
+            </VStack>
+
+            {/* Tipos de Abono */}
+            <Heading size="sm" mt={{ base: 4, md: 6 }} mb={2}>Tipos de Abono</Heading>
 
             {(config.tiposAbono?.length ?? 0) === 0 && (
               <Alert status="warning" mb={3} rounded="md">
@@ -343,109 +413,147 @@ const SedesPage = () => {
               </Alert>
             )}
 
-            {config.tiposAbono.map((tipo, idx) => (
-              <FormControl key={idx} isInvalid={!!errors.tiposAbono[idx]} mb={2}>
-                <Flex gap={2} wrap="wrap">
-                <Select
-                  value={tipo.codigo || ""}
-                  flex="2"
-                  placeholder="Seleccionar tipo de abono"
-                  onChange={(e) => {
-                    const codigo = e.target.value;
-                    const opcion = ABONO_OPCIONES.find(o => o.codigo === codigo);
-                    setConfig(prev => {
-                      const arr = [...prev.tiposAbono];
-                      arr[idx] = {
-                        ...arr[idx],
-                        codigo,
-                        nombre: opcion?.nombre || "",
-                      };
-                      return { ...prev, tiposAbono: arr };
-                    });
-                  }}
-                >
-                  {ABONO_OPCIONES.map(op => (
-                    <option key={op.codigo} value={op.codigo}>
-                      {op.nombre}
-                    </option>
-                  ))}
-                </Select>
+            <VStack align="stretch" spacing={2}>
+              {config.tiposAbono.map((tipo, idx) => (
+                <FormControl key={idx} isInvalid={!!errors.tiposAbono[idx]}>
+                  <Flex gap={2} wrap="wrap">
+                    <Select
+                      value={tipo.codigo || ""}
+                      flex={{ base: "100%", md: "2" }}
+                      placeholder="Seleccionar tipo de abono"
+                      onChange={(e) => {
+                        const codigo = e.target.value;
+                        const opcion = ABONO_OPCIONES.find(o => o.codigo === codigo);
+                        setConfig(prev => {
+                          const arr = [...prev.tiposAbono];
+                          arr[idx] = { ...arr[idx], codigo, nombre: opcion?.nombre || "" };
+                          return { ...prev, tiposAbono: arr };
+                        });
+                      }}
+                      size={{ base: "sm", md: "md" }}
+                    >
+                      {ABONO_OPCIONES.map(op => (
+                        <option key={op.codigo} value={op.codigo}>
+                          {op.nombre}
+                        </option>
+                      ))}
+                    </Select>
 
-                  <Input
-                    type="number"
-                    value={tipo.precio}
-                    flex="1"
-                    placeholder="Precio mensual del abono"
-                    onChange={(e) => {
-                      const precio = e.target.value;
-                      setConfig(prev => {
-                        const arr = [...prev.tiposAbono];
-                        arr[idx] = { ...arr[idx], precio };
-                        return { ...prev, tiposAbono: arr };
-                      });
-                    }}
-                  />
-                  <Select
-                    value={tipo.activo ? "1" : "0"}
-                    flex="1"
-                    onChange={(e) => {
-                      const activo = e.target.value === "1";
-                      setConfig(prev => {
-                        const arr = [...prev.tiposAbono];
-                        arr[idx] = { ...arr[idx], activo };
-                        return { ...prev, tiposAbono: arr };
-                      });
-                    }}
-                  >
-                    <option value="1">Activo</option>
-                    <option value="0">Inactivo</option>
-                  </Select>
-                  <IconButton
-                    icon={<DeleteIcon />}
-                    aria-label="Eliminar tipo"
-                    colorScheme="red"
-                    size="sm"
-                    onClick={() => {
-                      setConfig(prev => {
-                        const arr = [...prev.tiposAbono];
-                        arr.splice(idx, 1);
-                        return { ...prev, tiposAbono: arr };
-                      });
-                    }}
-                  />
-                </Flex>
-                {errors.tiposAbono[idx] && <FormErrorMessage>{errors.tiposAbono[idx]}</FormErrorMessage>}
-              </FormControl>
-            ))}
+                    <Input
+                      type="number"
+                      value={tipo.precio}
+                      flex={{ base: "100%", md: "1" }}
+                      placeholder="Precio mensual del abono"
+                      onChange={(e) => {
+                        const precio = e.target.value;
+                        setConfig(prev => {
+                          const arr = [...prev.tiposAbono];
+                          arr[idx] = { ...arr[idx], precio };
+                          return { ...prev, tiposAbono: arr };
+                        });
+                      }}
+                      size={{ base: "sm", md: "md" }}
+                    />
 
-            <Button leftIcon={<AddIcon />} onClick={() => {
-              setConfig(prev => ({
-                ...prev,
-                tiposAbono: [...prev.tiposAbono, { codigo: "", nombre: "", precio: 0, activo: true }]
-              }));
-            }} size="sm" mt={2}>
-              Agregar Tipo de Abono
-            </Button>
+                    <Select
+                      value={tipo.activo ? "1" : "0"}
+                      flex={{ base: "100%", md: "1" }}
+                      onChange={(e) => {
+                        const activo = e.target.value === "1";
+                        setConfig(prev => {
+                          const arr = [...prev.tiposAbono];
+                          arr[idx] = { ...arr[idx], activo };
+                          return { ...prev, tiposAbono: arr };
+                        });
+                      }}
+                      size={{ base: "sm", md: "md" }}
+                    >
+                      <option value="1">Activo</option>
+                      <option value="0">Inactivo</option>
+                    </Select>
 
-            <Flex gap={4} mt={4}>
-              <Button type="submit" colorScheme="green">{editingId ? "Actualizar" : "Crear"}</Button>
-              <Button onClick={resetForm}>Cancelar</Button>
-            </Flex>
+                    <IconButton
+                      icon={<DeleteIcon />}
+                      aria-label="Eliminar tipo"
+                      colorScheme="red"
+                      size="sm"
+                      onClick={() => {
+                        setConfig(prev => {
+                          const arr = [...prev.tiposAbono];
+                          arr.splice(idx, 1);
+                          return { ...prev, tiposAbono: arr };
+                        });
+                      }}
+                    />
+                  </Flex>
+                  {errors.tiposAbono[idx] && <FormErrorMessage>{errors.tiposAbono[idx]}</FormErrorMessage>}
+                </FormControl>
+              ))}
+
+              <Button
+                leftIcon={<AddIcon />}
+                onClick={() => {
+                  setConfig(prev => ({
+                    ...prev,
+                    tiposAbono: [...prev.tiposAbono, { codigo: "", nombre: "", precio: 0, activo: true }]
+                  }));
+                }}
+                size="sm"
+                w={{ base: "100%", md: "auto" }}
+              >
+                Agregar Tipo de Abono
+              </Button>
+            </VStack>
+
+            {/* Acciones del formulario */}
+            <Stack direction={{ base: "column", md: "row" }} spacing={3} mt={{ base: 4, md: 6 }}>
+              <Button type="submit" colorScheme="green" w={{ base: "100%", md: "auto" }}>
+                {editingId ? "Actualizar" : "Crear"}
+              </Button>
+              <Button onClick={resetForm} w={{ base: "100%", md: "auto" }}>
+                Cancelar
+              </Button>
+            </Stack>
           </Box>
         )}
 
+        {/* Listado de sedes */}
         <VStack spacing={4} align="stretch">
           {sedes.map(sede => (
-            <Flex key={sede.id} bg={cardColors.bg} p={4} rounded="md" justify="space-between" align="center">
+            <Flex
+              key={sede.id}
+              bg={cardColors.bg}
+              p={{ base: 3, md: 4 }}
+              rounded="md"
+              borderWidth="1px"
+              boxShadow="md"
+              justify="space-between"
+              align={{ base: "stretch", md: "center" }}
+              direction={{ base: "column", md: "row" }}
+              gap={{ base: 3, md: 2 }}
+            >
               <Box>
                 <Text fontWeight="bold">{sede.nombre}</Text>
                 <Text fontSize="sm" color={mutedText}>{sede.direccion}</Text>
                 <Text fontSize="sm" color={mutedText}>{sede.referente}</Text>
                 <Text fontSize="sm" color={mutedText}>{sede.telefono}</Text>
               </Box>
-              <Flex gap={2}>
-                <IconButton icon={<EditIcon />} aria-label="Editar sede" onClick={() => handleEdit(sede.id)} size="sm" colorScheme="blue" />
-                <IconButton icon={<DeleteIcon />} aria-label="Eliminar sede" onClick={() => handleDelete(sede.id)} size="sm" colorScheme="red" />
+
+              <Flex gap={2} align="center">
+                <IconButton
+                  icon={<EditIcon />}
+                  aria-label="Editar sede"
+                  onClick={() => handleEdit(sede.id)}
+                  size="sm"
+                  colorScheme="blue"
+                />
+                <IconButton
+                  icon={<DeleteIcon />}
+                  aria-label="Eliminar sede"
+                  onClick={() => handleDelete(sede.id)}
+                  size="sm"
+                  colorScheme="red"
+                />
               </Flex>
             </Flex>
           ))}

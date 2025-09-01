@@ -5,6 +5,13 @@ from django.utils import timezone
 from django.db import models, transaction
 from apps.turnos_core.models import TurnoBonificado, Turno
 import logging
+from apps.notificaciones_core.services import (
+    publish_event,
+    notify_inapp,
+)
+
+TYPE_BONIFICACION_CREADA = "BONIFICACION_CREADA"
+
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +38,33 @@ def emitir_bonificacion_automatica(usuario, turno_original, motivo="Cancelación
         tipo_turno=turno_original.tipo_turno,  # << clave
     )
     logger.info(f"[BONIFICACION][auto] user={usuario.id} turno={turno_original.id} tipo={turno_original.tipo_turno}")
+    try:
+        ev = publish_event(
+            topic="bonificaciones.automatica",
+            actor=usuario,
+            cliente_id=getattr(usuario, "cliente_id", None),
+            metadata={
+                "bonificacion_id": bono.id,
+                "turno_original": turno_original.id,
+                "tipo_turno": str(turno_original.tipo_turno),
+                "motivo": motivo,
+            },
+        )
+        notify_inapp(
+            event=ev,
+            recipients=[usuario],
+            notif_type=TYPE_BONIFICACION_CREADA,
+            severity="info",
+            context_by_user={
+                usuario.id: {
+                    "bonificacion_id": bono.id,
+                    "tipo_turno": str(turno_original.tipo_turno),
+                }
+            },
+        )
+        logger.info("[notif][bonif.auto] user=%s bono=%s", usuario.id, bono.id)
+    except Exception:
+        logger.exception("[notif][bonif.auto][fail] bono=%s", bono.id)
     return bono
 
 
@@ -51,6 +85,32 @@ def emitir_bonificacion_manual(admin_user, usuario, motivo="Bonificación manual
         tipo_turno=tipo_turno,  # << clave
     )
     logger.info(f"[BONIFICACION][manual] admin={admin_user.id} user={usuario.id} tipo={tipo_turno}")
+    try:
+        ev = publish_event(
+            topic="bonificaciones.manual",
+            actor=admin_user,
+            cliente_id=getattr(usuario, "cliente_id", None),
+            metadata={
+                "bonificacion_id": bono.id,
+                "tipo_turno": str(tipo_turno),
+                "motivo": motivo,
+            },
+        )
+        notify_inapp(
+            event=ev,
+            recipients=[usuario],
+            notif_type=TYPE_BONIFICACION_CREADA,
+            severity="info",
+            context_by_user={
+                usuario.id: {
+                    "bonificacion_id": bono.id,
+                    "tipo_turno": str(tipo_turno),
+                }
+            },
+        )
+        logger.info("[notif][bonif.manual] user=%s bono=%s", usuario.id, bono.id)
+    except Exception:
+        logger.exception("[notif][bonif.manual][fail] bono=%s", bono.id)
     return bono
 
 

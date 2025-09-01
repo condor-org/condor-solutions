@@ -20,24 +20,27 @@ const SummaryCard = ({
   return (
     <Box
       bg={bg || defaultBg}
+      // padding y sombras adaptadas
       p={{ base: 4, md: 6 }}
       rounded="md"
       textAlign="center"
-      boxShadow="2xl"
+      boxShadow={{ base: 'md', md: '2xl' }}
       color={color || defaultColor}
-      maxW={maxW}
-      minW={minW}
-      mx="auto"
+      // ancho fluido en mobile, límites a partir de sm
+      w={{ base: '100%', sm: 'auto' }}
+      maxW={{ base: '100%', sm: maxW }}
+      minW={{ base: '0', sm: minW }}
+      mx={{ base: 0, sm: 'auto' }}
     >
       {icon && (
-        <Box mb={3} color={iconColor || defaultIconColor} display="inline-block">
-          <Icon as={icon} boxSize={8} />
+        <Box mb={{ base: 2, md: 3 }} color={iconColor || defaultIconColor} display="inline-block">
+          <Icon as={icon} boxSize={{ base: 6, md: 8 }} />
         </Box>
       )}
-      <Text fontSize={{ base: 'md', md: 'lg' }} fontWeight="semibold" mb={1}>
+      <Text fontSize={{ base: 'sm', md: 'lg' }} fontWeight="semibold" mb={{ base: 1, md: 1 }}>
         {title}
       </Text>
-      <Text fontSize={{ base: '2xl', md: '3xl' }} fontWeight="bold">
+      <Text fontSize={{ base: 'xl', md: '3xl' }} fontWeight="bold">
         {value}
       </Text>
     </Box>

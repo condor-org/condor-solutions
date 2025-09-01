@@ -1,3 +1,4 @@
+// src/components/notifications/NotificationsCard.jsx
 import React, { useContext, useEffect, useMemo, useState } from "react";
 import {
   Box, HStack, VStack, Text, IconButton, Badge, Button, Divider, Tooltip, Skeleton, Link,
@@ -102,20 +103,31 @@ const NotificationsCard = ({ limit = 5, pollMs = 60000, anchorId }) => {
       display="flex"
       flexDirection="column"
       minH="0"
+      // 🔒 importante para truncados internos
+      minW={0}
     >
-      <HStack justify="space-between" mb={2}>
-        <HStack spacing={2}>
+      <HStack
+        justify="space-between"
+        mb={{ base: 2, md: 2 }}
+        // ✅ en mobile permitimos wrap si no entra todo
+        flexWrap={{ base: "wrap", md: "nowrap" }}
+        rowGap={{ base: 2, md: 0 }}
+        align="center"
+      >
+        <HStack spacing={2} minW={0}>
           <FaBell />
-          <Text fontWeight="bold">Notificaciones</Text>
+          <Text fontWeight="bold" fontSize={{ base: "md", md: "lg" }} noOfLines={1}>
+            Notificaciones
+          </Text>
           {unreadCount > 0 && (
-            <Badge colorScheme="orange" variant="solid">
+            <Badge colorScheme="orange" variant="solid" flexShrink={0}>
               {unreadCount > 99 ? "99+" : unreadCount}
             </Badge>
           )}
         </HStack>
 
-        <HStack spacing={3}>
-          <Link fontSize="sm" onClick={goAll}>
+        <HStack spacing={{ base: 2, md: 3 }} ml="auto">
+          <Link fontSize={{ base: "sm", md: "sm" }} onClick={goAll} whiteSpace="nowrap">
             Ver todas
           </Link>
           <Tooltip label="Marcar todas como leídas">
@@ -125,6 +137,7 @@ const NotificationsCard = ({ limit = 5, pollMs = 60000, anchorId }) => {
               leftIcon={<CheckIcon />}
               onClick={markAll}
               isLoading={busy}
+              flexShrink={0}
             >
               Marcar todas
             </Button>
@@ -137,12 +150,13 @@ const NotificationsCard = ({ limit = 5, pollMs = 60000, anchorId }) => {
               variant="ghost"
               onClick={load}
               isDisabled={loading}
+              flexShrink={0}
             />
           </Tooltip>
         </HStack>
       </HStack>
 
-      <Divider my={3} />
+      <Divider my={{ base: 2, md: 3 }} />
 
       {loading ? (
         <VStack align="stretch" spacing={3}>
@@ -153,30 +167,47 @@ const NotificationsCard = ({ limit = 5, pollMs = 60000, anchorId }) => {
       ) : items.length === 0 ? (
         <HStack color={muted}>
           <FaEnvelopeOpenText />
-          <Text fontSize="sm">No tenés notificaciones por ahora.</Text>
+          <Text fontSize={{ base: "sm", md: "sm" }}>No tenés notificaciones por ahora.</Text>
         </HStack>
       ) : (
-        <VStack align="stretch" spacing={3} flex="1 1 auto" minH={0}>
+        <VStack
+          align="stretch"
+          spacing={3}
+          flex="1 1 auto"
+          minH={0}
+          // En mobile, si la lista crece mucho, scrollea dentro de la card
+          maxH={{ base: "50vh", md: "none" }}
+          overflowY={{ base: "auto", md: "visible" }}
+          pr={{ base: 1, md: 0 }}
+        >
           {items.map((n) => (
             <Box
               key={n.id}
               borderWidth="1px"
               rounded="md"
-              p={3}
+              p={{ base: 3, md: 3 }}
               bg={n.unread ? "orange.50" : "transparent"}
+              // Protege contra contenidos largos
+              wordBreak="break-word"
             >
-              <HStack justify="space-between" align="start">
-                <VStack align="start" spacing={1} w="full">
-                  <HStack>
+              <HStack justify="space-between" align="start" spacing={{ base: 3, md: 4 }}>
+                <VStack align="start" spacing={1} w="full" minW={0}>
+                  <HStack spacing={2} flexWrap="wrap">
                     <Badge colorScheme={severityToScheme(n.severity)}>{n.type}</Badge>
                     {n.unread && <Badge colorScheme="orange">Nuevo</Badge>}
                   </HStack>
-                  <Text fontWeight="semibold" noOfLines={1}>{n.title}</Text>
-                  <Text fontSize="sm" color={muted} noOfLines={2}>{n.body}</Text>
-                  <Text fontSize="xs" color={muted}>{formatWhen(n.created_at)}</Text>
+                  <Text fontWeight="semibold" noOfLines={{ base: 1, md: 1 }}>
+                    {n.title}
+                  </Text>
+                  <Text fontSize="sm" color={muted} noOfLines={{ base: 2, md: 2 }}>
+                    {n.body}
+                  </Text>
+                  <Text fontSize="xs" color={muted} noOfLines={1}>
+                    {formatWhen(n.created_at)}
+                  </Text>
                 </VStack>
 
-                <VStack spacing={1}>
+                <VStack spacing={1} flexShrink={0}>
                   {n.deeplink_path && (
                     <Tooltip label="Ir">
                       <IconButton
