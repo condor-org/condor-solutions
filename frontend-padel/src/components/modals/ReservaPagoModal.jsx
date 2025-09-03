@@ -1,6 +1,6 @@
 // src/components/modals/ReservaPagoModal.jsx
 
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo,useRef } from "react";
 import {
   Box,
   Modal,
@@ -22,6 +22,10 @@ import {
 } from "@chakra-ui/react";
 import { FaCalendarAlt, FaClock, FaTrash } from "react-icons/fa";
 import CountdownClock from "../ui/CountdownClock.jsx";
+import { CopyIcon } from "@chakra-ui/icons";
+import { useToast, Tooltip, IconButton } from "@chakra-ui/react";
+
+
 
 const LABELS = {
   x1: "Individual",
@@ -100,6 +104,35 @@ const ReservaPagoModal = ({
 
   const nombreTipo = (tipoClase?.nombre) || LABELS[tipoClase?.codigo] || "—";
 
+  const toast = useToast();
+const hiddenInputRef = useRef(null);
+
+const copyText = async (text, label = "Texto") => {
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      // Fallback: input oculto + execCommand
+      const input = hiddenInputRef.current || document.createElement("input");
+      if (!hiddenInputRef.current) {
+        input.style.position = "fixed";
+        input.style.opacity = "0";
+        document.body.appendChild(input);
+        hiddenInputRef.current = input;
+      }
+      input.value = text;
+      input.select();
+      document.execCommand("copy");
+    }
+    toast({ title: `${label} copiado`, status: "success", duration: 1800, isClosable: true });
+    console.debug(`[ReservaPagoModal] Copiado a portapapeles: ${label}`);
+  } catch (err) {
+    console.error(`[ReservaPagoModal] Error al copiar ${label}:`, err);
+    toast({ title: `No se pudo copiar el ${label.toLowerCase()}`, status: "error", duration: 2500, isClosable: true });
+  }
+};
+
+
   return (
     <Modal
       isOpen={isOpen}
@@ -164,14 +197,36 @@ const ReservaPagoModal = ({
                 </Text>
               )}
               {alias && (
+              <Flex align="center" gap={2} wrap="wrap" mt={1}>
                 <Text fontSize={{ base: "sm", md: "md" }}>
                   <b>Alias:</b> {alias}
                 </Text>
-              )}
+                <Tooltip label="Copiar alias" hasArrow>
+                  <IconButton
+                    aria-label="Copiar alias"
+                    size="xs"
+                    variant="ghost"
+                    icon={<CopyIcon />}
+                    onClick={() => copyText(alias, "Alias")}
+                  />
+                </Tooltip>
+              </Flex>
+            )}
               {cbuCvu && (
-                <Text fontSize={{ base: "sm", md: "md" }}>
-                  <b>CBU/CVU:</b> {cbuCvu}
-                </Text>
+                <Flex align="center" gap={2} wrap="wrap" mt={1}>
+                  <Text fontSize={{ base: "sm", md: "md" }}>
+                    <b>CBU/CVU:</b> {cbuCvu}
+                  </Text>
+                  <Tooltip label="Copiar CBU/CVU" hasArrow>
+                    <IconButton
+                      aria-label="Copiar CBU/CVU"
+                      size="xs"
+                      variant="ghost"
+                      icon={<CopyIcon />}
+                      onClick={() => copyText(cbuCvu, "CBU/CVU")}
+                    />
+                  </Tooltip>
+                </Flex>
               )}
             </Box>
           )}
