@@ -12,7 +12,7 @@ from PIL import Image
 import pytesseract
 import logging
 from apps.turnos_padel.models import AbonoMes
-from apps.pagos_core.models import ComprobantePago, ConfiguracionPago, PagoIntento, ComprobanteAbono
+from apps.pagos_core.models import ComprobantePago, PagoIntento, ComprobanteAbono
 
 from django.contrib.contenttypes.models import ContentType
 from apps.turnos_core.models import Prestador
@@ -60,13 +60,6 @@ class ComprobanteService:
         for chunk in file_obj.chunks():
             hasher.update(chunk)
         return hasher.hexdigest()
-
-    @staticmethod
-    def _get_configuracion(cliente) -> ConfiguracionPago:
-        try:
-            return ConfiguracionPago.objects.get(cliente=cliente)
-        except ConfiguracionPago.DoesNotExist:
-            raise ValidationError("No hay ConfiguracionPago definida para este cliente.")
 
     @classmethod
     @transaction.atomic
@@ -362,9 +355,6 @@ class ComprobanteService:
     @staticmethod
     def _parse_and_validate(file_obj, config) -> dict:
         """
-        Valida comprobante usando datos de ConfiguracionPago o dict recibido
-        desde otra app (ej: turnos_padel).
-
         Reglas:
         - La fecha se EXTRAE del texto del comprobante.
         - La validación es estrictamente por DÍA (ignora hora): debe ser igual a timezone.localdate().
@@ -618,7 +608,7 @@ class ComprobanteService:
         if ComprobantePago.objects.filter(hash_archivo=checksum).exists():
             raise ValidationError("Comprobante duplicado.")
 
-        # 4) OCR / validaciones (sin ConfiguracionPago)
+        # 4) OCR / validaciones
         config_data = {
             "cbu": cbu_cfg,
             "alias": alias_cfg,

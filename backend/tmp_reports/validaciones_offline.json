@@ -1,0 +1,146 @@
+[
+  {
+    "archivo": "CConsultoraMutual.jpeg",
+    "banco_yaml": "ConsultoraMutual",
+    "banco_detectado": "generic",
+    "ocr_avg_conf": 0.968,
+    "ocr_suspicious_count": 4,
+    "trustable": true,
+    "passed": true,
+    "error": null,
+    "parsed": {
+      "monto": 882000.0,
+      "fecha": "2025-07-10",
+      "cbu": "0720049688000000861818",
+      "alias": null
+    }
+  },
+  {
+    "archivo": "cCuentaDNI.jpeg",
+    "banco_yaml": "Cuenta DNI",
+    "banco_detectado": "generic",
+    "ocr_avg_conf": 0.976,
+    "ocr_suspicious_count": 1,
+    "trustable": true,
+    "passed": true,
+    "error": null,
+    "parsed": {
+      "monto": 51400.0,
+      "fecha": "2025-07-10",
+      "cbu": null,
+      "alias": "alias.lambo.gp"
+    }
+  },
+  {
+    "archivo": "CGalicia.pdf",
+    "banco_yaml": "Galicia",
+    "banco_detectado": "generic",
+    "ocr_avg_conf": 0.962,
+    "ocr_suspicious_count": 4,
+    "trustable": true,
+    "passed": true,
+    "error": null,
+    "parsed": {
+      "monto": 700000.0,
+      "fecha": "2025-07-01",
+      "cbu": "0000003100004889122426",
+      "alias": null
+    }
+  },
+  {
+    "archivo": "CMacro.pdf",
+    "banco_yaml": "Macro",
+    "banco_detectado": "generic",
+    "ocr_avg_conf": 0.966,
+    "ocr_suspicious_count": 6,
+    "trustable": true,
+    "passed": true,
+    "error": null,
+    "parsed": {
+      "monto": 2420000.0,
+      "fecha": "2025-07-04",
+      "cbu": "0720206588000037345372",
+      "alias": null
+    }
+  },
+  {
+    "archivo": "CNaranjaX.jpeg",
+    "banco_yaml": "NarankaX",
+    "banco_detectado": "generic",
+    "ocr_avg_conf": 0.955,
+    "ocr_suspicious_count": 4,
+    "trustable": true,
+    "passed": true,
+    "error": null,
+    "parsed": {
+      "monto": 10000000.0,
+      "fecha": "2025-07-02",
+      "cbu": "0000163805040004778816",
+      "alias": null
+    }
+  },
+  {
+    "archivo": "Comprobante.pdf",
+    "banco_yaml": "MercadoPago",
+    "banco_detectado": "generic",
+    "ocr_avg_conf": 0.972,
+    "ocr_suspicious_count": 2,
+    "trustable": true,
+    "passed": true,
+    "error": null,
+    "parsed": {
+      "monto": 14000.0,
+      "fecha": "2025-06-18",
+      "cbu": "0000003100007805853446",
+      "alias": null
+    }
+  },
+  {
+    "archivo": "Comprobante2.pdf",
+    "banco_yaml": "QuikyPay",
+    "banco_detectado": "generic",
+    "ocr_avg_conf": 0.981,
+    "ocr_suspicious_count": 3,
+    "trustable": true,
+    "passed": true,
+    "error": null,
+    "parsed": {
+      "monto": 317000.0,
+      "fecha": "2025-07-11",
+      "cbu": "0290005600000000385882",
+      "alias": null
+    }
+  },
+  {
+    "archivo": "ComprobanteBBVA.pdf",
+    "banco_yaml": "BBVA",
+    "banco_detectado": "generic",
+    "ocr_avg_conf": 0.981,
+    "ocr_suspicious_count": 3,
+    "trustable": true,
+    "passed": true,
+    "error": null,
+    "parsed": {
+      "monto": 6.0,
+      "fecha": "2025-06-24",
+      "cbu": "0000003100072077739741",
+      "alias": null
+    }
+  },
+  {
+    "archivo": "Allaria.jpeg",
+    "banco_yaml": "Allaria",
+    "banco_detectado": "generic",
+    "ocr_avg_conf": 0.985,
+    "ocr_suspicious_count": 3,
+    "trustable": true,
+    "passed": true,
+    "error": null,
+    "parsed": {
+      "monto": 100.0,
+      "fecha": "2025-08-31",
+      "cbu": "0000003100072077739741",
+      "alias": null
+    }
+  }
+]

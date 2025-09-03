@@ -40,3 +40,10 @@ pytest
 pytest-django
 
 python-decouple
+
+
+google-cloud-vision>=3.7.2
+google-cloud-storage>=2.18.0
+google-api-core>=2.19.0
+protobuf>=4.25.3
+PyYAML>=6.0.1
