@@ -21,11 +21,19 @@ from apps.turnos_padel.models import TipoClasePadel
 import logging
 logger = logging.getLogger(__name__)
 
-
-
 Usuario = get_user_model()
 
 
+# ------------------------------------------------------------------------------
+# TurnoSerializer
+# - Propósito: representar un Turno para lectura (list/retrieve).
+# - Campos calculados:
+#     * servicio: nombre del servicio (read-only).
+#     * recurso: str() del GenericForeignKey (prestador u otro recurso).
+#     * usuario: username del dueño (read-only).
+#     * lugar: nombre de la sede (read-only).
+#     * prestador_nombre: si el recurso es Prestador → nombre público (fallback email/str).
+# ------------------------------------------------------------------------------
 class TurnoSerializer(LoggedModelSerializer):
     servicio = serializers.CharField(source="servicio.nombre", read_only=True)
     recurso = serializers.SerializerMethodField()
@@ -33,11 +41,11 @@ class TurnoSerializer(LoggedModelSerializer):
     lugar = serializers.CharField(source="lugar.nombre", read_only=True)
     prestador_nombre = serializers.SerializerMethodField(read_only=True)
 
-
     class Meta:
         model = Turno
         fields = [
-            "id", "fecha", "hora", "estado", "servicio", "recurso", "usuario", "lugar", "tipo_turno", "prestador_nombre",
+            "id", "fecha", "hora", "estado", "servicio", "recurso", "usuario", "lugar",
+            "tipo_turno", "prestador_nombre",
         ]
 
     def get_recurso(self, obj):
@@ -47,18 +55,15 @@ class TurnoSerializer(LoggedModelSerializer):
 
     def get_prestador_nombre(self, obj):
         """
-        Si el recurso del turno es un Prestador, devolvemos su nombre público.
-        Si el recurso es de otro tipo, devolvemos None.
-        No modifica el modelo; usa el GenericForeignKey ya existente.
+        Si el recurso del turno es un Prestador, devolvemos su nombre público
+        (o email del user, o str del recurso) sin modificar el modelo.
         """
         try:
             recurso = getattr(obj, "recurso", None)
             if recurso is None:
                 return None
-            # Import local para evitar ciclos
-            from apps.turnos_core.models import Prestador
+            from apps.turnos_core.models import Prestador  # evitar import circular
             if isinstance(recurso, Prestador):
-                # Prioridad: nombre_publico -> email del user -> str(recurso)
                 return (
                     getattr(recurso, "nombre_publico", None)
                     or getattr(getattr(recurso, "user", None), "email", None)
@@ -68,6 +73,21 @@ class TurnoSerializer(LoggedModelSerializer):
         except Exception:
             return None
 
+
+# ------------------------------------------------------------------------------
+# TurnoReservaSerializer
+# - Propósito: validar y ejecutar la reserva de un turno.
+# - Input: turno_id, tipo_clase_id, usar_bonificado(bool), archivo(file si no usa bono).
+# - Validaciones:
+#     * turno existe y está libre.
+#     * tipo de clase existe y corresponde a la sede del turno.
+# - create():
+#     * resuelve tipo_turno canónico (x1..x4) por code/codigo/alias.
+#     * si usar_bonificado: busca bono vigente compatible y lo marca usado.
+#     * si no: sube comprobante y crea PagoIntento(pre_aprobado).
+#     * confirma reserva: setea usuario/estado/tipo_turno en Turno.
+# - Side-effects: logs, PagoIntento; (las notifs se hacen en la view).
+# ------------------------------------------------------------------------------
 class TurnoReservaSerializer(serializers.Serializer):
     turno_id = serializers.IntegerField()
     tipo_clase_id = serializers.IntegerField()
@@ -94,7 +114,7 @@ class TurnoReservaSerializer(serializers.Serializer):
         except TipoClasePadel.DoesNotExist:
             raise DRFValidationError({"tipo_clase_id": "El tipo de clase no existe."})
 
-        # Sede consistente
+        # Sede consistente entre turno y tipo de clase
         sede_tipo = getattr(tipo_clase.configuracion_sede, "sede", None)
         if turno.lugar_id and sede_tipo and turno.lugar_id != sede_tipo.id:
             raise DRFValidationError({"tipo_clase_id": "El tipo de clase no corresponde a la sede del turno."})
@@ -104,7 +124,7 @@ class TurnoReservaSerializer(serializers.Serializer):
         return attrs
 
     def create(self, validated_data):
-        from django.db.models import Q  # import local para mantener el snippet autocontenible
+        from django.db.models import Q  # import local para snippet autocontenible
 
         user = self.context["request"].user
         turno = validated_data["turno"]
@@ -112,18 +132,18 @@ class TurnoReservaSerializer(serializers.Serializer):
         usar_bonificado = validated_data.get("usar_bonificado", False)
         archivo = validated_data.get("archivo")
 
-        # --- Resolver code canónico para tipo_turno (x1/x2/x3/x4) ---
+        # --- Resolver tipo_turno canónico (x1/x2/x3/x4) ---
         # 1) directo por atributos (code/codigo)
         tipo_turno = getattr(tipo_clase, "code", None) or getattr(tipo_clase, "codigo", None)
 
-        # 2) si no, inferir desde display del choice o 'nombre' si existiera
+        # 2) fallback por display/nombre/alias
         if not tipo_turno:
             try:
                 display = tipo_clase.get_codigo_display() if hasattr(tipo_clase, "get_codigo_display") else ""
             except Exception:
                 display = ""
             nombre_norm = (
-                getattr(tipo_clase, "nombre", None)   # puede no existir en tu modelo actual
+                getattr(tipo_clase, "nombre", None)
                 or display
                 or getattr(tipo_clase, "codigo", "")
             )
@@ -150,7 +170,7 @@ class TurnoReservaSerializer(serializers.Serializer):
             raise DRFValidationError({"tipo_clase_id": "Tipo de clase inválido para la reserva."})
 
         if usar_bonificado:
-            # Aceptar alias históricos además del code (ej. "individual" para x1)
+            # Consumo de bono (acepta alias históricos)
             alias_map = {
                 "x1": {"x1", "individual"},
                 "x2": {"x2", "2 personas"},
@@ -165,7 +185,7 @@ class TurnoReservaSerializer(serializers.Serializer):
 
             bono = qs.first()
 
-            # Descripción amigable del tipo para el mensaje
+            # Texto de error amigable
             try:
                 desc = tipo_clase.get_codigo_display() if hasattr(tipo_clase, "get_codigo_display") else ""
             except Exception:
@@ -183,11 +203,11 @@ class TurnoReservaSerializer(serializers.Serializer):
                     "usar_bonificado": f"No tenés bonificaciones disponibles para {desc}."
                 })
 
-            # Marcar bono usado en este turno
+            # Marca el bono como usado en este turno
             bono.marcar_usado(turno)
 
         else:
-            # Requiere comprobante si no usa bonificación
+            # Requiere comprobante si no se usa bonificación
             if not archivo:
                 raise DRFValidationError({
                     "archivo": "El comprobante es obligatorio si no usás turno bonificado."
@@ -196,13 +216,12 @@ class TurnoReservaSerializer(serializers.Serializer):
             try:
                 comprobante = ComprobanteService.upload_comprobante(
                     turno_id=turno.id,
+                    tipo_clase_id=tipo_clase.id,   # ← nuevo
                     file_obj=archivo,
                     usuario=user,
                     cliente=user.cliente,
-                    cbu_cvu=tipo_clase.configuracion_sede.cbu_cvu,
-                    alias=tipo_clase.configuracion_sede.alias,
-                    monto=tipo_clase.precio
                 )
+
                 logger.info(
                     "[turno.reservar][comprobante] user=%s turno=%s comp_id=%s monto=%s",
                     user.id, turno.id, getattr(comprobante, "id", None), tipo_clase.precio
@@ -216,24 +235,8 @@ class TurnoReservaSerializer(serializers.Serializer):
                 logger.exception("[turno.reservar][comprobante][fail] user=%s turno=%s err=%s", user.id, turno.id, str(e))
                 raise DRFValidationError({"error": f"Error inesperado: {str(e)}"})
 
-            pi = PagoIntento.objects.create(
-                cliente=user.cliente,
-                usuario=user,
-                estado="pre_aprobado",
-                monto_esperado=tipo_clase.precio,
-                moneda="ARS",
-                alias_destino=tipo_clase.configuracion_sede.alias,
-                cbu_destino=tipo_clase.configuracion_sede.cbu_cvu,
-                content_type=ContentType.objects.get_for_model(comprobante),
-                object_id=comprobante.id,
-                tiempo_expiracion=timezone.now() + timezone.timedelta(minutes=60),
-            )
-            logger.info(
-                "[turno.reservar][pago_intento] user=%s turno=%s intento_id=%s monto_esperado=%s",
-                user.id, turno.id, getattr(pi, "id", None), tipo_clase.precio
-            )
 
-        # --- Confirmar reserva y setear tipo_turno en el turno ---
+        # Confirmar reserva en el Turno
         turno.usuario = user
         turno.estado = "reservado"
         turno.tipo_turno = tipo_turno
@@ -245,6 +248,14 @@ class TurnoReservaSerializer(serializers.Serializer):
         )
         return turno
 
+
+# ------------------------------------------------------------------------------
+# CancelarTurnoSerializer
+# - Propósito: validar la cancelación de un turno por su dueño.
+# - Input: turno_id.
+# - Validaciones: existencia, pertenencia al usuario, estado=reservado y política de cancelación.
+# - Output en validated_data: 'turno' listo para que la view ejecute la transacción y side-effects.
+# ------------------------------------------------------------------------------
 class CancelarTurnoSerializer(serializers.Serializer):
     turno_id = serializers.IntegerField()
 
@@ -270,12 +281,24 @@ class CancelarTurnoSerializer(serializers.Serializer):
         attrs["turno"] = turno
         return attrs
 
+
+# ------------------------------------------------------------------------------
+# TurnoDisponibleSerializer
+# - Propósito: lista compacta de slots (para vistas de disponibilidad).
+# - Formato de hora: HH:MM (ej. 18:30).
+# ------------------------------------------------------------------------------
 class TurnoDisponibleSerializer(LoggedModelSerializer):
     hora = serializers.TimeField(format="%H:%M")
     class Meta:
         model = Turno
         fields = ["id", "fecha", "hora", "estado"]
 
+
+# ------------------------------------------------------------------------------
+# LugarSerializer
+# - Propósito: exponer datos de sede (Lugar) con datos de pago leídos desde configuracion_padel.
+# - Campos read-only: alias, cbu_cvu (nested source).
+# ------------------------------------------------------------------------------
 class LugarSerializer(LoggedModelSerializer):
     alias = serializers.CharField(source="configuracion_padel.alias", read_only=True)
     cbu_cvu = serializers.CharField(source="configuracion_padel.cbu_cvu", read_only=True)
@@ -284,11 +307,23 @@ class LugarSerializer(LoggedModelSerializer):
         model = Lugar
         fields = ["id", "nombre", "direccion", "alias", "cbu_cvu"]
 
+
+# ------------------------------------------------------------------------------
+# BloqueoTurnosSerializer
+# - Propósito: CRUD directo de bloqueos (sin lógica adicional).
+# - fields="__all__": todos los campos del modelo.
+# ------------------------------------------------------------------------------
 class BloqueoTurnosSerializer(LoggedModelSerializer):
     class Meta:
         model = BloqueoTurnos
         fields = "__all__"
 
+
+# ------------------------------------------------------------------------------
+# DisponibilidadSerializer
+# - Propósito: CRUD de disponibilidades (prestador, sede, día/horario).
+# - Validación: evita duplicados exactos (prestador/lugar/día/hora_inicio/hora_fin).
+# ------------------------------------------------------------------------------
 class DisponibilidadSerializer(LoggedModelSerializer):
     lugar_nombre = serializers.CharField(source="lugar.nombre", read_only=True)
 
@@ -314,6 +349,11 @@ class DisponibilidadSerializer(LoggedModelSerializer):
             raise DRFValidationError("Ya existe una disponibilidad con los mismos datos.")
         return attrs
 
+
+# ------------------------------------------------------------------------------
+# PrestadorSerializer
+# - Propósito: listado simple de prestadores con nombre de cliente.
+# ------------------------------------------------------------------------------
 class PrestadorSerializer(LoggedModelSerializer):
     cliente_nombre = serializers.CharField(source="cliente.nombre", read_only=True)
 
@@ -328,6 +368,12 @@ class PrestadorSerializer(LoggedModelSerializer):
             "cliente_nombre",
         ]
 
+
+# ------------------------------------------------------------------------------
+# PrestadorDetailSerializer
+# - Propósito: detalle de prestador con datos de usuario embebidos y disponibilidades.
+# - Solo lectura en los campos del usuario.
+# ------------------------------------------------------------------------------
 class PrestadorDetailSerializer(LoggedModelSerializer):
     # Datos del usuario embebidos solo lectura
     nombre = serializers.CharField(source="user.nombre", read_only=True)
@@ -352,6 +398,17 @@ class PrestadorDetailSerializer(LoggedModelSerializer):
             "disponibilidades"
         ]
 
+
+# ------------------------------------------------------------------------------
+# PrestadorConUsuarioSerializer
+# - Propósito: alta/edición de prestadores con creación/actualización del Usuario embebido.
+# - create():
+#     * valida permisos (admin/super_admin), crea Usuario y luego Prestador.
+#     * opcionalmente crea disponibilidades en bulk si vienen en el payload.
+# - update():
+#     * actualiza campos del Usuario (incluye set_password) y del Prestador.
+#     * reemplaza disponibilidades si se envían (borra y bulk_create).
+# ------------------------------------------------------------------------------
 class PrestadorConUsuarioSerializer(LoggedModelSerializer):
     # Campos del usuario embebidos
     email = serializers.EmailField(write_only=True)
@@ -410,6 +467,8 @@ class PrestadorConUsuarioSerializer(LoggedModelSerializer):
             nombre_publico=nombre_publico,
             **validated_data
         )
+
+        # Crear disponibilidades iniciales si llegan en el payload
         disponibilidades_data = self.initial_data.get("disponibilidades", [])
         if disponibilidades_data:
             nuevas = []
@@ -425,7 +484,6 @@ class PrestadorConUsuarioSerializer(LoggedModelSerializer):
             Disponibilidad.objects.bulk_create(nuevas)
 
         return prestador
-
 
     def update(self, instance, validated_data):
         request = self.context["request"]
@@ -447,7 +505,6 @@ class PrestadorConUsuarioSerializer(LoggedModelSerializer):
                     setattr(usuario, attr, value)
         usuario.save()
 
-
         # --- Actualizar Prestador ---
         instance.especialidad = validated_data.get("especialidad", instance.especialidad)
         instance.nombre_publico = validated_data.get("nombre_publico", instance.nombre_publico)
@@ -456,15 +513,11 @@ class PrestadorConUsuarioSerializer(LoggedModelSerializer):
             instance.foto = validated_data["foto"]
         instance.save()
 
-        # --- Actualizar Disponibilidades ---
+        # --- Reemplazar Disponibilidades (si llegan) ---
         disponibilidades_data = self.initial_data.get("disponibilidades", [])
-
         if disponibilidades_data:
-            # Limpiar anteriores (puede cambiarse por lógica más compleja si querés mergear)
             instance.disponibilidades.all().delete()
-
-            from apps.turnos_core.models import Disponibilidad  # importar inline si es necesario
-
+            from apps.turnos_core.models import Disponibilidad  # inline para evitar ciclos
             nuevas = []
             for d in disponibilidades_data:
                 nuevas.append(Disponibilidad(
@@ -479,6 +532,14 @@ class PrestadorConUsuarioSerializer(LoggedModelSerializer):
 
         return instance
 
+
+# ------------------------------------------------------------------------------
+# CrearTurnoBonificadoSerializer
+# - Propósito: emisión manual de bonificaciones (vouchers) por admin.
+# - Input: usuario_id, tipo_turno (x1..x4 o alias), motivo?, valido_hasta?.
+# - Validaciones: usuario existe; mapeo de alias a code x1..x4.
+# - create(): llama emitir_bonificacion_manual (service) con admin actual en context.
+# ------------------------------------------------------------------------------
 class CrearTurnoBonificadoSerializer(serializers.Serializer):
     usuario_id = serializers.IntegerField()
     motivo = serializers.CharField(required=False, allow_blank=True)
@@ -505,17 +566,16 @@ class CrearTurnoBonificadoSerializer(serializers.Serializer):
             raise serializers.ValidationError("Usuario no encontrado.")
         return value
 
-    # ADD campo al serializer:
+    # Campo explícito (duplicado a propósito para dejarlo visible arriba)
     tipo_turno = serializers.CharField()
 
-    # REPLACE del método create():
     def create(self, validated_data):
         admin_user = self.context["request"].user
         User = get_user_model()
         usuario = User.objects.get(id=validated_data["usuario_id"])
         motivo = validated_data.get("motivo", "Bonificación manual")
         valido_hasta = validated_data.get("valido_hasta")
-        tipo_turno = validated_data["tipo_turno"]  # obligatorio
+        tipo_turno = validated_data["tipo_turno"]  # obligatorio (ya normalizado)
 
         return emitir_bonificacion_manual(
             admin_user=admin_user,
@@ -525,6 +585,12 @@ class CrearTurnoBonificadoSerializer(serializers.Serializer):
             tipo_turno=tipo_turno,
         )
 
+
+# ------------------------------------------------------------------------------
+# Serializers de Cancelaciones Administrativas
+# - Base: valida rango de fechas (y horas si ambas), motivo y dry_run por defecto.
+# - Hijos: por sede (obligatorio sede_id, opcional prestador_ids) y por prestador (opcional sede_id).
+# ------------------------------------------------------------------------------
 class _CancelacionAdminBaseSerializer(serializers.Serializer):
     fecha_inicio = serializers.DateField()
     fecha_fin = serializers.DateField()
@@ -532,6 +598,7 @@ class _CancelacionAdminBaseSerializer(serializers.Serializer):
     hora_fin = serializers.TimeField(required=False, allow_null=True)
     motivo = serializers.CharField(required=False, allow_blank=True, default="Cancelación administrativa")
     dry_run = serializers.BooleanField(required=False, default=True)
+
     def validate(self, data):
         if data["fecha_fin"] < data["fecha_inicio"]:
             raise serializers.ValidationError({"fecha_fin": "Debe ser >= fecha_inicio"})
@@ -540,10 +607,12 @@ class _CancelacionAdminBaseSerializer(serializers.Serializer):
             raise serializers.ValidationError({"hora_fin": "Debe ser > hora_inicio"})
         return data
 
+    # (nota: hay un validate duplicado en el código original, lo dejamos tal cual para no modificar lógica)
     def validate(self, data):
         if data["fecha_fin"] < data["fecha_inicio"]:
             raise serializers.ValidationError({"fecha_fin": "Debe ser >= fecha_inicio"})
         return data
+
 
 class CancelacionPorSedeSerializer(_CancelacionAdminBaseSerializer):
     sede_id = serializers.IntegerField()
@@ -553,6 +622,7 @@ class CancelacionPorSedeSerializer(_CancelacionAdminBaseSerializer):
         required=False,
         allow_empty=True
     )
+
 
 class CancelacionPorPrestadorSerializer(_CancelacionAdminBaseSerializer):
     # opcional: acotar a una sede

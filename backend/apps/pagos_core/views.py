@@ -33,6 +33,9 @@ from decimal import Decimal, InvalidOperation
 from apps.turnos_padel.serializers import AbonoMesSerializer
 from apps.turnos_core.services.bonificaciones import bonificaciones_vigentes
 
+from django.db.models import Exists, OuterRef
+from django.contrib.contenttypes.models import ContentType
+
 logger = logging.getLogger(__name__)
 
 
@@ -54,20 +57,36 @@ class ComprobanteView(ListCreateAPIView):
 
     def get_queryset(self):
         usuario = self.request.user
-        qs = ComprobantePago.objects.select_related("turno", "turno__usuario", "turno__lugar")
+        qs = (
+            ComprobantePago.objects
+            .select_related("turno", "turno__usuario", "turno__lugar", "cliente")
+            .order_by("-created_at")
+        )
 
-        if usuario.tipo_usuario == "super_admin":
-            qs = qs
-        elif usuario.tipo_usuario == "admin_cliente" and usuario.cliente_id:
+        # 🔐 Scope por tipo de usuario
+        tu = getattr(usuario, "tipo_usuario", None)
+        if tu == "super_admin":
+            pass
+        elif tu == "admin_cliente" and usuario.cliente_id:
             qs = qs.filter(cliente=usuario.cliente)
-        elif usuario.tipo_usuario == "empleado_cliente":
+        elif tu == "empleado_cliente":
             qs = qs.filter(turno__usuario=usuario)
         else:  # usuario_final
             qs = qs.filter(turno__usuario=usuario)
 
-        # 🔥 ACÁ ESTÁ EL FILTRO QUE FALTABA
-        if self.request.query_params.get("solo_preaprobados") == "true":
-            qs = qs.filter(valido=False)
+        # 🔎 Solo preaprobados: ComprobantePago que tenga un PagoIntento(pre_aprobado) como origen
+        flag = self.request.query_params.get("solo_preaprobados", "").lower() in ("1", "true", "t", "yes")
+        if flag:
+            ct = ContentType.objects.get_for_model(ComprobantePago)
+            intentos_pre = PagoIntento.objects.filter(
+                content_type=ct,
+                object_id=OuterRef("pk"),
+                estado="pre_aprobado",
+            )
+            qs = qs.annotate(tiene_preaprobado=Exists(intentos_pre)).filter(tiene_preaprobado=True)
+
+            # (opcional) seguir exigiendo que todavía no estén marcados como válidos en el comprobante:
+            # qs = qs.filter(valido=False)
 
         return qs
 

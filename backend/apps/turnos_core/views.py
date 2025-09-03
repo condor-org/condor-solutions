@@ -84,6 +84,13 @@ from apps.turnos_core.services.cancelaciones_admin import cancelar_turnos_admin
 from apps.notificaciones_core.services import publish_event, notify_inapp, TYPE_CANCELACION_TURNO
 
 
+# ------------------------------------------------------------------------------
+# GET /turnos/  → Listar turnos visibles (según rol) con filtros opcionales
+# - Permisos: Autenticado.
+# - Filtros: ?estado=... ; ?upcoming=true|1 (aplica desde ahora en adelante)
+# - Superadmin: todos los turnos. Empleado_cliente: de sus prestadores. Usuario final: los propios.
+# - Respuesta: lista ordenada por fecha/hora.
+# ------------------------------------------------------------------------------
 class TurnoListView(ListAPIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -116,6 +123,16 @@ class TurnoListView(ListAPIView):
 
         return qs.order_by("fecha", "hora")
 
+
+# ------------------------------------------------------------------------------
+# POST /turnos/reservar/  → Reservar un turno
+# - Permisos: Autenticado.
+# - Body: turno_id, tipo_clase_id, usar_bonificado(bool), archivo(file si no usa bono)
+# - Lógica: valida turno/sede/tipo_clase; consume bono o sube comprobante y crea PagoIntento;
+#           confirma reserva (usuario, estado="reservado", tipo_turno x1..x4).
+# - Side-effects: evento + notificación in-app a admins del cliente.
+# - Respuesta: {"message", "turno_id"}.
+# ------------------------------------------------------------------------------
 class TurnoReservaView(CreateAPIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -173,9 +190,16 @@ class TurnoReservaView(CreateAPIView):
         except Exception:
             logger.exception("[notif][turno_reserva][fail]")
 
-
         return Response({"message": "Turno reservado exitosamente", "turno_id": turno.id})
 
+
+# ------------------------------------------------------------------------------
+# GET /turnos/disponibles/?prestador_id=&lugar_id=&fecha=YYYY-MM-DD
+# - Permisos: Autenticado.
+# - Función: devuelve slots futuros (estados: disponible/reservado) del prestador en la sede.
+# - Tiempo: usa AR local para “hoy desde ahora”.
+# - Respuesta: lista serializada de turnos (ordenada por fecha/hora).
+# ------------------------------------------------------------------------------
 @extend_schema(
     description="Devuelve turnos para un prestador en una sede específica y fecha opcional.",
     parameters=[
@@ -208,8 +232,7 @@ class TurnosDisponiblesView(APIView):
                 return Response({"error": "Formato de fecha inválido (usar YYYY-MM-DD)."}, status=400)
             filtros["fecha"] = fecha
 
-
-
+        # Ventana temporal: hoy desde la hora actual (zona AR) y futuro
         ahora_ar = tz.now().astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
         hoy = ahora_ar.date()
         hora = ahora_ar.time().replace(microsecond=0)
@@ -231,10 +254,14 @@ class TurnosDisponiblesView(APIView):
             .order_by("fecha", "hora")
         )
 
-
         return Response(TurnoSerializer(turnos, many=True).data)
 
-# --- PERMISOS: GET cualquiera autenticado, el resto solo admin ---
+
+# ------------------------------------------------------------------------------
+# Permiso auxiliar: SoloAdminEditar
+# - GET/SAFE: cualquier autenticado.
+# - Mutaciones: solo super_admin / admin_cliente.
+# ------------------------------------------------------------------------------
 class SoloAdminEditar(BasePermission):
     def has_permission(self, request, view):
         if request.method in SAFE_METHODS:
@@ -243,6 +270,12 @@ class SoloAdminEditar(BasePermission):
             request.user.tipo_usuario in {"super_admin", "admin_cliente"}
         )
 
+
+# ------------------------------------------------------------------------------
+# ViewSet /turnos/sedes/  → CRUD de sedes (lugares)
+# - Permisos: lectura autenticado; escritura solo admins del cliente.
+# - Multi-tenant: filtra por cliente del usuario; al crear, fuerza cliente=user.cliente.
+# ------------------------------------------------------------------------------
 class LugarViewSet(viewsets.ModelViewSet):
     serializer_class = LugarSerializer
     authentication_classes = [JWTAuthentication]
@@ -266,11 +299,25 @@ class LugarViewSet(viewsets.ModelViewSet):
         else:
             raise DRFPermissionDenied("No tenés cliente asociado.")
 
+
+# ------------------------------------------------------------------------------
+# ViewSet /turnos/bloqueos-turnos/  → CRUD de bloqueos de turnos
+# - Permisos: autenticado + EsSuperAdmin | EsAdminDeSuCliente (mutaciones).
+# - Uso: bloquear rango por prestador (opcional sede).
+# ------------------------------------------------------------------------------
 class BloqueoTurnosViewSet(viewsets.ModelViewSet):
     queryset = BloqueoTurnos.objects.all()
     serializer_class = BloqueoTurnosSerializer
     permission_classes = [IsAuthenticated, EsSuperAdmin | EsAdminDeSuCliente]
 
+
+# ------------------------------------------------------------------------------
+# ViewSet /turnos/prestadores/  → CRUD de prestadores
+# - Lectura: autenticado (usuarios finales y empleados: solo lectura).
+# - Escritura: admins (crea/actualiza prestador y usuario embebido; borra ambos).
+# - Filtro: ?lugar_id= para limitar a una sede con disponibilidad.
+# - Subruta /<id>/bloqueos: gestionar bloqueos por prestador.
+# ------------------------------------------------------------------------------
 class PrestadorViewSet(viewsets.ModelViewSet):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated & SoloLecturaUsuariosFinalesYEmpleados]
@@ -304,6 +351,12 @@ class PrestadorViewSet(viewsets.ModelViewSet):
         instance.delete()
         usuario.delete()
 
+    # --------------------------------------------------------------------------
+    # GET/POST/DELETE /turnos/prestadores/<id>/bloqueos/
+    # - GET: lista bloqueos del prestador.
+    # - POST: crea bloqueo (si lugar=null → todas las sedes), devuelve turnos reservados afectados.
+    # - DELETE: elimina bloqueo (body: {"id": ...}); restaura a "reservado" turnos cancelados con usuario.
+    # --------------------------------------------------------------------------
     @action(detail=True, methods=["get", "post", "delete"], url_path="bloqueos")
     def bloqueos(self, request, pk=None):
         """
@@ -386,6 +439,12 @@ class PrestadorViewSet(viewsets.ModelViewSet):
             except BloqueoTurnos.DoesNotExist:
                 return Response({"error": "Bloqueo no encontrado"}, status=404)
 
+    # --------------------------------------------------------------------------
+    # POST /turnos/prestadores/<id>/forzar_cancelacion_reservados/
+    # - Body: {"bloqueo_id": ...}
+    # - Efecto: cancela todos los "reservados" en el rango del bloqueo (y sede si aplica).
+    # - Bonos: si estaba con bono → no re-emitir; si pago y hay tipo_turno → emitir.
+    # --------------------------------------------------------------------------
     @action(detail=True, methods=["post"], url_path="forzar_cancelacion_reservados")
     def forzar_cancelacion_reservados(self, request, pk=None):
         """
@@ -462,6 +521,11 @@ class PrestadorViewSet(viewsets.ModelViewSet):
         }, status=200)
 
 
+# ------------------------------------------------------------------------------
+# ViewSet /turnos/disponibilidades/  → CRUD de disponibilidades
+# - Permisos: super_admin | admin_cliente | prestador (solo las suyas).
+# - Multi-tenant: filtra por cliente o usuario prestador.
+# ------------------------------------------------------------------------------
 class DisponibilidadViewSet(viewsets.ModelViewSet):
     serializer_class = DisponibilidadSerializer
     authentication_classes = [JWTAuthentication]
@@ -481,6 +545,14 @@ class DisponibilidadViewSet(viewsets.ModelViewSet):
 
         return Disponibilidad.objects.none()
 
+
+# ------------------------------------------------------------------------------
+# POST /turnos/generar/  → Generar turnos según disponibilidades
+# - Permisos: super_admin | admin_cliente.
+# - Body: fecha_inicio, fecha_fin, duracion_minutos, prestador_id?(opcional).
+# - Lógica: idempotente (bulk_create ignore_conflicts), omite días bloqueados.
+# - Respuesta: totales + detalle por prestador.
+# ------------------------------------------------------------------------------
 class GenerarTurnosView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente)]
@@ -538,6 +610,13 @@ class GenerarTurnosView(APIView):
             "detalle": detalle
         })
 
+
+# ------------------------------------------------------------------------------
+# POST /turnos/bonificaciones/crear-manual/  → Emitir bonificación manual
+# - Permisos: super_admin | admin_cliente.
+# - Body: usuario_id, tipo_turno (x1..x4 o alias), motivo?, valido_hasta?
+# - Side-effects: evento + notificación al usuario.
+# ------------------------------------------------------------------------------
 class CrearBonificacionManualView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -551,6 +630,12 @@ class CrearBonificacionManualView(APIView):
         return Response({"message": "Bonificación creada correctamente."}, status=201)
 
 
+# ------------------------------------------------------------------------------
+# Helper interno: _notify_cancelacion_usuario
+# - Propósito: al cancelar un usuario su turno, avisa a admins del cliente dueño de la sede.
+# - Excluye super_admin como destinatario. Maneja contexto por admin.
+# - Resiliencia: captura y loguea excepciones, retorna cantidad de notificaciones creadas.
+# ------------------------------------------------------------------------------
 def _notify_cancelacion_usuario(turno, actor):
     """
     Notifica a los admin_cliente del cliente dueño de la sede del turno que el USUARIO canceló.
@@ -617,6 +702,15 @@ def _notify_cancelacion_usuario(turno, actor):
         logger.exception("[notif.turno_cancelado_usuario][fail]")
         return 0
 
+
+# ------------------------------------------------------------------------------
+# POST /turnos/cancelar/  → Cancelar un turno propio
+# - Permisos: Autenticado, debe ser dueño del turno y cumplir política de cancelación.
+# - Efecto: libera slot (estado="disponible"), evalúa si corresponde emitir bonificación:
+#     * Reservado con bono → usuario cancela: NO; admin cancela: SÍ (devolución).  (*admin aplica en otras vistas*)
+#     * Reservado SIN bono → SÍ emite bonificación automática (mismo tipo_turno).
+# - Side-effects: notifica a admins si quien canceló fue el usuario.
+# ------------------------------------------------------------------------------
 class CancelarTurnoView(APIView):
     permission_classes = [IsAuthenticated]
     def post(self, request):
@@ -695,6 +789,14 @@ class CancelarTurnoView(APIView):
             "bonificacion_creada": bono_creado
         }, status=200)
 
+
+# ------------------------------------------------------------------------------
+# POST /turnos/admin/cancelar_por_sede/  → Cancelaciones masivas por sede
+# - Permisos: super_admin | admin_cliente (de la sede).
+# - Body: sede_id, fecha_inicio, fecha_fin, hora_inicio?, hora_fin?, prestador_ids?, motivo?, dry_run?=true
+# - Lógica: procesa SOLO "reservados"; emite bonificaciones según reglas; crea registro idempotente.
+# - Side-effects: evento y notificaciones in-app por usuario afectado (si no dry_run).
+# ------------------------------------------------------------------------------
 class CancelarPorSedeAdminView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente)]
@@ -725,6 +827,13 @@ class CancelarPorSedeAdminView(APIView):
         )
         return Response(resumen, status=200)
 
+
+# ------------------------------------------------------------------------------
+# POST /turnos/prestadores/<prestador_id>/cancelar_en_rango/  → Cancelaciones masivas por prestador
+# - Permisos: super_admin | admin_cliente (del tenant o de la sede indicada).
+# - Body: fecha_inicio, fecha_fin, hora_inicio?, hora_fin?, sede_id?, motivo?, dry_run?=true
+# - Lógica: igual a por sede pero acotando al prestador.
+# ------------------------------------------------------------------------------
 class CancelarPorPrestadorAdminView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente)]
@@ -761,7 +870,12 @@ class CancelarPorPrestadorAdminView(APIView):
         return Response(resumen, status=200)
 
 
-
+# ------------------------------------------------------------------------------
+# GET /turnos/bonificados/mios/  y  /turnos/bonificados/mios/<tipo_clase_id>/
+# - Permisos: Autenticado.
+# - Función: devuelve bonificaciones vigentes del usuario (opcional filtro por tipo de clase → x1..x4 con alias).
+# - Respuesta: [{id, motivo, tipo_turno, fecha_creacion, valido_hasta}, ...]
+# ------------------------------------------------------------------------------
 def _tipo_code_y_aliases(tipo_clase_id: int):
     """
     Devuelve (code, aliases_set) para el tipo_clase dado.
@@ -824,6 +938,12 @@ def bonificaciones_mias(request, tipo_clase_id=None):
     ]
     return Response(data)
 
+
+# ------------------------------------------------------------------------------
+# GET /turnos/prestadores/disponibles/?lugar_id=
+# - Permisos: Autenticado.
+# - Función: devolver prestadores activos con disponibilidad en la sede indicada.
+# ------------------------------------------------------------------------------
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def prestadores_disponibles(request):
@@ -840,6 +960,11 @@ def prestadores_disponibles(request):
     return Response(serializer.data)
 
 
+# ------------------------------------------------------------------------------
+# GET /turnos/prestador/mio/
+# - Permisos: Autenticado.
+# - Función: retorna el id de Prestador vinculado al usuario logueado (o 404 si no existe).
+# ------------------------------------------------------------------------------
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def prestador_actual(request):
@@ -848,4 +973,3 @@ def prestador_actual(request):
     if not prestador:
         return Response({"detail": "No se encontró un prestador asociado a este usuario"}, status=404)
     return Response({"id": prestador.id})
-
