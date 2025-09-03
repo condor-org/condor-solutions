@@ -54,6 +54,7 @@ from apps.turnos_core.models import (
     TurnoBonificado,
 )
 
+from apps.pagos_core.models import ComprobantePago, PagoIntento
 # App imports - Serializers
 from apps.turnos_core.serializers import (
     BloqueoTurnosSerializer,
@@ -70,6 +71,7 @@ from apps.turnos_core.serializers import (
     CancelacionPorSedeSerializer,
     CancelacionPorPrestadorSerializer,
 )
+
 
 # App imports - Servicios
 from apps.turnos_core.services.turnos import generar_turnos_para_prestador
@@ -711,6 +713,10 @@ def _notify_cancelacion_usuario(turno, actor):
 #     * Reservado SIN bono → SÍ emite bonificación automática (mismo tipo_turno).
 # - Side-effects: notifica a admins si quien canceló fue el usuario.
 # ------------------------------------------------------------------------------
+# apps/turnos_core/views.py
+from django.utils import timezone
+from apps.pagos_core.models import ComprobantePago, PagoIntento  # <-- agregar import
+
 class CancelarTurnoView(APIView):
     permission_classes = [IsAuthenticated]
     def post(self, request):
@@ -739,9 +745,41 @@ class CancelarTurnoView(APIView):
             # ¿fue reservado con bonificación?
             bonificacion_usada = (
                 TurnoBonificado.objects
-                .filter(usado_en_turno=turno)  # ajustá este filtro si tu esquema es distinto
+                .filter(usado_en_turno=turno)
                 .first()
             )
+
+            # === NEW: anular y desasociar comprobante si existiera ===
+            try:
+                comp = (ComprobantePago.objects
+                        .select_for_update()
+                        .filter(turno=turno)
+                        .first())
+                if comp:
+                    # Anular intentos de pago activos asociados a este comprobante
+                    PagoIntento.objects.filter(
+                        origen=comp,
+                        estado__in=["pre_aprobado", "aprobado"]
+                    ).update(estado="anulado")
+
+                    # Marcar comprobante como anulado y liberar FK del turno
+                    comp.estado = "anulado"
+                    if hasattr(comp, "anulado_at"):
+                        comp.anulado_at = timezone.now()
+                    if hasattr(comp, "anulado_por"):
+                        comp.anulado_por = request.user
+                    if hasattr(comp, "anulado_motivo"):
+                        comp.anulado_motivo = "Cancelación de turno"
+                    comp.turno = None  # <--- LIBERA el UNIQUE por turno
+                    comp.save(update_fields=[f.name for f in comp._meta.fields if f.name in {
+                        "estado", "anulado_at", "anulado_por", "anulado_motivo", "turno"
+                    }] or ["estado", "turno"])
+                    logger.warning("[turnos.cancelar][comp.anulado] turno=%s comp_id=%s", turno.id, comp.id)
+                else:
+                    logger.info("[turnos.cancelar][comp.none] turno=%s sin comprobante", turno.id)
+            except Exception as e:
+                # No romper la cancelación si falló la anulación de comprobante
+                logger.exception("[turnos.cancelar][comp.fail] turno=%s err=%s", turno.id, str(e))
 
             # 🔓 Liberar el slot
             turno.usuario = None
@@ -753,8 +791,6 @@ class CancelarTurnoView(APIView):
             try:
                 if bonificacion_usada:
                     # Si se reservó con bono:
-                    # - Usuario cancela => NO emitir
-                    # - Admin cancela => SÍ emitir (devolución)
                     if es_admin and usuario_original:
                         emitir_bonificacion_automatica(
                             usuario=usuario_original,
@@ -763,8 +799,7 @@ class CancelarTurnoView(APIView):
                         )
                         bono_creado = True
                 else:
-                    # Si NO se reservó con bono: se aplica la política general previa
-                    # (el serializer ya debió validar la política)
+                    # Si NO se reservó con bono: política general (serializer ya validó)
                     if usuario_original:
                         emitir_bonificacion_automatica(
                             usuario=usuario_original,
@@ -777,8 +812,9 @@ class CancelarTurnoView(APIView):
                     "[turnos.cancelar][bono][fail] actor=%s turno_id=%s err=%s",
                     request.user.id, turno.id, str(e)
                 )
+
         try:
-            # Solo si la cancelación fue iniciada por el usuario final o empleado_cliente actuando sobre su propio turno.
+            # Notificación al usuario cuando él mismo cancela
             if not es_admin:
                 _notify_cancelacion_usuario(turno=turno, actor=request.user)
         except Exception:
@@ -788,7 +824,6 @@ class CancelarTurnoView(APIView):
             "message": "Turno cancelado y liberado.",
             "bonificacion_creada": bono_creado
         }, status=200)
-
 
 # ------------------------------------------------------------------------------
 # POST /turnos/admin/cancelar_por_sede/  → Cancelaciones masivas por sede

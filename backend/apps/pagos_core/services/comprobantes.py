@@ -241,7 +241,8 @@ class ComprobanteService:
             logger.debug("[comprobantes.parse][%s] Parsed bruto: %s", extractor_name, parsed)
         except ParserExtractionError as e:
             logger.warning("[comprobantes.parse][%s] Fallo de extracción/validación: %s", extractor_name, e)
-            raise ValidationError(str(e)) from e
+            logger.info("[comprobantes.parse] Fallback → extractor genérico (bank=%s)", extractor_name)
+            parsed = generic_extractor.extract(texto, cfg=cfg)
         except Exception as e:
             logger.exception("[comprobantes.parse][%s] Error no manejado en extractor", extractor_name)
             raise ValidationError("No se pudo interpretar el comprobante. Probá con otra captura/archivo.") from e
