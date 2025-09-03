@@ -84,10 +84,10 @@ jobs:
             "BACKEND_TAG=${{ env.BACKEND_TAG }}" \
             "FRONTEND_TAG=${{ env.FRONTEND_TAG }}" \
             "CRON_TAG=${{ env.CRON_TAG }}" \
-            "GCP_SA_CLIENT_EMAIL=${{ secrets.GCP_SA_CLIENT_EMAIL }}"
-            "GCP_SA_PROJECT_ID=${{ secrets.GCP_SA_PROJECT_ID }}"
-            "GOOGLE_CREDS=${{ secrets.GOOGLE_CREDS }}"
-            "VISION_OCR_BUCKET=${{ secrets.VISION_OCR_BUCKET }}"
+            "GCP_SA_CLIENT_EMAIL=${{ secrets.GCP_SA_CLIENT_EMAIL }}" \
+            "GCP_SA_PROJECT_ID=${{ secrets.GCP_SA_PROJECT_ID }}" \
+            "GOOGLE_CREDS=${{ secrets.GOOGLE_CREDS }}" \
+            "VISION_OCR_BUCKET=${{ secrets.VISION_OCR_BUCKET }}" \
             > .env.prod
 
             echo "[+] Verificando compose"
