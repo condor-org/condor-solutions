@@ -156,6 +156,14 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
+    @staticmethod
+    def _as_bool(val) -> bool:
+        if val is True:
+            return True
+        if val is False or val is None:
+            return False
+        return str(val).strip().lower() in ("1", "true", "t", "yes", "y", "on")
+
     def get_queryset(self):
         user = self.request.user
         logger.info("[AbonoMesViewSet:get_queryset] Usuario: %s (%s)", user.id, user.tipo_usuario)
@@ -179,11 +187,45 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
 
         data = request.data.copy()
 
+        # ➜ admitir 'usuario_id' o 'usuario'
+        usuario_target = data.get("usuario") or data.get("usuario_id")
         if user.tipo_usuario == "usuario_final":
-            usuario_id = data.get("usuario")
-            if usuario_id and int(usuario_id) != user.id:
+            if usuario_target and int(usuario_target) != user.id:
                 return Response({"detail": "No podés crear abonos para otro usuario."}, status=403)
             data["usuario"] = user.id
+        else:
+            if not usuario_target:
+                return Response({"detail": "Debe indicar usuario para asignar el abono."}, status=400)
+            try:
+                data["usuario"] = int(usuario_target)
+            except (TypeError, ValueError):
+                return Response({"detail": "Usuario inválido."}, status=400)
+
+            # validar cliente para admin_cliente
+            try:
+                sede_id = int(data.get("sede"))
+            except (TypeError, ValueError):
+                return Response({"detail": "Sede inválida."}, status=400)
+
+            from django.contrib.auth import get_user_model
+            Usuario = get_user_model()
+            target_user = Usuario.objects.only("id", "cliente_id").filter(id=data["usuario"]).first()
+            if not target_user:
+                return Response({"detail": "Usuario destino inexistente."}, status=404)
+
+            try:
+                sede = Lugar.objects.only("id", "cliente_id").get(id=sede_id)
+            except Lugar.DoesNotExist:
+                return Response({"detail": "Sede no encontrada."}, status=404)
+
+            if user.tipo_usuario == "admin_cliente":
+                if target_user.cliente_id != user.cliente_id or sede.cliente_id != user.cliente_id:
+                    logger.warning("[abonos.create][cliente_mismatch] admin=%s target_user=%s sede=%s",
+                                   user.id, target_user.id, sede.id)
+                    return Response({"detail": "No autorizado para asignar fuera de tu cliente."}, status=403)
+
+        # flag opcional admin para omitir comprobante
+        forzar_admin = self._as_bool(data.get("forzar_admin"))
 
         # Extraemos bonificaciones y archivo
         bonificaciones_ids = data.getlist("bonificaciones_ids") if hasattr(data, "getlist") else data.get("bonificaciones_ids", [])
@@ -195,7 +237,8 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
                 data=data,
                 bonificaciones_ids=bonificaciones_ids,
                 archivo=archivo,
-                request=request
+                request=request,
+                forzar_admin=forzar_admin,  # 👈 nuevo
             )
         except serializers.ValidationError as e:
             return Response(e.detail, status=400)
@@ -225,7 +268,7 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
                 cliente_id=cliente_id,
                 metadata={
                     "abono_id": abono.id,
-                    "usuario": getattr(request.user, "email", None),
+                    "usuario": getattr(abono.usuario, "email", None),  # 👈 beneficiario
                     "sede_id": getattr(abono.sede, "id", None),
                     "prestador_id": getattr(abono.prestador, "id", None),
                     "anio": abono.anio, "mes": abono.mes, "dia_semana": abono.dia_semana,
@@ -243,7 +286,7 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             ctx = {
                 a.id: {
                     "abono_id": abono.id,
-                    "usuario": getattr(request.user, "email", None),
+                    "usuario": getattr(abono.usuario, "email", None),  # 👈 beneficiario
                     "tipo": getattr(abono.tipo_clase, "codigo", None),
                     "sede_nombre": sede_nombre,
                     "prestador": prestador_nombre,
@@ -267,7 +310,6 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
 
         logger.info("[AbonoMesViewSet:create] Abono creado y reservado correctamente")
         return Response(payload, status=201)
-
 
     @action(detail=False, methods=["GET"], url_path="disponibles")
     def disponibles(self, request):
@@ -395,11 +437,44 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         user = request.user
         data = request.data.copy()
 
+        # ➜ admitir 'usuario_id' o 'usuario'
+        usuario_target = data.get("usuario") or data.get("usuario_id")
         if user.tipo_usuario == "usuario_final":
-            usuario_id = data.get("usuario")
-            if usuario_id and int(usuario_id) != user.id:
+            if usuario_target and int(usuario_target) != user.id:
                 return Response({"detail": "No podés crear abonos para otro usuario."}, status=403)
             data["usuario"] = user.id
+        else:
+            if not usuario_target:
+                return Response({"detail": "Debe indicar usuario para asignar el abono."}, status=400)
+            try:
+                data["usuario"] = int(usuario_target)
+            except (TypeError, ValueError):
+                return Response({"detail": "Usuario inválido."}, status=400)
+
+            try:
+                sede_id = int(data.get("sede"))
+            except (TypeError, ValueError):
+                return Response({"detail": "Sede inválida."}, status=400)
+
+            from django.contrib.auth import get_user_model
+            Usuario = get_user_model()
+            target_user = Usuario.objects.only("id", "cliente_id").filter(id=data["usuario"]).first()
+            if not target_user:
+                return Response({"detail": "Usuario destino inexistente."}, status=404)
+
+            try:
+                sede = Lugar.objects.only("id", "cliente_id").get(id=sede_id)
+            except Lugar.DoesNotExist:
+                return Response({"detail": "Sede no encontrada."}, status=404)
+
+            if user.tipo_usuario == "admin_cliente":
+                if target_user.cliente_id != user.cliente_id or sede.cliente_id != user.cliente_id:
+                    logger.warning("[abonos.reservar][cliente_mismatch] admin=%s target_user=%s sede=%s",
+                                   user.id, target_user.id, sede.id)
+                    return Response({"detail": "No autorizado para asignar fuera de tu cliente."}, status=403)
+
+        # flag opcional
+        forzar_admin = self._as_bool(data.get("forzar_admin"))
 
         bonificaciones_ids = data.getlist("bonificaciones_ids") if hasattr(data, "getlist") else data.get("bonificaciones_ids", [])
         archivo = data.get("archivo")
@@ -409,7 +484,8 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
                 data=data,
                 bonificaciones_ids=bonificaciones_ids,
                 archivo=archivo,
-                request=request
+                request=request,
+                forzar_admin=forzar_admin,  # 👈 nuevo
             )
         except serializers.ValidationError as e:
             return Response(e.detail, status=400)
@@ -439,7 +515,7 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
                 cliente_id=cliente_id,
                 metadata={
                     "abono_id": abono.id,
-                    "usuario": getattr(request.user, "email", None),
+                    "usuario": getattr(abono.usuario, "email", None),  # 👈 beneficiario
                     "sede_id": getattr(abono.sede, "id", None),
                     "prestador_id": getattr(abono.prestador, "id", None),
                     "anio": abono.anio, "mes": abono.mes, "dia_semana": abono.dia_semana,
@@ -457,7 +533,7 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             ctx = {
                 a.id: {
                     "abono_id": abono.id,
-                    "usuario": getattr(request.user, "email", None),
+                    "usuario": getattr(abono.usuario, "email", None),  # 👈 beneficiario
                     "tipo": getattr(abono.tipo_clase, "codigo", None),
                     "sede_nombre": sede_nombre,
                     "prestador": prestador_nombre,
@@ -480,7 +556,7 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             logger.exception("[notif][abono_reserva][fail]")
 
         return Response(payload, status=201)
-        
+       
 class TipoAbonoPadelViewSet(viewsets.ModelViewSet):
     authentication_classes = [JWTAuthentication]
     permission_classes = [EsAdminDeSuCliente | EsSuperAdmin | SoloLecturaUsuariosFinalesYEmpleados]
@@ -498,3 +574,11 @@ class TipoAbonoPadelViewSet(viewsets.ModelViewSet):
             qs = qs.filter(configuracion_sede__sede_id=sede_id)
 
         return qs
+
+
+def _as_bool(val) -> bool:
+    if val is True:
+        return True
+    if val is False or val is None:
+        return False
+    return str(val).strip().lower() in ("1", "true", "t", "yes", "y", "on")

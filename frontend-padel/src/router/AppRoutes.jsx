@@ -26,6 +26,8 @@ import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import NotificacionesPage from "../pages/user/NotificacionesPage";
 import NotificacionesAdminPage from '../pages/admin/NotificacionesAdminPage';
+import ReservarAbonoAdmin from "../pages/admin/ReservarAbonoAdmin"; // ⬅️ nuevo import
+
 
 const AppRoutes = () => {
   const { user } = useContext(AuthContext);
@@ -77,6 +79,17 @@ const AppRoutes = () => {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/admin/abonos"
+          element={
+            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
+              <MainLayout>
+                <ReservarAbonoAdmin />
+              </MainLayout>
+            </ProtectedRoute>
+          }
+        />
+
         <Route
           path="/admin/sedes"
           element={
