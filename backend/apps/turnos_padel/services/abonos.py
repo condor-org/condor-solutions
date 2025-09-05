@@ -10,7 +10,6 @@ from django.utils import timezone
 from apps.turnos_core.models import Turno
 from apps.turnos_padel.models import AbonoMes
 from apps.turnos_padel.serializers import AbonoMesSerializer
-from rest_framework import serializers
 from apps.pagos_core.services.comprobantes import ComprobanteService
 from apps.turnos_padel.utils import proximo_mes
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -437,14 +436,15 @@ def procesar_renovacion_de_abono(abono_anterior: AbonoMes):
 
 
 @transaction.atomic
-def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request):
+def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar_admin=False):
     """
     Reglas:
       - Se recalcula todo en backend.
       - Cada bonificación vale el precio de la TipoClasePadel (de la sede).
       - restante = precio_abono - (n_bonos_aplicables * precio_tipo_clase)
       - Si restante <= 0: no hace falta comprobante → marcar bonos usados y reservar.
-      - Si restante  > 0: debe venir comprobante por EXACTO ese restante; si no, error.
+      - Si restante  > 0: debe venir comprobante por EXACTO ese restante; salvo override admin.
+      - Override admin: si el caller es super_admin/admin_cliente y forzar_admin=True → no exige comprobante.
     """
     from apps.turnos_core.models import TurnoBonificado
 
@@ -454,17 +454,22 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request):
     vdata = dict(serializer.validated_data)   # datos validados
     abono = AbonoMes(**vdata)                 # instancia sin guardar
 
+    # ¿quién llama?
+    user = getattr(request, "user", None)
+    caller_es_admin = bool(user and getattr(user, "tipo_usuario", None) in ("super_admin", "admin_cliente"))
+    omitir_archivo = caller_es_admin and bool(forzar_admin)
+
     # 1) Precios desde DB (no confiamos en front)
     precio_abono = float(abono.tipo_abono.precio) if abono.tipo_abono_id else float(abono.monto)
     precio_turno = float(abono.tipo_clase.precio)
     code = (getattr(abono.tipo_clase, "codigo", "") or "").strip().lower()
     code_alias = {"x1": "individual", "x2": "2 personas", "x3": "3 personas", "x4": "4 personas"}.get(code, "")
 
-    # 2) Traer bonificaciones válidas del usuario y del tipo correcto (DB)
+    # 2) Traer bonificaciones válidas del USUARIO DESTINO y del tipo correcto (DB)
     bonificaciones_ids = bonificaciones_ids or []
     bonos_qs = TurnoBonificado.objects.select_for_update().filter(
         id__in=bonificaciones_ids,
-        usuario=request.user,
+        usuario=abono.usuario,   # 👈 beneficiario real del abono
         usado=False,
     ).filter(
         models.Q(valido_hasta__isnull=True) | models.Q(valido_hasta__gte=timezone.localdate())
@@ -478,9 +483,9 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request):
     valor_bonos = n_bonos * precio_turno
     restante = max(precio_abono - valor_bonos, 0.0)
 
-    # 4) Si hay restante > 0, exigir comprobante por ese EXACTO monto
+    # 4) Si hay restante > 0, exigir comprobante por ese EXACTO monto (salvo override admin)
     comprobante_abono = None
-    if restante > 0:
+    if restante > 0 and not omitir_archivo:
         if not archivo:
             raise serializers.ValidationError({"comprobante": "Falta comprobante para cubrir el monto restante."})
         # validar y crear comprobante por el RESTANTE (sin tocar turnos todavía)
@@ -488,12 +493,21 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request):
             comprobante_abono = ComprobanteService.validar_y_crear_comprobante_abono(
                 abono=abono,
                 file_obj=archivo,
-                usuario=request.user,
+                usuario=abono.usuario,   # 👈 beneficiario, no el admin
                 monto_esperado=restante,
             )
         except DjangoValidationError:
             raise serializers.ValidationError({"comprobante": "Comprobante no válido"})
 
+    logger.info(
+        "[abonos.validar_y_confirmar] actor_id=%s role=%s forzar_admin=%s omitir_archivo=%s restante=%.2f tiene_archivo=%s",
+        getattr(user, "id", None),
+        getattr(user, "tipo_usuario", None),
+        bool(forzar_admin),
+        omitir_archivo,
+        restante,
+        bool(archivo),
+    )
 
     # 5) Persistir abono y reservar (pone locks, setea relaciones, etc.)
     abono.save()

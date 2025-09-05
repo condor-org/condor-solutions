@@ -81,6 +81,7 @@ const PagosPreaprobadosPage = () => {
           { label: "Usuarios", path: "/admin/usuarios" },
           { label: "Cancelaciones", path: "/admin/cancelaciones" },
           { label: "Pagos Preaprobados", path: "/admin/pagos-preaprobados" },
+          { label: "Abonos (Asignar)", path: "/admin/abonos" },
         ]}
       />
       <Box flex="1" p={{ base: 4, md: 8 }} bg={bg} color={card.color}>

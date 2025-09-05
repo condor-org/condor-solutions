@@ -16,7 +16,7 @@
 #   make backend-shell     # shell dentro del contenedor backend
 #   make rebuild           # rebuild de imágenes y levanta
 
-DC := docker compose
+DC := docker compose -f docker-compose.yml -f docker-compose-build.yml
 
 .PHONY: up up-backend down reset-db clean-db wait-db makemig plan migrate bootstrap-condor bootstrap-condor-skip-migrate init reset-bootstrap cron logs psql backend-shell rebuild
 

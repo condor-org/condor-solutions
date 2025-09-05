@@ -280,6 +280,7 @@ const ProfesoresPage = () => {
           { label: "Usuarios", path: "/admin/usuarios" },
           { label: "Cancelaciones", path: "/admin/cancelaciones" },
           { label: "Pagos Preaprobados", path: "/admin/pagos-preaprobados" },
+          { label: "Abonos (Asignar)", path: "/admin/abonos" },
         ]}
       />
 

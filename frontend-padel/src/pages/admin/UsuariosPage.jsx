@@ -5,9 +5,9 @@ import {
   Box, Flex, Heading, Text, VStack, Modal, ModalOverlay, ModalContent,
   ModalHeader, ModalCloseButton, ModalBody, ModalFooter, useDisclosure,
   IconButton, Switch, Stack, HStack, useBreakpointValue, Divider,
-  useColorModeValue, Select, SimpleGrid, ButtonGroup
+  useColorModeValue, Select, SimpleGrid, ButtonGroup, InputGroup, InputLeftElement
 } from "@chakra-ui/react";
-import { DeleteIcon, EditIcon } from "@chakra-ui/icons";
+import { DeleteIcon, EditIcon, SearchIcon } from "@chakra-ui/icons";
 import Sidebar from "../../components/layout/Sidebar";
 import Button from "../../components/ui/Button";
 import { Input as ChakraInput } from "@chakra-ui/react";
@@ -54,9 +54,8 @@ const UsuariosPage = () => {
   const input = useInputColors();
   const mutedText = useMutedText();
   
-  const usuariosFinales = usuarios.filter(u => u.tipo_usuario === "usuario_final");
-  const empleados = usuarios.filter(u => u.tipo_usuario === "empleado_cliente");
-  const admins = usuarios.filter(u => u.tipo_usuario === "admin_cliente");
+
+
 
   const [motivoBonificacion, setMotivoBonificacion] = useState("");
   const [cargandoBono, setCargandoBono] = useState(false);
@@ -172,6 +171,29 @@ const UsuariosPage = () => {
     }
   };
 
+  const [busqueda, setBusqueda] = useState("");
+
+  // lista filtrada (performante)
+  const usuariosFiltrados = React.useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return usuarios;
+    return usuarios.filter((u) => {
+      const campos = [
+        u.nombre,
+        u.apellido,
+        u.email,
+        u.telefono,
+        u.username,
+        u.tipo_usuario,
+      ];
+      return campos.some((c) => (c || "").toString().toLowerCase().includes(q));
+    });
+  }, [usuarios, busqueda]);
+
+  const usuariosFinales = usuariosFiltrados.filter(u => u.tipo_usuario === "usuario_final");
+  const empleados = usuariosFiltrados.filter(u => u.tipo_usuario === "empleado_cliente");
+  const admins = usuariosFiltrados.filter(u => u.tipo_usuario === "admin_cliente");
+
   const handleDelete = async (id, email) => {
     if (!window.confirm(`¿Eliminar el usuario "${email}"?`)) return;
     const api = axiosAuth(accessToken);
@@ -265,6 +287,7 @@ const UsuariosPage = () => {
           { label: "Usuarios", path: "/admin/usuarios" },
           { label: "Cancelaciones", path: "/admin/cancelaciones" },
           { label: "Pagos Preaprobados", path: "/admin/pagos-preaprobados" },
+          { label: "Abonos (Asignar)", path: "/admin/abonos" },
         ]}
       />
 
@@ -273,6 +296,26 @@ const UsuariosPage = () => {
         {/* Header responsivo */}
         <Stack direction={{ base: "column", md: "row" }} justify="space-between" align={{ md: "center" }} mb={4} spacing={3}>
           <Heading size="md">Administrar Usuarios</Heading>
+
+          <InputGroup
+            size={{ base: "md", md: "lg" }}
+            w={{ base: "100%", md: "320px" }}
+          >
+            <InputLeftElement pointerEvents="none">
+              <SearchIcon color="gray.400" />
+            </InputLeftElement>
+            <ChakraInput
+              placeholder="Buscar usuario..."
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              bg={input.bg}
+              color={input.color}
+              _placeholder={{ color: "gray.400" }}
+              borderRadius="full"
+              pr="4"
+            />
+          </InputGroup>
+
           <Button onClick={openForCreate} size={{ base: "md", md: "lg" }} w={{ base: "100%", md: "auto" }}>
             Agregar Usuario
           </Button>
@@ -339,7 +382,19 @@ const UsuariosPage = () => {
                   size="md"
                   fontSize={{ base: "16px", md: "inherit" }}
                 />
-                {!editingId && (
+                {editingId ? (
+                  // Edición: campo opcional para cambiar password
+                  <ChakraInput
+                    placeholder="Nueva contraseña (opcional)"
+                    type="password"
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    size="md"
+                    fontSize={{ base: "16px", md: "inherit" }}
+                  />
+                ) : (
+                  // Creación: password obligatoria
                   <ChakraInput
                     placeholder="Contraseña"
                     type="password"
@@ -350,6 +405,7 @@ const UsuariosPage = () => {
                     fontSize={{ base: "16px", md: "inherit" }}
                   />
                 )}
+
                 <HStack justify="space-between">
                   <Text>Activo</Text>
                   <Switch isChecked={activo} onChange={e => setActivo(e.target.checked)} colorScheme="green" />

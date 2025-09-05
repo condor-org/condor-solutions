@@ -1,31 +1,25 @@
-# apps/turnos_core/views.py
-
 # Built-in
 from datetime import datetime
-
-from apps.turnos_core.services.bonificaciones import emitir_bonificacion_automatica, bonificaciones_vigentes
-from rest_framework.exceptions import PermissionDenied as DRFPermissionDenied
-
+import logging
+from zoneinfo import ZoneInfo  # Python 3.9+
 
 # Django
+from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.db import models, transaction
 from django.db.models import Q
+from django.utils import timezone
 from django.utils.dateparse import parse_date
-from django.utils.timezone import now, localtime 
-from django.contrib.auth import get_user_model
-from django.utils import timezone as tz
-from zoneinfo import ZoneInfo  # Python 3.9+
+from django.utils.timezone import now, localtime
 
 
 # Django REST Framework
 from rest_framework import permissions, status, viewsets
-from rest_framework.decorators import (
-    api_view,
-    permission_classes,
-    action,
+from rest_framework.decorators import api_view, permission_classes, action
+from rest_framework.exceptions import (
+    ValidationError,
+    PermissionDenied as DRFPermissionDenied,
 )
-from rest_framework.exceptions import ValidationError
 from rest_framework.generics import CreateAPIView, ListAPIView
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
@@ -53,8 +47,9 @@ from apps.turnos_core.models import (
     Turno,
     TurnoBonificado,
 )
-
 from apps.pagos_core.models import ComprobantePago, PagoIntento
+from apps.turnos_padel.models import TipoClasePadel
+
 # App imports - Serializers
 from apps.turnos_core.serializers import (
     BloqueoTurnosSerializer,
@@ -72,18 +67,20 @@ from apps.turnos_core.serializers import (
     CancelacionPorPrestadorSerializer,
 )
 
-
 # App imports - Servicios
+from apps.turnos_core.services.bonificaciones import (
+    emitir_bonificacion_automatica,
+    bonificaciones_vigentes,
+)
 from apps.turnos_core.services.turnos import generar_turnos_para_prestador
-import logging
+from apps.turnos_core.services.cancelaciones_admin import cancelar_turnos_admin
+from apps.notificaciones_core.services import (
+    publish_event,
+    notify_inapp,
+    TYPE_CANCELACION_TURNO,
+)
 
 logger = logging.getLogger(__name__)
-
-
-from apps.turnos_padel.models import TipoClasePadel
-
-from apps.turnos_core.services.cancelaciones_admin import cancelar_turnos_admin
-from apps.notificaciones_core.services import publish_event, notify_inapp, TYPE_CANCELACION_TURNO
 
 
 # ------------------------------------------------------------------------------
@@ -235,7 +232,7 @@ class TurnosDisponiblesView(APIView):
             filtros["fecha"] = fecha
 
         # Ventana temporal: hoy desde la hora actual (zona AR) y futuro
-        ahora_ar = tz.now().astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
+        ahora_ar = timezone.now().astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
         hoy = ahora_ar.date()
         hora = ahora_ar.time().replace(microsecond=0)
 
@@ -713,12 +710,11 @@ def _notify_cancelacion_usuario(turno, actor):
 #     * Reservado SIN bono → SÍ emite bonificación automática (mismo tipo_turno).
 # - Side-effects: notifica a admins si quien canceló fue el usuario.
 # ------------------------------------------------------------------------------
-# apps/turnos_core/views.py
-from django.utils import timezone
-from apps.pagos_core.models import ComprobantePago, PagoIntento  # <-- agregar import
+
 
 class CancelarTurnoView(APIView):
     permission_classes = [IsAuthenticated]
+
     def post(self, request):
         ser = CancelarTurnoSerializer(data=request.data, context={"request": request})
         if not ser.is_valid():
@@ -728,7 +724,7 @@ class CancelarTurnoView(APIView):
         turno = ser.validated_data["turno"]
 
         with transaction.atomic():
-            # 🔒 lock por carrera
+            # 🔒 Lock del turno
             turno = Turno.objects.select_for_update().get(pk=turno.pk)
 
             # Revalidar estado por si cambió entre request y lock
@@ -749,37 +745,60 @@ class CancelarTurnoView(APIView):
                 .first()
             )
 
-            # === NEW: anular y desasociar comprobante si existiera ===
-            try:
-                comp = (ComprobantePago.objects
-                        .select_for_update()
-                        .filter(turno=turno)
-                        .first())
-                if comp:
-                    # Anular intentos de pago activos asociados a este comprobante
-                    PagoIntento.objects.filter(
-                        origen=comp,
-                        estado__in=["pre_aprobado", "aprobado"]
-                    ).update(estado="anulado")
+            # === Anular y desasociar comprobante si existiera ===
+            comp = (
+                ComprobantePago.objects
+                .select_for_update()
+                .filter(turno=turno)
+                .first()
+            )
 
-                    # Marcar comprobante como anulado y liberar FK del turno
-                    comp.estado = "anulado"
-                    if hasattr(comp, "anulado_at"):
-                        comp.anulado_at = timezone.now()
-                    if hasattr(comp, "anulado_por"):
-                        comp.anulado_por = request.user
-                    if hasattr(comp, "anulado_motivo"):
-                        comp.anulado_motivo = "Cancelación de turno"
-                    comp.turno = None  # <--- LIBERA el UNIQUE por turno
-                    comp.save(update_fields=[f.name for f in comp._meta.fields if f.name in {
-                        "estado", "anulado_at", "anulado_por", "anulado_motivo", "turno"
-                    }] or ["estado", "turno"])
-                    logger.warning("[turnos.cancelar][comp.anulado] turno=%s comp_id=%s", turno.id, comp.id)
-                else:
-                    logger.info("[turnos.cancelar][comp.none] turno=%s sin comprobante", turno.id)
-            except Exception as e:
-                # No romper la cancelación si falló la anulación de comprobante
-                logger.exception("[turnos.cancelar][comp.fail] turno=%s err=%s", turno.id, str(e))
+            if comp:
+                # 1) Anular intentos activos ligados a este comprobante (GFK correcto)
+                try:
+                    ct = ContentType.objects.get_for_model(ComprobantePago)
+                    afectados = (
+                        PagoIntento.objects
+                        .filter(content_type=ct, object_id=comp.id, estado__in=["pre_aprobado", "confirmado"])
+                        .update(estado="rechazado")
+                    )
+                    logger.info(
+                        "[turnos.cancelar][pagointento.rechazados] turno=%s comp_id=%s afectados=%s",
+                        turno.id, comp.id, afectados
+                    )
+                except Exception as e:
+                    logger.exception("[turnos.cancelar][pagointento.query][fail] turno=%s comp_id=%s err=%s",
+                                     turno.id, comp.id, str(e))
+                    # Fallar fuerte: no dejamos estado intermedio (turno libre + comp atado)
+                    return Response(
+                        {"error": "No se pudo anular el pago asociado."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                # 2) Marcar comprobante como NO reutilizable y desasociar del turno
+                try:
+                    # Traza/Auditoría mínima en datos_extraidos
+                    datos = comp.datos_extraidos or {}
+                    datos.update({
+                        "turno_original": turno.id,
+                        "cancelado_en": timezone.now().isoformat(),
+                        "motivo_cancelacion": "Cancelación de turno",
+                    })
+                    comp.datos_extraidos = datos
+                    comp.valido = False       # <- impedir reutilización
+                    comp.turno = None         # <- libera el OneToOne
+                    comp.save(update_fields=["datos_extraidos", "valido", "turno"])
+                    logger.warning("[turnos.cancelar][comp.desasociado] turno=%s comp_id=%s", turno.id, comp.id)
+                except Exception as e:
+                    logger.exception("[turnos.cancelar][comp.desasociar][fail] turno=%s comp_id=%s err=%s",
+                                     turno.id, comp.id, str(e))
+                    # Fallar fuerte: evitar inconsistencias
+                    return Response(
+                        {"error": "No se pudo desasociar el comprobante."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+            else:
+                logger.info("[turnos.cancelar][comp.none] turno=%s sin comprobante", turno.id)
 
             # 🔓 Liberar el slot
             turno.usuario = None
@@ -787,11 +806,12 @@ class CancelarTurnoView(APIView):
             turno.save(update_fields=["usuario", "estado"])
 
             bono_creado = False
-            # 🎯 Reglas de emisión:
+            # 🎯 Reglas de emisión
             try:
                 if bonificacion_usada:
                     # Si se reservó con bono:
                     if es_admin and usuario_original:
+                        from apps.turnos_core.services.bonificaciones import emitir_bonificacion_automatica
                         emitir_bonificacion_automatica(
                             usuario=usuario_original,
                             turno_original=turno,
@@ -801,6 +821,7 @@ class CancelarTurnoView(APIView):
                 else:
                     # Si NO se reservó con bono: política general (serializer ya validó)
                     if usuario_original:
+                        from apps.turnos_core.services.bonificaciones import emitir_bonificacion_automatica
                         emitir_bonificacion_automatica(
                             usuario=usuario_original,
                             turno_original=turno,
@@ -813,9 +834,10 @@ class CancelarTurnoView(APIView):
                     request.user.id, turno.id, str(e)
                 )
 
+        # Notificación al usuario cuando él mismo cancela (fuera de la transacción)
         try:
-            # Notificación al usuario cuando él mismo cancela
             if not es_admin:
+                from apps.turnos_core.views import _notify_cancelacion_usuario  # evitar ciclos si aplica
                 _notify_cancelacion_usuario(turno=turno, actor=request.user)
         except Exception:
             logger.exception("[turnos.cancelar][notif_admin][fail] turno=%s", turno.id)

@@ -134,6 +134,7 @@ const DashboardPage = () => {
             { label: "Usuarios", path: "/admin/usuarios" },
             { label: "Cancelaciones", path: "/admin/cancelaciones" },
             { label: "Pagos Preaprobados", path: "/admin/pagos-preaprobados" },
+            { label: "Abonos (Asignar)", path: "/admin/abonos" },
           ]}
         />
         <Box flex="1" p={[4, 6, 8]}>
