@@ -5,10 +5,15 @@ from apps.common.logging import LoggedModelSerializer
 from django.core.exceptions import ValidationError as DjangoValidationError
 from apps.turnos_core.models import Turno
 from apps.pagos_core.models import ComprobantePago
-from .models import ConfiguracionPago
+from apps.turnos_padel.models import AbonoMes  # 🧩 requerido por ComprobanteAbonoUploadSerializer
 
 
 class ComprobanteUploadSerializer(serializers.Serializer):
+    """
+    Subida de comprobante para un turno individual.
+    - Valida existencia y pertenencia del turno (multi-tenant).
+    - Aplica validaciones básicas de archivo (extensión/peso).
+    """
     turno_id = serializers.IntegerField()
     archivo = serializers.FileField()
 
@@ -17,13 +22,13 @@ class ComprobanteUploadSerializer(serializers.Serializer):
         archivo = attrs["archivo"]
         user = self.context["request"].user
 
-        # 1. Validar que el turno exista
+        # 1) Turno existente
         try:
             turno = Turno.objects.select_related("usuario").get(pk=turno_id)
         except Turno.DoesNotExist:
             raise serializers.ValidationError({"turno_id": "Turno no encontrado"})
 
-        # 2. Validar propiedad o control del cliente
+        # 2) Scope por rol/cliente
         if (
             user.tipo_usuario == "usuario_final" and turno.usuario_id != user.id
         ) or (
@@ -31,7 +36,7 @@ class ComprobanteUploadSerializer(serializers.Serializer):
         ):
             raise serializers.ValidationError({"turno_id": "No tenés permiso sobre este turno"})
 
-        # 3. Validaciones básicas de archivo
+        # 3) Archivo: tamaño/extensión (hard limit 3MB; extensiones controladas)
         max_size = 3 * 1024 * 1024  # 3MB
         if archivo.size > max_size:
             raise serializers.ValidationError({"archivo": "El archivo no puede superar 3 MB"})
@@ -44,6 +49,9 @@ class ComprobanteUploadSerializer(serializers.Serializer):
         return attrs
 
     def create(self, validated_data):
+        """
+        Delegamos el procesamiento a ComprobanteService (OCR + reglas).
+        """
         from apps.pagos_core.services.comprobantes import ComprobanteService
 
         turno_id = validated_data["turno_id"]
@@ -51,19 +59,25 @@ class ComprobanteUploadSerializer(serializers.Serializer):
         usuario = self.context["request"].user
 
         try:
-            validated_data["cliente"] = self.context["request"].user.cliente
+            # Hints de contexto para el service (cliente)
+            validated_data["cliente"] = usuario.cliente
             comprobante = ComprobanteService.upload_comprobante(
                 turno_id=turno_id,
                 file_obj=archivo,
                 usuario=usuario
             )
             return comprobante
-
         except DjangoValidationError as e:
+            # Normalizamos a DRF ValidationError
             raise serializers.ValidationError({"error": e.messages})
 
 
 class ComprobantePagoSerializer(LoggedModelSerializer):
+    """
+    Serializer de lectura para listados de comprobantes.
+    - Enriquece con datos denormalizados del turno (usuario, profesor, sede, cliente).
+    - Usa LoggedModelSerializer para trazabilidad de serialización.
+    """
     usuario_nombre = serializers.SerializerMethodField()
     usuario_email = serializers.SerializerMethodField()
     turno_hora = serializers.SerializerMethodField()
@@ -88,6 +102,9 @@ class ComprobantePagoSerializer(LoggedModelSerializer):
             "especialidad_nombre",
             "cliente_nombre",
         ]
+
+    # ⚠️ En estos getters se usa print() para logs de error.
+    #    Recomendación: migrar a logging.getLogger(__name__).exception(...) para consistencia.
 
     def get_usuario_nombre(self, obj):
         try:
@@ -150,6 +167,12 @@ class ComprobantePagoSerializer(LoggedModelSerializer):
 
 
 class TurnoReservaSerializer(serializers.Serializer):
+    """
+    Reserva de un turno (con/sin comprobante según rol).
+    - usuario_final: requiere archivo (comprobante).
+    - admin_cliente: puede reservar sin archivo.
+    - Valida existencia del turno, que no esté reservado, y pertenencia al cliente.
+    """
     turno_id = serializers.IntegerField()
     archivo = serializers.FileField(required=False)
 
@@ -158,44 +181,47 @@ class TurnoReservaSerializer(serializers.Serializer):
         archivo = attrs.get("archivo")
         user = self.context["request"].user
 
+        # Turno existente y libre
         try:
             turno = Turno.objects.select_related("usuario", "prestador__cliente").get(pk=turno_id)
         except Turno.DoesNotExist:
             raise serializers.ValidationError({"turno_id": "El turno no existe."})
-
         if turno.usuario is not None:
             raise serializers.ValidationError({"turno_id": "Ese turno ya está reservado."})
 
-        # --- Validación por tipo de usuario ---
+        # Reglas por rol
         if user.tipo_usuario == "usuario_final":
-            # 🔒 usuario_final DEBE subir archivo
+            # Debe subir comprobante y el turno debe pertenecer a su cliente
             if not archivo:
                 raise serializers.ValidationError({"archivo": "Debés subir un comprobante."})
-
             if turno.prestador.cliente_id != user.cliente_id:
                 raise serializers.ValidationError({"turno_id": "No tenés acceso a este turno."})
 
-            # Validación de archivo
+            # Validación básica del archivo (mismo criterio que ComprobanteUploadSerializer)
             max_size = 3 * 1024 * 1024
             if archivo.size > max_size:
                 raise serializers.ValidationError({"archivo": "El archivo no puede superar 3 MB"})
-
             ext = archivo.name.rsplit(".", 1)[-1].lower()
             allowed_ext = {"pdf", "png", "jpg", "jpeg", "webp", "bmp"}
             if ext not in allowed_ext:
                 raise serializers.ValidationError({"archivo": f"Extensión no permitida: {ext}"})
 
         elif user.tipo_usuario == "admin_cliente":
-            # ✅ puede reservar sin archivo
+            # Puede reservar sin archivo pero debe pertenecer a su cliente
             if turno.prestador.cliente_id != user.cliente_id:
                 raise serializers.ValidationError({"turno_id": "No tenés acceso a este turno."})
-
         else:
+            # Otros roles no participan de este flujo
             raise serializers.ValidationError("No tenés permiso para reservar turnos.")
 
         return attrs
 
     def create(self, validated_data):
+        """
+        Persiste la reserva:
+        - admin_cliente: sin comprobante.
+        - usuario_final: sube comprobante y luego reserva.
+        """
         from apps.pagos_core.services.comprobantes import ComprobanteService
 
         user = self.context["request"].user
@@ -204,36 +230,32 @@ class TurnoReservaSerializer(serializers.Serializer):
 
         turno = Turno.objects.get(pk=turno_id)
 
-        # ✅ Caso admin_cliente: sin comprobante
+        # admin_cliente → reserva directa
         if user.tipo_usuario == "admin_cliente":
             turno.usuario = user
             turno.estado = "reservado"
             turno.save(update_fields=["usuario", "estado"])
             return turno
 
-        # 🧾 Caso usuario_final: procesar comprobante
+        # usuario_final → procesa comprobante antes de reservar
         comprobante = ComprobanteService.upload_comprobante(
             turno_id=turno_id,
             file_obj=archivo,
             usuario=user
         )
-
         turno = comprobante.turno
         turno.usuario = user
         turno.estado = "reservado"
         turno.save(update_fields=["usuario", "estado"])
-
         return turno
 
 
-
-class ConfiguracionPagoSerializer(LoggedModelSerializer):
-    class Meta:
-        model = ConfiguracionPago
-        fields = "__all__"
-
-
 class ComprobanteAbonoUploadSerializer(serializers.Serializer):
+    """
+    Subida de comprobante para un AbonoMes (y aplicación opcional de bonificaciones).
+    - `archivo` es requerido solo si el neto a pagar > 0 (lo decide el view/service).
+    - `bonificaciones_ids` puede venir vacío (lista opcional).
+    """
     abono_mes_id = serializers.IntegerField()
     archivo = serializers.FileField(required=False)  # sólo si monto > 0
     bonificaciones_ids = serializers.ListField(
@@ -242,17 +264,19 @@ class ComprobanteAbonoUploadSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         user = self.context["request"].user
+        # Abono existente y del mismo cliente
         try:
             abono = AbonoMes.objects.select_related("sede__cliente").get(pk=attrs["abono_mes_id"])
         except AbonoMes.DoesNotExist:
             raise serializers.ValidationError({"abono_mes_id": "Abono no encontrado"})
-
         if abono.sede.cliente_id != getattr(user, "cliente_id", None):
             raise serializers.ValidationError({"abono_mes_id": "No tenés permiso sobre este abono"})
-
         return attrs
 
     def create(self, validated_data):
+        """
+        Delegamos el procesamiento al service de comprobantes de abono.
+        """
         from apps.pagos_core.services.comprobantes import ComprobanteService
         usuario = self.context["request"].user
         return ComprobanteService.upload_comprobante_abono(

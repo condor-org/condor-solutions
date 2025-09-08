@@ -7,7 +7,7 @@ from apps.turnos_padel.models import (
     TipoClasePadel,
     TipoAbonoPadel,
     AbonoMes,
-    TIPO_CODIGO_CHOICES,  
+    TIPO_CODIGO_CHOICES,  # catálogo x1..x4
 )
 from apps.turnos_padel.utils import proximo_mes
 import logging
@@ -16,21 +16,28 @@ logger = logging.getLogger(__name__)
 from django.utils import timezone
 
 
+# ===== Catálogos =====
 class TipoClasePadelSerializer(serializers.ModelSerializer):
+    # id opcional para soportar UPSERT en listas embebidas
     id = serializers.IntegerField(required=False)
 
     class Meta:
         model = TipoClasePadel
         fields = ["id", "codigo", "precio", "activo"]
 
+
 class TipoAbonoPadelSerializer(serializers.ModelSerializer):
+    # id opcional para soportar UPSERT en listas embebidas
     id = serializers.IntegerField(required=False)
 
     class Meta:
         model = TipoAbonoPadel
         fields = ["id", "codigo", "precio", "activo"]
 
+
+# ===== Configuración de Sede (incluye catálogos embebidos) =====
 class ConfiguracionSedePadelSerializer(serializers.ModelSerializer):
+    # Embebemos catálogos para edición masiva desde el front
     tipos_clase = TipoClasePadelSerializer(many=True)
     tipos_abono = TipoAbonoPadelSerializer(many=True, required=False)
 
@@ -39,6 +46,11 @@ class ConfiguracionSedePadelSerializer(serializers.ModelSerializer):
         fields = ["id", "alias", "cbu_cvu", "tipos_clase", "tipos_abono"]
 
     def update(self, instance, validated_data):
+        """
+        Upsert de catálogos por id/código + cleanup de no enviados.
+        ✔️ Idempotente respecto al payload: lo no enviado se elimina.
+        ⚠️ Mantiene side-effect de borrar tipos no incluidos.
+        """
         tipos_data = validated_data.pop("tipos_clase", [])
         tipos_abono_data = validated_data.pop("tipos_abono", [])
 
@@ -47,13 +59,13 @@ class ConfiguracionSedePadelSerializer(serializers.ModelSerializer):
         instance.cbu_cvu = validated_data.get("cbu_cvu", instance.cbu_cvu)
         instance.save()
 
-        # ---- Tipos de Clase (upsert por id/codigo; actualiza precio/activo)
+        # ---- Tipos de Clase (upsert + prune)
         vistos_ids = set()
         for tc in tipos_data:
             tc_id = tc.get("id")
             tc_codigo = tc.get("codigo")
             if tc_id:
-                obj = instance.tipos_clase.get(id=tc_id)
+                obj = instance.tipos_clase.get(id=tc_id)  # 404->500: asumimos front envía ids válidos
                 obj.codigo = tc_codigo or obj.codigo
                 obj.precio = tc.get("precio", obj.precio)
                 obj.activo = tc.get("activo", obj.activo)
@@ -69,9 +81,10 @@ class ConfiguracionSedePadelSerializer(serializers.ModelSerializer):
                     obj = TipoClasePadel.objects.create(configuracion_sede=instance, **tc)
                 vistos_ids.add(obj.id)
 
+        # Elimina los tipos no presentes en el payload (prune)
         instance.tipos_clase.exclude(id__in=list(vistos_ids)).delete()
 
-        # ---- Tipos de Abono (upsert por id/codigo; actualiza precio/activo)
+        # ---- Tipos de Abono (upsert + prune)
         vistos_ids = set()
         for ta in tipos_abono_data:
             ta_id = ta.get("id")
@@ -96,7 +109,10 @@ class ConfiguracionSedePadelSerializer(serializers.ModelSerializer):
         instance.tipos_abono.exclude(id__in=list(vistos_ids)).delete()
         return instance
 
+
+# ===== Sede con configuración embebida =====
 class SedePadelSerializer(serializers.ModelSerializer):
+    # Incluye configuración para creación/edición en un solo request
     configuracion_padel = ConfiguracionSedePadelSerializer()
 
     class Meta:
@@ -106,6 +122,10 @@ class SedePadelSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
+        """
+        Crea la sede + configuración + catálogos por defecto (x1..x4).
+        🔐 Cliente se toma del usuario salvo super_admin (debe enviarlo).
+        """
         config_data = validated_data.pop("configuracion_padel", {})
         tipos_data = config_data.pop("tipos_clase", [])
         tipos_abono_data = config_data.pop("tipos_abono", [])
@@ -116,19 +136,20 @@ class SedePadelSerializer(serializers.ModelSerializer):
             if not cliente:
                 raise serializers.ValidationError("Debe especificar un cliente si es super_admin.")
         else:
+            # Evita que un admin_cliente/empleado fuerce cliente distinto
             validated_data.pop("cliente", None)
             cliente = user.cliente
 
         sede = Lugar.objects.create(cliente=cliente, **validated_data)
 
-        # Crear configuración
+        # Crear configuración base
         config = ConfiguracionSedePadel.objects.create(
             sede=sede,
             alias=config_data.get("alias", ""),
             cbu_cvu=config_data.get("cbu_cvu", "")
         )
 
-        # Tipos de clase
+        # Tipos de clase (default si no se proveen)
         if tipos_data:
             for t in tipos_data:
                 TipoClasePadel.objects.create(configuracion_sede=config, **t)
@@ -141,7 +162,7 @@ class SedePadelSerializer(serializers.ModelSerializer):
             ]:
                 TipoClasePadel.objects.create(configuracion_sede=config, **t)
 
-        # Tipos de abono
+        # Tipos de abono (default si no se proveen)
         if tipos_abono_data:
             for ta in tipos_abono_data:
                 TipoAbonoPadel.objects.create(configuracion_sede=config, **ta)
@@ -157,15 +178,19 @@ class SedePadelSerializer(serializers.ModelSerializer):
         return sede
 
     def update(self, instance, validated_data):
+        """
+        Actualiza datos básicos de la sede y delega configuración (alias/CBU + catálogos).
+        ✔️ Asegura config si no existiese.
+        """
         conf_data = validated_data.pop("configuracion_padel", None)
 
-        # Actualizar datos básicos de la sede
+        # Datos básicos (safe set)
         for field in ["nombre", "direccion", "referente", "telefono"]:
             if field in validated_data:
                 setattr(instance, field, validated_data[field])
         instance.save()
 
-        # Asegurar config y delegar la actualización (alias/cbu + tipos)
+        # Asegurar config y delegar actualización granular
         if conf_data is not None:
             config = getattr(instance, "configuracion_padel", None)
             if config is None:
@@ -174,13 +199,17 @@ class SedePadelSerializer(serializers.ModelSerializer):
 
         return instance
 
+
+# ===== Turnos compactos para incrustar en detalles =====
 class TurnoSimpleSerializer(serializers.ModelSerializer):
-    lugar = serializers.StringRelatedField()
+    lugar = serializers.StringRelatedField()  # usa __str__ de Lugar (ligero para listados)
 
     class Meta:
         model = Turno
         fields = ["id", "fecha", "hora", "lugar", "estado"]
 
+
+# ===== Abono (detalle enriquecido para read) =====
 class AbonoMesDetailSerializer(serializers.ModelSerializer):
     usuario = serializers.StringRelatedField()
     sede = serializers.StringRelatedField()
@@ -199,6 +228,8 @@ class AbonoMesDetailSerializer(serializers.ModelSerializer):
             "creado_en", "actualizado_en"
         ]
 
+
+# ===== Abono (serializer base para create/update) =====
 class AbonoMesSerializer(serializers.ModelSerializer):
     class Meta:
         model = AbonoMes
@@ -207,14 +238,23 @@ class AbonoMesSerializer(serializers.ModelSerializer):
             "tipo_clase", "tipo_abono", "monto", "estado", "creado_en", "actualizado_en", "fecha_limite_renovacion"
         ]
         read_only_fields = ["estado", "creado_en", "actualizado_en", "fecha_limite_renovacion"]
-        # Evitamos UniqueTogetherValidator implícito
+        # Evitamos UniqueTogetherValidator implícito; se valida manualmente por estado="pagado"
         validators = []
-        # No exigir 'monto' en el payload; lo calculamos nosotros
+        # 'monto' es sugerido/calc. por backend; no obligatorio en payload
         extra_kwargs = {
             "monto": {"required": False, "allow_null": True}
         }
 
     def validate(self, attrs):
+        """
+        Validaciones de negocio para garantizar consistencia del abono:
+        - Unicidad condicional de franja si ya existe un 'pagado'.
+        - Todo debe pertenecer al mismo cliente (multi-tenant).
+        - tipo_clase y (si viene) tipo_abono deben corresponder a la sede.
+        - Debe haber turnos generados y libres en todas las fechas requeridas:
+          * Mes actual: solo fechas >= hoy.
+          * Mes siguiente: todas las fechas del patrón.
+        """
         usuario = attrs["usuario"]
         sede = attrs["sede"]
         prestador = attrs["prestador"]
@@ -222,7 +262,7 @@ class AbonoMesSerializer(serializers.ModelSerializer):
         anio, mes = attrs["anio"], attrs["mes"]
         dia_semana, hora = attrs["dia_semana"], attrs["hora"]
 
-        # 0) Unicidad condicional (estado="pagado")
+        # 0) Unicidad condicional por franja (solo choca con 'pagado')
         existe_pagado = AbonoMes.objects.filter(
             sede=sede, prestador=prestador, anio=anio, mes=mes,
             dia_semana=dia_semana, hora=hora, estado="pagado"
@@ -237,7 +277,7 @@ class AbonoMesSerializer(serializers.ModelSerializer):
                 "franja": "Ya existe un abono pagado para esa franja (sede, prestador, día y hora)."
             })
 
-        # 1) Todo del mismo cliente
+        # 1) Consistencia de cliente (scope multi-tenant)
         cliente_id = sede.cliente_id
         if not (
             getattr(usuario, "cliente_id", None) == cliente_id and
@@ -254,7 +294,7 @@ class AbonoMesSerializer(serializers.ModelSerializer):
             )
             raise serializers.ValidationError("Todos los elementos del abono deben pertenecer al mismo cliente.")
 
-        # 2) tipo_clase pertenece a la sede
+        # 2) tipo_clase debe pertenecer a la sede seleccionada
         if tipo_clase.configuracion_sede.sede_id != sede.id:
             raise serializers.ValidationError({
                 "tipo_clase": "El tipo de clase no pertenece a la sede seleccionada."
@@ -264,10 +304,10 @@ class AbonoMesSerializer(serializers.ModelSerializer):
         def _proximo_mes(anio_i, mes_i):
             return (anio_i + 1, 1) if mes_i == 12 else (anio_i, mes_i + 1)
 
-        # 3) Validar existencia de turnos requeridos
-        # Mes actual -> SOLO fechas >= hoy
+        # 3) Validar existencia y disponibilidad de TODOS los turnos requeridos
         hoy = timezone.localdate()
         fechas_actual_todas = self._fechas_del_mes_por_dia_semana(anio, mes, dia_semana)
+        # Mes actual: solo futuro (>= hoy)
         fechas_actual = [d for d in fechas_actual_todas if d >= hoy]
 
         prox_anio, prox_mes = _proximo_mes(anio, mes)
@@ -288,6 +328,7 @@ class AbonoMesSerializer(serializers.ModelSerializer):
             ).only("id", "fecha", "estado")
             turnos_map = {t.fecha: t for t in qs}
 
+            # Deben existir todos los turnos del patrón
             faltantes = [f for f in fechas if f not in turnos_map]
             if faltantes:
                 logger.warning(
@@ -298,6 +339,7 @@ class AbonoMesSerializer(serializers.ModelSerializer):
                     etiqueta: f"Faltan turnos generados para {len(faltantes)} fecha(s)."
                 })
 
+            # Ninguno debe estar reservado
             reservados = [t for t in turnos_map.values() if t.estado == "reservado"]
             if reservados:
                 logger.warning(
@@ -313,7 +355,7 @@ class AbonoMesSerializer(serializers.ModelSerializer):
         if fechas_prox:
             _chequear_mes(fechas_prox, "mes_siguiente")
 
-        # 4) tipo_abono debe pertenecer a la sede (si viene)
+        # 4) tipo_abono (si viene) debe pertenecer a la misma sede
         tipo_abono = attrs.get("tipo_abono")
         if tipo_abono and tipo_abono.configuracion_sede.sede_id != sede.id:
             raise serializers.ValidationError({
@@ -324,6 +366,7 @@ class AbonoMesSerializer(serializers.ModelSerializer):
 
     @staticmethod
     def _fechas_del_mes_por_dia_semana(anio: int, mes: int, dia_semana: int):
+        """Devuelve todas las fechas del mes que caen en 'dia_semana' (0=lunes..6=domingo)."""
         from calendar import Calendar
         fechas = []
         for week in Calendar(firstweekday=0).monthdatescalendar(anio, mes):
@@ -332,7 +375,7 @@ class AbonoMesSerializer(serializers.ModelSerializer):
                     fechas.append(d)
         return fechas
 
-    # Calculamos 'monto' automáticamente si no viene en el request
+    # Calcula 'monto' automáticamente si no viene (usa precio del tipo_abono o tipo_clase)
     def create(self, validated_data):
         tipo_abono = validated_data.get("tipo_abono") or validated_data.get("tipo_clase")
         monto_in = validated_data.get("monto", None)
@@ -363,7 +406,7 @@ class AbonoMesSerializer(serializers.ModelSerializer):
         )
         return super().create(validated_data)
 
-    # Añadimos 'monto_sugerido' en la respuesta (útil para el front)
+    # Incluye 'monto_sugerido' en la representación (UX front)
     def to_representation(self, instance):
         data = super().to_representation(instance)
         tipo_ref = getattr(instance, "tipo_abono", None) or getattr(instance, "tipo_clase", None)

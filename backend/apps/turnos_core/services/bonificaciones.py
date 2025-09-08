@@ -58,7 +58,7 @@ def emitir_bonificacion_automatica(usuario, turno_original, motivo="Cancelación
         motivo=motivo,
         generado_automaticamente=True,
         valido_hasta=valido_hasta,
-        tipo_turno=turno_original.tipo_turno,  # << clave: mantiene equivalencia del tipo
+        tipo_turno=turno_original.tipo_turno,  
     )
     logger.info(
         "[BONIFICACION][auto] user=%s turno=%s tipo=%s",

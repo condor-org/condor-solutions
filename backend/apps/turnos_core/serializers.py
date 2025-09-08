@@ -5,7 +5,7 @@ from apps.common.logging import LoggedModelSerializer
 from django.core.exceptions import ValidationError as DjangoValidationError, PermissionDenied as DjangoPermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError, PermissionDenied as DRFPermissionDenied
 from apps.pagos_core.services.comprobantes import ComprobanteService
-from apps.turnos_core.models import Lugar, BloqueoTurnos, Turno, Prestador, Disponibilidad, TurnoBonificado
+from apps.turnos_core.models import Lugar, Turno, Prestador, Disponibilidad, TurnoBonificado
 
 from django.contrib.auth import get_user_model
 from apps.pagos_core.models import PagoIntento
@@ -132,66 +132,36 @@ class TurnoReservaSerializer(serializers.Serializer):
         usar_bonificado = validated_data.get("usar_bonificado", False)
         archivo = validated_data.get("archivo")
 
-        # --- Resolver tipo_turno canónico (x1/x2/x3/x4) ---
-        # 1) directo por atributos (code/codigo)
-        tipo_turno = getattr(tipo_clase, "code", None) or getattr(tipo_clase, "codigo", None)
-
-        # 2) fallback por display/nombre/alias
-        if not tipo_turno:
-            try:
-                display = tipo_clase.get_codigo_display() if hasattr(tipo_clase, "get_codigo_display") else ""
-            except Exception:
-                display = ""
-            nombre_norm = (
-                getattr(tipo_clase, "nombre", None)
-                or display
-                or getattr(tipo_clase, "codigo", "")
+        # --- Tipo de turno canónico (choices del modelo) ---
+        tipo_turno = (getattr(tipo_clase, "codigo", "") or "").strip().lower()
+        if tipo_turno not in {"x1", "x2", "x3", "x4"}:
+            logger.warning(
+                "[turno.reservar][tipo_invalido] user=%s turno=%s tipo_clase_id=%s codigo=%r",
+                user.id, turno.id, getattr(tipo_clase, "id", None), getattr(tipo_clase, "codigo", None)
             )
-            nombre_norm = str(nombre_norm).strip().lower()
-
-            mapping = {
-                "individual": "x1", "x1": "x1",
-                "2 personas": "x2", "x2": "x2",
-                "3 personas": "x3", "x3": "x3",
-                "4 personas": "x4", "x4": "x4",
-            }
-            tipo_turno = mapping.get(nombre_norm)
-
-        logger.debug(
-            "[TurnoReservaSerializer.create] user=%s turno=%s tipo_clase(id=%s) -> {code:%s,codigo:%s,display:%s} => tipo_turno=%s",
-            user.id, turno.id, getattr(tipo_clase, "id", None),
-            getattr(tipo_clase, "code", None),
-            getattr(tipo_clase, "codigo", None),
-            (tipo_clase.get_codigo_display() if hasattr(tipo_clase, "get_codigo_display") else None),
-            tipo_turno,
-        )
-
-        if not tipo_turno:
             raise DRFValidationError({"tipo_clase_id": "Tipo de clase inválido para la reserva."})
 
-        if usar_bonificado:
-            # Consumo de bono (acepta alias históricos)
-            alias_map = {
-                "x1": {"x1", "individual"},
-                "x2": {"x2", "2 personas"},
-                "x3": {"x3", "3 personas"},
-                "x4": {"x4", "4 personas"},
-            }
-            aliases = alias_map.get(tipo_turno, {tipo_turno})
+        logger.debug(
+            "[turno.reservar][tipo] user=%s turno=%s tipo=%s",
+            user.id, turno.id, tipo_turno
+        )
 
-            qs = bonificaciones_vigentes(user).filter(
-                Q(tipo_turno__in=list(aliases))
-            ).order_by("fecha_creacion")
+        if usar_bonificado:
+            qs = (
+                bonificaciones_vigentes(user)
+                .filter(tipo_turno__iexact=tipo_turno)
+                .order_by("fecha_creacion")
+            )
 
             bono = qs.first()
 
-            # Texto de error amigable
+            esc = ""
             try:
-                desc = tipo_clase.get_codigo_display() if hasattr(tipo_clase, "get_codigo_display") else ""
+                desc = tipo_clase.get_codigo_display()
             except Exception:
-                desc = ""
+                pass
             if not desc:
-                desc = getattr(tipo_clase, "codigo", "") or "esta clase"
+                desc = tipo_turno.upper()
 
             logger.info(
                 "[turno.reservar][bono] user=%s turno=%s tipo=%s disponibles=%s elegido=%s",
@@ -203,7 +173,6 @@ class TurnoReservaSerializer(serializers.Serializer):
                     "usar_bonificado": f"No tenés bonificaciones disponibles para {desc}."
                 })
 
-            # Marca el bono como usado en este turno
             bono.marcar_usado(turno)
 
         else:
@@ -281,19 +250,6 @@ class CancelarTurnoSerializer(serializers.Serializer):
         attrs["turno"] = turno
         return attrs
 
-
-# ------------------------------------------------------------------------------
-# TurnoDisponibleSerializer
-# - Propósito: lista compacta de slots (para vistas de disponibilidad).
-# - Formato de hora: HH:MM (ej. 18:30).
-# ------------------------------------------------------------------------------
-class TurnoDisponibleSerializer(LoggedModelSerializer):
-    hora = serializers.TimeField(format="%H:%M")
-    class Meta:
-        model = Turno
-        fields = ["id", "fecha", "hora", "estado"]
-
-
 # ------------------------------------------------------------------------------
 # LugarSerializer
 # - Propósito: exponer datos de sede (Lugar) con datos de pago leídos desde configuracion_padel.
@@ -306,18 +262,6 @@ class LugarSerializer(LoggedModelSerializer):
     class Meta:
         model = Lugar
         fields = ["id", "nombre", "direccion", "alias", "cbu_cvu"]
-
-
-# ------------------------------------------------------------------------------
-# BloqueoTurnosSerializer
-# - Propósito: CRUD directo de bloqueos (sin lógica adicional).
-# - fields="__all__": todos los campos del modelo.
-# ------------------------------------------------------------------------------
-class BloqueoTurnosSerializer(LoggedModelSerializer):
-    class Meta:
-        model = BloqueoTurnos
-        fields = "__all__"
-
 
 # ------------------------------------------------------------------------------
 # DisponibilidadSerializer
@@ -348,26 +292,6 @@ class DisponibilidadSerializer(LoggedModelSerializer):
         if qs.exists():
             raise DRFValidationError("Ya existe una disponibilidad con los mismos datos.")
         return attrs
-
-
-# ------------------------------------------------------------------------------
-# PrestadorSerializer
-# - Propósito: listado simple de prestadores con nombre de cliente.
-# ------------------------------------------------------------------------------
-class PrestadorSerializer(LoggedModelSerializer):
-    cliente_nombre = serializers.CharField(source="cliente.nombre", read_only=True)
-
-    class Meta:
-        model = Prestador
-        fields = [
-            "id",
-            "nombre_publico",
-            "especialidad",
-            "foto",
-            "activo",
-            "cliente_nombre",
-        ]
-
 
 # ------------------------------------------------------------------------------
 # PrestadorDetailSerializer

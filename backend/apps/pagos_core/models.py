@@ -131,22 +131,3 @@ class ComprobantePago(models.Model):
 
     def __str__(self):
         return f"Comprobante #{self.pk} – Turno {self.turno_id}"
-
-class ConfiguracionPago(models.Model):
-    cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="configuraciones_pago", null=False)
-
-    destinatario = models.CharField(max_length=255)
-    cbu = models.CharField(max_length=22)
-    alias = models.CharField(max_length=100, blank=True)
-    monto_esperado = models.DecimalField(max_digits=10, decimal_places=2)
-    tiempo_maximo_minutos = models.IntegerField(default=60)
-
-    actualizado_en = models.DateTimeField(auto_now=True)
-
-    def save(self, *args, **kwargs):
-        if not self.cliente:
-            raise ValueError("ConfiguracionPago debe tener cliente asignado.")
-        super().save(*args, **kwargs)
-
-    def __str__(self):
-        return f"CBU: {self.cbu} – Monto esperado: {self.monto_esperado}"

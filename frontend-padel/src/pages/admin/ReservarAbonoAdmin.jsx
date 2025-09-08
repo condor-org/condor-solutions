@@ -214,9 +214,9 @@ const ReservarAbonoAdmin = () => {
           { label: "Sedes", path: "/admin/sedes" },
           { label: "Profesores", path: "/admin/profesores" },
           { label: "Usuarios", path: "/admin/usuarios" },
-          { label: "Abonos (Asignar)", path: "/admin/abonos/reservar" }, // corregido
           { label: "Cancelaciones", path: "/admin/cancelaciones" },
           { label: "Pagos Preaprobados", path: "/admin/pagos-preaprobados" },
+          { label: "Abonos (Asignar)", path: "/admin/abonos" },
         ]}
       />
 

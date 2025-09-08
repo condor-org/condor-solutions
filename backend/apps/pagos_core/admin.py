@@ -1,7 +1,7 @@
 # condor/apps/pagos_core/admin.py
 
 from django.contrib import admin
-from apps.pagos_core.models import PagoIntento, ComprobantePago, ConfiguracionPago
+from apps.pagos_core.models import PagoIntento, ComprobantePago
 
 
 @admin.register(PagoIntento)
@@ -68,23 +68,4 @@ class ComprobantePagoAdmin(admin.ModelAdmin):
         "emisor_cuit",
     )
     ordering = ("-created_at",)
-
-
-@admin.register(ConfiguracionPago)
-class ConfiguracionPagoAdmin(admin.ModelAdmin):
-    list_display = (
-        "id",
-        "destinatario",
-        "cbu",
-        "alias",
-        "monto_esperado",
-        "tiempo_maximo_minutos",
-        "actualizado_en",
-    )
-    search_fields = (
-        "destinatario",
-        "cbu",
-        "alias",
-    )
-    ordering = ("-actualizado_en",)
 
