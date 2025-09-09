@@ -55,12 +55,6 @@ const ProfesoresPage = () => {
   // disponibilidades
   const [disponibilidades, setDisponibilidades] = useState([]);
 
-  // bloqueos
-  const [bloqueos, setBloqueos] = useState([]);
-  const [bloqueosPendientes, setBloqueosPendientes] = useState([]);
-  const [nuevoBloqueo, setNuevoBloqueo] = useState({ lugar: "", fecha_inicio: "", fecha_fin: "", motivo: "" });
-  const bloqueoIncompleto = !nuevoBloqueo.fecha_inicio || !nuevoBloqueo.fecha_fin;
-
   // efectos / data
   useEffect(() => {
     if (!accessToken) return;
@@ -76,7 +70,6 @@ const ProfesoresPage = () => {
   } = useDisclosure();
   const [turnosReservadosAfectados, setTurnosReservadosAfectados] = useState([]);
   const [prestadorIdActivo, setPrestadorIdActivo] = useState(null);
-  const [bloqueoIdActual, setBloqueoIdActual] = useState(null);
 
   // helpers
   const resetForm = () => {
@@ -84,19 +77,10 @@ const ProfesoresPage = () => {
     setNombre(""); setApellido(""); setNombrePublico("");
     setEmail(""); setTelefono(""); setEspecialidad(""); setPassword(""); setClienteId("");
     setDisponibilidades([]);
-    setBloqueos([]); setBloqueosPendientes([]);
-    setNuevoBloqueo({ lugar: "", fecha_inicio: "", fecha_fin: "", motivo: "" });
   };
 
   const openForCreate = () => { resetForm(); onOpen(); };
 
-  const fetchBloqueos = async (profesorId) => {
-    const api = axiosAuth(accessToken);
-    try {
-      const res = await api.get(`turnos/prestadores/${profesorId}/bloqueos/`);
-      setBloqueos(res.data.results || res.data);
-    } catch { setBloqueos([]); }
-  };
 
   const openForEdit = (p) => {
     setEditingId(p.id);
@@ -106,7 +90,6 @@ const ProfesoresPage = () => {
     setDisponibilidades((p.disponibilidades || []).map(d => ({
       sede: d.lugar, dia: d.dia_semana, hora_inicio: d.hora_inicio, hora_fin: d.hora_fin
     })));
-    fetchBloqueos(p.id);
     onOpen();
   };
 
@@ -146,18 +129,6 @@ const ProfesoresPage = () => {
       }
       setPrestadorIdActivo(prestadorId);
 
-      // bloqueos pendientes
-      for (const b of bloqueosPendientes) {
-        const resB = await api.post(`turnos/prestadores/${prestadorId}/bloqueos/`, { ...b, activo: true, lugar: b.lugar || null });
-        const { id, turnos_reservados_afectados = [] } = resB.data;
-        if (turnos_reservados_afectados.length > 0) {
-          setBloqueoIdActual(id);
-          setTurnosReservadosAfectados(turnos_reservados_afectados);
-          openModalReservados();
-        }
-      }
-      setBloqueosPendientes([]);
-
       onClose(); resetForm();
       const res = await api.get("turnos/prestadores/");
       setProfesores(res.data.results || res.data);
@@ -177,38 +148,6 @@ const ProfesoresPage = () => {
       setProfesores(res.data.results || res.data);
       if (editingId === id) { onClose(); resetForm(); }
     } catch { toast.error("Error al eliminar profesor"); }
-  };
-
-  // Bloqueos UI ops
-  const handleAgregarBloqueo = () => {
-    if (bloqueoIncompleto) return toast.error("Completá todas las fechas");
-    if (nuevoBloqueo.fecha_fin < nuevoBloqueo.fecha_inicio) return toast.error("La fecha fin no puede ser anterior a la de inicio");
-    setBloqueosPendientes(prev => [...prev, { ...nuevoBloqueo, activo: true }]);
-    setNuevoBloqueo({ lugar: "", fecha_inicio: "", fecha_fin: "", motivo: "" });
-    toast.info("Bloqueo agregado (pendiente de guardar)");
-  };
-
-  const handleEliminarBloqueo = async (bloqueoId) => {
-    if (!editingId) return;
-    const api = axiosAuth(accessToken);
-    try {
-      await api.delete(`turnos/prestadores/${editingId}/bloqueos/`, { data: { id: bloqueoId } });
-      setBloqueos(prev => prev.filter(b => b.id !== bloqueoId));
-      toast.success("Bloqueo eliminado");
-      fetchBloqueos(editingId);
-    } catch { toast.error("No se pudo eliminar"); }
-  };
-
-  const handleForzarCancelacionReservados = async () => {
-    const api = axiosAuth(accessToken);
-    try {
-      if (!prestadorIdActivo) return toast.error("No se pudo determinar el profesor.");
-      await api.post(`turnos/prestadores/${prestadorIdActivo}/forzar_cancelacion_reservados/`, { bloqueo_id: bloqueoIdActual });
-      toast.success("Turnos reservados cancelados.");
-      closeModalReservados();
-      fetchBloqueos(prestadorIdActivo);
-      setPrestadorIdActivo(null);
-    } catch { toast.error("Error al cancelar turnos reservados"); }
   };
 
   // ---------- Subcomponentes compactos ----------
@@ -250,23 +189,6 @@ const ProfesoresPage = () => {
         </Button>
       </VStack>
     </Box>
-  );
-
-  const BloqueoItem = ({ b, idx }) => (
-    <Flex key={b.id ?? `pend-${idx}`} align="center" justify="space-between" bg={card.bg} color={card.color}
-      rounded="md" px={3} py={2} borderWidth={1} borderColor={input.borderColor} wrap="wrap">
-      <Box>
-        <Text fontSize="sm">
-          <b>{b.lugar_nombre || "Todas las sedes"}</b> — {b.fecha_inicio} a {b.fecha_fin}
-          {b.motivo && <span style={{ color: "#aaa" }}> — {b.motivo}</span>}
-          {b.pendiente && <span style={{ color: "#f0a" }}> (pendiente)</span>}
-        </Text>
-      </Box>
-      <IconButton
-        icon={<DeleteIcon />} aria-label="Eliminar bloqueo" colorScheme="red" variant="ghost" size="sm"
-        onClick={() => b.pendiente ? setBloqueosPendientes(prev => prev.filter((_, j) => j !== idx)) : handleEliminarBloqueo(b.id)}
-      />
-    </Flex>
   );
 
   // ---------- Presentación ----------
@@ -419,38 +341,6 @@ const ProfesoresPage = () => {
                     </Button>
                   </Flex>
                 </Box>
-
-                {editingId ? (
-                  <>
-                    <Heading size="xs" mt={6} mb={3}>Bloqueos de calendario</Heading>
-                    <Box bg={card.bg} color={card.color} p={{ base: 2, md: 4 }} rounded="md" mb={3}>
-                      <VStack spacing={3} align="stretch">
-                        {bloqueos.length === 0 && bloqueosPendientes.length === 0 && (
-                          <Text color={mutedText} fontSize="sm" textAlign="center">No hay bloqueos para este profesor.</Text>
-                        )}
-                        {[...bloqueos, ...bloqueosPendientes.map((b, i) => ({ ...b, id: `pend-${i}`, pendiente: true }))].map((b, idx) =>
-                          <BloqueoItem key={b.id ?? `pend-${idx}`} b={b} idx={idx} />
-                        )}
-                      </VStack>
-
-                      <Stack direction={{ base: "column", md: "row" }} mt={4} spacing={2}>
-                        <SelectBase flex={1} placeholder="Todas las sedes"
-                          value={nuevoBloqueo.lugar} onChange={e => setNuevoBloqueo(n => ({ ...n, lugar: e.target.value }))}>
-                          <option value="">Todas las sedes</option>
-                          {sedes.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-                        </SelectBase>
-                        <TimeDateBase type="date" value={nuevoBloqueo.fecha_inicio} onChange={e => setNuevoBloqueo(n => ({ ...n, fecha_inicio: e.target.value }))} />
-                        <TimeDateBase type="date" value={nuevoBloqueo.fecha_fin} onChange={e => setNuevoBloqueo(n => ({ ...n, fecha_fin: e.target.value }))} />
-                        <TimeDateBase placeholder="Motivo (opcional)" value={nuevoBloqueo.motivo} onChange={e => setNuevoBloqueo(n => ({ ...n, motivo: e.target.value }))} />
-                        <Button onClick={handleAgregarBloqueo} variant="secondary" size="md" minW={{ base: "100%", md: "110px" }} isDisabled={bloqueoIncompleto}>
-                          Agregar Bloqueo
-                        </Button>
-                      </Stack>
-                    </Box>
-                  </>
-                ) : (
-                  <Text color={mutedText} fontSize="sm" mt={6}>Guardá el profesor antes de cargar bloqueos de calendario.</Text>
-                )}
               </form>
             </ModalBody>
             <ModalFooter>
@@ -462,58 +352,6 @@ const ProfesoresPage = () => {
                   Cancelar
                 </Button>
               </Stack>
-            </ModalFooter>
-          </ModalContent>
-        </Modal>
-
-        {/* MODAL TURNOS AFECTADOS */}
-        <Modal isOpen={isModalReservadosOpen} onClose={closeModalReservados} isCentered size={isMobile ? "full" : "xl"} scrollBehavior="inside">
-          <ModalOverlay />
-          <ModalContent bg={modalTok.bg} color={modalTok.color} maxW="90vw">
-            <ModalHeader>⚠️ Turnos Reservados Afectados ({turnosReservadosAfectados.length})</ModalHeader>
-            <ModalCloseButton />
-            <ModalBody>
-              <Text mb={4}>
-                El bloqueo afectó <b>{turnosReservadosAfectados.length}</b> turnos. 📲 Contactá a los usuarios si vas a forzar la cancelación.
-              </Text>
-              <Box maxH="400px" overflowY="auto" borderWidth={1} borderColor={input.borderColor} rounded="md">
-                <Table variant="unstyled" size="sm">
-                  <Thead>
-                    <Tr><Th>🆔</Th><Th>📅 Fecha</Th><Th>⏰ Hora</Th><Th>👤 Usuario</Th><Th>📧 Email</Th></Tr>
-                  </Thead>
-                  <Tbody>
-                    {turnosReservadosAfectados.map(t => (
-                      <Tr key={t.id} _hover={{ bg: hoverBg }}>
-                        <Td>{t.id}</Td><Td>{t.fecha}</Td><Td>{t.hora}</Td><Td>{t.usuario}</Td><Td>{t.email}</Td>
-                      </Tr>
-                    ))}
-                  </Tbody>
-                </Table>
-              </Box>
-            </ModalBody>
-            <ModalFooter>
-              <HStack spacing={2} wrap="wrap">
-                <Button variant="secondary" onClick={() => {
-                  // export simple .txt
-                  const lines = [
-                    `📝 Reporte de Turnos Reservados Afectados`,
-                    `🆔 Bloqueo ID: ${bloqueoIdActual}`,
-                    `👨‍🏫 Profesor id=${editingId}`,
-                    `📊 Total afectados: ${turnosReservadosAfectados.length}`,
-                    ``,
-                    ...turnosReservadosAfectados.map(t => `🆔 ${t.id} │ ${t.fecha} │ ${t.hora} │ ${t.usuario} │ ${t.email}`)
-                  ].join("\n");
-                  const blob = new Blob([lines], { type: "text/plain;charset=utf-8" });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url; a.download = `bloqueo_${bloqueoIdActual}_turnos.txt`; a.click();
-                  URL.revokeObjectURL(url);
-                }}>
-                  📥 Descargar
-                </Button>
-                <Button colorScheme="red" onClick={handleForzarCancelacionReservados}>❌ Forzar cancelación</Button>
-                <Button variant="ghost" onClick={closeModalReservados}>Cerrar</Button>
-              </HStack>
             </ModalFooter>
           </ModalContent>
         </Modal>

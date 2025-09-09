@@ -71,7 +71,6 @@ class Turno(models.Model):
         tipo = f" [{self.tipo_turno}]" if self.tipo_turno else ""
         return f"{base}{tipo} en {self.recurso}"
 
-
 class Lugar(models.Model):
     cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="lugares", null=False)
     nombre = models.CharField(max_length=100)
@@ -81,33 +80,6 @@ class Lugar(models.Model):
 
     def __str__(self):
         return self.nombre
-
-
-class BloqueoTurnos(models.Model):
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    object_id = models.PositiveIntegerField()
-    recurso = GenericForeignKey("content_type", "object_id")
-
-    lugar = models.ForeignKey(
-        "Lugar",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="Si es nulo, bloqueo afecta a todas las sedes"
-    )
-
-    fecha_inicio = models.DateField()
-    fecha_fin = models.DateField()
-    motivo = models.CharField(max_length=255, blank=True)
-    activo = models.BooleanField(default=True)
-
-    creado_en = models.DateTimeField(auto_now_add=True)
-    actualizado_en = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        lugar_str = self.lugar.nombre if self.lugar else "Todas las sedes"
-        return f"Bloqueo para {self.recurso} en {lugar_str} del {self.fecha_inicio} al {self.fecha_fin}"
-
 
 class Prestador(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
@@ -121,7 +93,6 @@ class Prestador(models.Model):
 
     def __str__(self):
         return str(self.user)
-
 
 class Disponibilidad(models.Model):
     prestador = models.ForeignKey("Prestador", on_delete=models.CASCADE, related_name="disponibilidades")
@@ -147,7 +118,6 @@ class Disponibilidad(models.Model):
 
     def __str__(self):
         return f"{self.prestador} en {self.lugar} los {self.get_dia_semana_display()} de {self.hora_inicio} a {self.hora_fin}"
-
 
 class TurnoBonificado(models.Model):
     usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="turnos_bonificados")

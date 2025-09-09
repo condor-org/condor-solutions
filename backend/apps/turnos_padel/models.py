@@ -12,7 +12,6 @@ TIPO_CODIGO_CHOICES = [
     ("x4", "4 Personas"),
 ]
 
-
 class AbonoMes(models.Model):
     ESTADOS = [
         ("pagado", "Pagado"),               # turnos confirmados
@@ -97,7 +96,6 @@ class AbonoMes(models.Model):
     def __str__(self):
         return f"AbonoMes {self.usuario_id} {self.anio}-{self.mes:02d} {self.get_dia_semana_display()} {self.hora}"
 
-
 class ConfiguracionSedePadel(models.Model):
     sede = models.OneToOneField(
         "turnos_core.Lugar",
@@ -109,7 +107,6 @@ class ConfiguracionSedePadel(models.Model):
 
     def __str__(self):
         return f"Config {self.sede.nombre}"
-
 
 class TipoClasePadel(models.Model):
     configuracion_sede = models.ForeignKey(
