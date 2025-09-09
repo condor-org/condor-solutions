@@ -18,7 +18,7 @@ import {
   useToast,
   SimpleGrid,
 } from "@chakra-ui/react";
-import { FaCalendarPlus, FaListUl, FaIdCard, FaClock, FaGift } from "react-icons/fa";
+import { FaCalendarPlus, FaIdCard, FaClock, FaGift } from "react-icons/fa";
 import { useBodyBg, useCardColors, useMutedText } from "../../components/theme/tokens";
 import { axiosAuth } from "../../utils/axiosAuth";
 
@@ -69,7 +69,7 @@ const toLocalDate = (t) => {
   return isNaN(dt) ? null : dt;
 };
 
-/* ========= Vista: Bonificaciones ========= */
+/* ========= Vista: Bonificaciones (inline, como antes) ========= */
 const BonificacionesList = () => {
   const { accessToken } = useContext(AuthContext);
   const [loading, setLoading] = useState(true);
@@ -85,7 +85,6 @@ const BonificacionesList = () => {
     (async () => {
       setLoading(true);
       try {
-        // mismo endpoint que usa el modal; sin tipo_clase_id -> traer todas
         const res = await api.get("turnos/bonificados/mios/");
         const data = Array.isArray(res.data) ? res.data : (res.data?.bonificaciones || []);
         setItems(data || []);
@@ -124,13 +123,11 @@ const BonificacionesList = () => {
   return (
     <VStack align="stretch" spacing={3}>
       {items.map((b) => {
-        // Campos provenientes del backend
         const motivo = b.motivo || "Bonificación";
         const tipoTurno = b.tipo_turno || "-";
         const creada = fmtFecha(b.fecha_creacion);
         const vence = b.valido_hasta ? fmtFecha(b.valido_hasta) : "Sin vencimiento";
 
-        // Título y subtítulo más amigables
         const titulo = `Bonificación por: ${motivo}`;
         const subtitulo = [
           `Clase: ${tipoTurno}`,
@@ -138,7 +135,6 @@ const BonificacionesList = () => {
           `Vence: ${vence}`
         ].filter(Boolean).join(" · ");
 
-        // Mantengo compatibilidad por si en el futuro mandás más campos
         const saldo = b.saldo ?? b.creditos ?? b.cantidad_restante ?? b.restante ?? null;
         const porcentaje = b.porcentaje ?? b.descuento ?? null;
         const estado = b.estado || b.status || null;
@@ -174,13 +170,12 @@ const BonificacionesList = () => {
   );
 };
 
-
 /* ========= Página ========= */
 const JugadorDashboard = () => {
   const { user, accessToken } = useContext(AuthContext);
 
-  // vistas: 'reservar' | 'mis' | 'abono' | 'bonis'
-  const [view, setView] = useState("reservar");
+  // vistas: 'clases' | 'abono' | 'bonis'
+  const [view, setView] = useState("clases");
   const [proximoTurno, setProximoTurno] = useState(null);
 
   const bg = useBodyBg();
@@ -243,9 +238,9 @@ const JugadorDashboard = () => {
       <Divider my={4} />
 
       {/* Acciones */}
-      <SimpleGrid columns={{ base: 2, sm: 2, md: 4 }} spacing={3} mt={2}>
+      <SimpleGrid columns={{ base: 2, sm: 2, md: 3 }} spacing={3} mt={2}>
         <Button
-          onClick={() => quickTo("reservar")}
+          onClick={() => quickTo("clases")}
           variant="primary"
           w="100%"
           size={{ base: "sm", md: "md" }}
@@ -253,20 +248,7 @@ const JugadorDashboard = () => {
         >
           <HStack w="100%" justify="center">
             <Icon as={FaCalendarPlus} />
-            <Text>Reservar turno</Text>
-          </HStack>
-        </Button>
-
-        <Button
-          onClick={() => quickTo("mis")}
-          variant="secondary"
-          w="100%"
-          size={{ base: "sm", md: "md" }}
-          py={{ base: 5, md: 0 }}
-        >
-          <HStack w="100%" justify="center">
-            <Icon as={FaListUl} />
-            <Text>Mis reservas</Text>
+            <Text>Clases sueltas</Text>
           </HStack>
         </Button>
 
@@ -279,7 +261,7 @@ const JugadorDashboard = () => {
         >
           <HStack w="100%" justify="center">
             <Icon as={FaIdCard} />
-            <Text>Reservar abono</Text>
+            <Text>Abonos</Text>
           </HStack>
         </Button>
 
@@ -296,19 +278,13 @@ const JugadorDashboard = () => {
           </HStack>
         </Button>
       </SimpleGrid>
-
     </Box>
   );
 
   return (
     <Box minH="100vh" bg={bg} color={card.color}>
       <Box maxW="5xl" mx="auto" px={4} py={8}>
-       <Heading
-          as="h2"
-          size={{ base: "lg", md: "xl" }}
-          mb={{ base: 4, md: 6 }}
-          lineHeight="1.2"
-        >
+        <Heading as="h2" size={{ base: "lg", md: "xl" }} mb={{ base: 4, md: 6 }} lineHeight="1.2">
           Bienvenido,
           <Box as="span" display="block" fontWeight="semibold">
             {user?.email}
@@ -319,8 +295,7 @@ const JugadorDashboard = () => {
 
         {/* Contenido según vista seleccionada */}
         <Box id="dashboard-content" mt={8}>
-          {view === "reservar" && <ReservarTurno onClose={() => {}} />}
-          {view === "mis" && <ReservarTurno onClose={() => {}} defaultMisTurnos />}
+          {view === "clases" && <ReservarTurno onClose={() => {}} />}
           {view === "abono" && <ReservarAbono onClose={() => {}} />}
           {view === "bonis" && <BonificacionesList />}
         </Box>

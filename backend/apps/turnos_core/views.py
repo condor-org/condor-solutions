@@ -109,12 +109,22 @@ class TurnoListView(ListAPIView):
         if estado:
             qs = qs.filter(estado=estado)
 
-        upcoming = self.request.query_params.get("upcoming")
-        if (upcoming or "").lower() in {"1", "true", "sí", "si"}:
+        upcoming = (self.request.query_params.get("upcoming") or "").lower()
+        if upcoming in {"1", "true", "sí", "si"}:
             ahora = localtime()
             hoy = ahora.date()
             hora = ahora.time()
             qs = qs.filter(Q(fecha__gt=hoy) | Q(fecha=hoy, hora__gte=hora))
+
+        # 🔒 Para usuarios finales: SIEMPRE mostrar sólo clases sueltas
+        # (excluir cualquier turno que provenga de un abono)
+        if getattr(usuario, "tipo_usuario", None) == "usuario_final":
+            qs = qs.filter(
+                reservado_para_abono=False,
+                abono_mes_reservado__isnull=True,
+                abono_mes_prioridad__isnull=True,
+                comprobante_abono__isnull=True,
+            )
 
         return qs.order_by("fecha", "hora")
 
@@ -194,7 +204,9 @@ class TurnoReservaView(CreateAPIView):
 # - Función: devuelve slots futuros (estados: disponible/reservado) del prestador en la sede.
 # - Tiempo: usa AR local para “hoy desde ahora”.
 # - Respuesta: lista serializada de turnos (ordenada por fecha/hora).
+# Excluye turnos bloqueados por abono (reservado_para_abono=True)
 # ------------------------------------------------------------------------------
+
 @extend_schema(
     description="Devuelve turnos para un prestador en una sede específica y fecha opcional.",
     parameters=[
@@ -216,41 +228,46 @@ class TurnosDisponiblesView(APIView):
         if not prestador_id or not lugar_id:
             return Response({"error": "prestador_id y lugar_id son obligatorios."}, status=400)
 
-        filtros = {
-            "object_id": prestador_id,
-            "lugar_id": lugar_id,
-        }
+        # casteo seguro
+        try:
+            prestador_id = int(prestador_id)
+            lugar_id = int(lugar_id)
+        except (TypeError, ValueError):
+            return Response({"error": "prestador_id y lugar_id deben ser enteros."}, status=400)
 
+        # Fecha opcional
+        fecha = None
         if fecha_str:
             fecha = parse_date(fecha_str)
             if not fecha:
                 return Response({"error": "Formato de fecha inválido (usar YYYY-MM-DD)."}, status=400)
-            filtros["fecha"] = fecha
 
-        # Ventana temporal: hoy desde la hora actual (zona AR) y futuro
+        # Ventana temporal: hoy (AR) desde ahora y futuro
         ahora_ar = timezone.now().astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
         hoy = ahora_ar.date()
         hora = ahora_ar.time().replace(microsecond=0)
 
         ct_prestador = ContentType.objects.get_for_model(Prestador)
 
-        turnos = (
+        qs = (
             Turno.objects
             .filter(
                 content_type=ct_prestador,
-                object_id=int(prestador_id),
-                lugar_id=int(lugar_id),
+                object_id=prestador_id,
+                lugar_id=lugar_id,
                 estado__in=["disponible", "reservado"],
             )
-            .filter(
-                Q(fecha__gt=hoy) |
-                (Q(fecha=hoy) & Q(hora__gte=hora))
-            )
-            .order_by("fecha", "hora")
+            # ⏱ sólo futuro
+            .filter(Q(fecha__gt=hoy) | (Q(fecha=hoy) & Q(hora__gte=hora)))
+            # 🚫 excluir turnos bloqueados por abono
+            .filter(Q(reservado_para_abono=False) | Q(reservado_para_abono__isnull=True))
         )
 
-        return Response(TurnoSerializer(turnos, many=True).data)
+        if fecha:
+            qs = qs.filter(fecha=fecha)
 
+        turnos = qs.order_by("fecha", "hora")
+        return Response(TurnoSerializer(turnos, many=True).data)
 
 # ------------------------------------------------------------------------------
 # Permiso auxiliar: SoloAdminEditar

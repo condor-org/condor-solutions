@@ -18,6 +18,7 @@ TYPE_RESERVA_ABONO = "RESERVA_ABONO"
 TYPE_CANCELACION_TURNO = "CANCELACION_TURNO"
 TYPE_ABONO_RENOVADO = "ABONO_RENOVADO"
 TYPE_BONIFICACION_CREADA = "BONIFICACION_CREADA"
+TYPE_ABONO_RECORDATORIO = "ABONO_RECORDATORIO"
 
 
 def _json_safe(obj):
@@ -51,6 +52,75 @@ def _render_inapp_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
     Render mínimo sin plantillas (MVP). Devuelve (title, body, deeplink_path).
     ctx debe traer lo necesario según notif_type.
     """
+    # Acepta tanto el enum como el string usado en el cron
+    if notif_type in (TYPE_ABONO_RECORDATORIO, "abono_recordatorio"):
+        # ctx esperado (flexible):
+        #   abono_id, vence_el (YYYY-MM-DD), dias (int: 7 o 1),
+        #   tipo (x1..x4 opcional), sede_nombre?, prestador?, hora?, dia_semana_text?
+        dias = ctx.get("dias")
+        vence_el = ctx.get("vence_el")
+        tipo = ctx.get("tipo") or ctx.get("tipo_clase_codigo")  # x1..x4 u otro alias
+        sede = ctx.get("sede_nombre")
+        prestador = ctx.get("prestador")
+        hora = ctx.get("hora")
+        dsem = ctx.get("dia_semana_text")
+
+        # Título claro según el caso
+        if dias == 1:
+            title = "¡Tu abono vence mañana!"
+        elif dias == 7:
+            title = "Tu abono vence en 7 días"
+        else:
+            title = "Recordatorio: vencimiento de tu abono"
+
+        # Cuerpo con detalles (solo si existen en el contexto)
+        partes = []
+        if tipo:
+            partes.append(f"Abono {tipo}")
+        if sede:
+            partes.append(f"en {sede}")
+        if prestador:
+            partes.append(f"con {prestador}")
+        if hora:
+            partes.append(f"a las {hora}")
+        if dsem:
+            partes.append(f"({dsem})")
+        if vence_el:
+            partes.append(f"• vence el {vence_el}")
+
+        body = " ".join(partes) if partes else "Tu abono está por vencer."
+        # Llevamos al usuario directo a su sección de abonos/renovación
+        return title, body, "/abonos"
+
+    # ------- NUEVO: Estado de abono (renovado / no renovado) -------
+    # Compatibilidad con el string que manda el cron ("abono_estado")
+    if notif_type in ("abono_estado", TYPE_ABONO_RENOVADO):
+        # ctx flexible:
+        #   mensaje? (si viene del cron), tipo?, anio?, mes?, sede_nombre?, prestador?, hora?, dia_semana_text?
+        msg = ctx.get("mensaje")
+        tipo = ctx.get("tipo")
+        anio = ctx.get("anio"); mes = ctx.get("mes")
+        sede = ctx.get("sede_nombre"); prestador = ctx.get("prestador")
+        hora = ctx.get("hora"); dsem = ctx.get("dia_semana_text")
+
+        # Si viene un mensaje literal desde el cron, lo priorizamos
+        if msg:
+            title = "Estado de tu abono"
+            body = msg
+            return title, body, "/abonos"
+
+        # Si no, intentamos render más rico (ej.: renovado)
+        title = "Estado de tu abono"
+        partes = []
+        if tipo: partes.append(f"Abono {tipo}")
+        if anio and mes: partes.append(f"para {mes}/{anio}")
+        if sede: partes.append(f"en {sede}")
+        if prestador: partes.append(f"con {prestador}")
+        if hora: partes.append(f"a las {hora}")
+        if dsem: partes.append(f"({dsem})")
+        body = " ".join(partes) if partes else "Actualizamos el estado de tu abono."
+        return title, body, "/abonos"
+    
     if notif_type == TYPE_BONIFICACION_CREADA:
         # Contexto esperado (flexible): 
         #   bonificacion_id, tipo_turno (x1/x2/x3/x4 o alias), motivo, valido_hasta,

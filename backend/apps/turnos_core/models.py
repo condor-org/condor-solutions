@@ -32,6 +32,7 @@ class Turno(models.Model):
         blank=True
     )
 
+    reservado_para_abono = models.BooleanField(default=False, db_index=True)
     comprobante_abono = models.ForeignKey(
         "pagos_core.ComprobanteAbono",
         on_delete=models.SET_NULL,

@@ -45,7 +45,7 @@ class TurnoSerializer(LoggedModelSerializer):
         model = Turno
         fields = [
             "id", "fecha", "hora", "estado", "servicio", "recurso", "usuario", "lugar",
-            "tipo_turno", "prestador_nombre",
+            "tipo_turno", "prestador_nombre", "reservado_para_abono",
         ]
 
     def get_recurso(self, obj):
