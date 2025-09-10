@@ -335,7 +335,7 @@ def procesar_renovacion_de_abono(abono_anterior: AbonoMes):
     """
     # Tomo prioridad con lock
     turnos_prio = list(
-        abono_anterior.turnos_prioridad.select_for_update().all()
+        Turno.objects.select_for_update().filter(abono_mes_prioridad=abono_anterior)
     )
 
     # Si NO renueva → liberar prioridad
@@ -446,6 +446,17 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
       - Si restante  > 0: debe venir comprobante por EXACTO ese restante; salvo override admin.
       - Override admin: si el caller es super_admin/admin_cliente y forzar_admin=True → no exige comprobante.
     """
+    
+    abono_id = (data.get("abono_id") or "").strip() if hasattr(data, "get") else None
+    if abono_id:
+        return _validar_y_confirmar_renovacion(
+            abono_id=abono_id,
+            bonificaciones_ids=bonificaciones_ids,
+            archivo=archivo,
+            request=request,
+            forzar_admin=forzar_admin,
+        )
+    
     from apps.turnos_core.models import TurnoBonificado
 
     serializer = AbonoMesSerializer(data=data, context={"request": request})
@@ -522,5 +533,103 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
             b.usado = True
             b.usado_en_abono = abono
             b.save(update_fields=["usado", "usado_en_abono"])
+
+    return abono, resumen
+
+
+# === NUEVO ===
+@transaction.atomic
+def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, request, forzar_admin=False):
+    """
+    Renovación: marca el abono como 'renovado', consume bonificaciones y
+    registra comprobante si corresponde. NO reserva turnos (eso lo hace el cron).
+    Idempotente: si ya estaba renovado no falla.
+    """
+    from apps.turnos_core.models import TurnoBonificado
+
+    # Traigo sólo la fila base y la bloqueo; evito outer joins del manager
+    try:
+        abono = (
+            AbonoMes.objects
+            .select_related(None)           # evita select_related por defecto
+            .prefetch_related(None)         # evita prefetch por defecto
+            .select_for_update(of=('self',))# FOR UPDATE OF sólo sobre AbonoMes
+            .get(id=int(abono_id))
+        )
+    except (AbonoMes.DoesNotExist, ValueError, TypeError):
+        raise serializers.ValidationError({"detail": "Abono no encontrado."})
+
+    # Autorización mínima
+    user = getattr(request, "user", None)
+    if getattr(user, "tipo_usuario", None) == "usuario_final" and abono.usuario_id != getattr(user, "id", None):
+        raise serializers.ValidationError({"detail": "No autorizado para renovar este abono."})
+
+    caller_es_admin = bool(user and getattr(user, "tipo_usuario", None) in ("super_admin", "admin_cliente"))
+    omitir_archivo = caller_es_admin and bool(forzar_admin)
+
+    # Precios “server source of truth”
+    precio_abono = float(getattr(abono.tipo_abono, "precio", None) or abono.monto or 0.0)
+    precio_turno = float(getattr(abono.tipo_clase, "precio", 0.0))
+
+    # Bonificaciones válidas del usuario y del tipo correcto
+    code = (getattr(abono.tipo_clase, "codigo", "") or "").strip().lower()
+    code_alias = {"x1": "individual", "x2": "2 personas", "x3": "3 personas", "x4": "4 personas"}.get(code, "")
+
+    bonos_qs = (
+        TurnoBonificado.objects
+        .select_for_update()
+        .filter(
+            id__in=(bonificaciones_ids or []),
+            usuario=abono.usuario,
+            usado=False,
+        )
+        .filter(models.Q(valido_hasta__isnull=True) | models.Q(valido_hasta__gte=timezone.localdate()))
+        .filter(models.Q(tipo_turno__iexact=code) | models.Q(tipo_turno__iexact=code_alias))
+    )
+    bonos = list(bonos_qs)
+    n_bonos = len(bonos)
+
+    # Cálculo de restante
+    restante = max(precio_abono - n_bonos * precio_turno, 0.0)
+
+    # Comprobante (sólo si hace falta y no hay override admin)
+    comprobante_abono = None
+    if restante > 0 and not omitir_archivo:
+        if not archivo:
+            raise serializers.ValidationError({"comprobante": "Falta comprobante para cubrir el monto restante."})
+        try:
+            comprobante_abono = ComprobanteService.validar_y_crear_comprobante_abono(
+                abono=abono,
+                file_obj=archivo,
+                usuario=abono.usuario,
+                monto_esperado=restante,
+            )
+        except DjangoValidationError:
+            raise serializers.ValidationError({"comprobante": "Comprobante no válido"})
+
+    # Consumir bonificaciones aplicadas
+    if n_bonos:
+        for b in bonos:
+            b.usado = True
+            b.usado_en_abono = abono
+            b.save(update_fields=["usado", "usado_en_abono"])
+
+    # Marcar renovado (idempotente)
+    if not abono.renovado:
+        abono.renovado = True
+        abono.save(update_fields=["renovado"])
+
+    # Resumen para la UI (no reservamos nada acá)
+    resumen = {
+        "reservados_mes_actual": 0,
+        "prioridad_mes_siguiente": abono.turnos_prioridad.count(),
+        "monto_sugerido": float(precio_abono),
+        "renovado": True,
+    }
+
+    logger.info(
+        "[abonos.renovacion] abono=%s renovado=%s bonos=%s restante=%.2f",
+        abono.id, True, n_bonos, restante
+    )
 
     return abono, resumen

@@ -63,7 +63,7 @@ const ReservarAbono = ({ onClose }) => {
   const [seleccion, setSeleccion] = useState(null);
   const [archivo, setArchivo] = useState(null);
   const [bonificaciones, setBonificaciones] = useState([]);
-  const [usarBonificado, setUsarBonificado] = useState(false); // queda por compatibilidad
+  const [usarBonificado, setUsarBonificado] = useState(false); // compat
   const [enviando, setEnviando] = useState(false);
   const [modoRenovacion, setModoRenovacion] = useState(false);
 
@@ -80,7 +80,7 @@ const ReservarAbono = ({ onClose }) => {
   const fmtHora = (h) => (h || "").slice(0, 5);
   const proximoMes = (anio, mes) => (mes === 12 ? { anio: anio + 1, mes: 1 } : { anio, mes: mes + 1 });
 
-  // 1) Cargar “Mis abonos” (endpoint con flags de renovación)
+  // 1) Cargar “Mis abonos”
   useEffect(() => {
     if (!api) return;
     setLoadingAbonos(true);
@@ -98,7 +98,7 @@ const ReservarAbono = ({ onClose }) => {
       .finally(() => setLoadingAbonos(false));
   }, [api]);
 
-  // 2) cargar sedes
+  // 2) sedes
   useEffect(() => {
     if (!api) return;
     api.get("turnos/sedes/")
@@ -109,7 +109,7 @@ const ReservarAbono = ({ onClose }) => {
       .catch(() => setSedes([]));
   }, [api]);
 
-  // 3) cargar profesores por sede
+  // 3) profesores por sede
   useEffect(() => {
     if (!api || !sedeId) { setProfesores([]); return; }
     api.get(`turnos/prestadores/?lugar_id=${sedeId}`)
@@ -120,7 +120,7 @@ const ReservarAbono = ({ onClose }) => {
       .catch(() => setProfesores([]));
   }, [api, sedeId]);
 
-  // 4) alias / CBU por sede (para modal)
+  // 4) alias / CBU
   useEffect(() => {
     if (!sedeId) { setAlias(""); setCbuCvu(""); return; }
     const sede = sedes.find(s => String(s.id) === String(sedeId));
@@ -128,7 +128,7 @@ const ReservarAbono = ({ onClose }) => {
     setCbuCvu(sede?.cbu_cvu || "");
   }, [sedeId, sedes]);
 
-  // 5) buscar abonos disponibles (nueva reserva)
+  // 5) abonos disponibles (nueva reserva)
   useEffect(() => {
     const ready = api && sedeId && profesorId && (diaSemana !== "") && tipoAbono;
     if (!ready) { setAbonosLibres([]); return; }
@@ -157,7 +157,7 @@ const ReservarAbono = ({ onClose }) => {
       .finally(() => setLoadingDisponibles(false));
   }, [api, sedeId, profesorId, diaSemana, horaFiltro, tipoAbono, anioActual, mesActual, toast]);
 
-  // Tipos de abono c/precio por sede (para RESERVA NUEVA)
+  // Tipos de abono con precio
   useEffect(() => {
     if (!api || !sedeId) { setTiposAbono([]); return; }
     api.get(`padel/tipos-abono/?sede_id=${sedeId}`)
@@ -180,7 +180,7 @@ const ReservarAbono = ({ onClose }) => {
     return 0;
   };
 
-  // --- Abrir modal para RESERVA NUEVA ---
+  // --- Abrir modal (nueva reserva) ---
   const abrirPagoReservaNueva = async (item) => {
     const codigo = item?.tipo_clase?.codigo;
     const precioAbono = Number(precioAbonoPorCodigo[codigo] ?? 0);
@@ -215,7 +215,7 @@ const ReservarAbono = ({ onClose }) => {
     pagoDisc.onOpen();
   };
 
-  // --- Abrir modal para RENOVAR un abono existente ---
+  // --- Abrir modal (renovación) ---
   const abrirRenovarAbono = async (abono) => {
     setRenovandoAbonoId(abono.id);
 
@@ -250,6 +250,7 @@ const ReservarAbono = ({ onClose }) => {
       precio_abono: precioAbono,
       precio_unitario: precioUnit,
       anio, mes,
+      abono_id: abono.id, // 👈 clave para renovación
     });
     setModoRenovacion(true);
     setArchivo(null);
@@ -269,7 +270,7 @@ const ReservarAbono = ({ onClose }) => {
     pagoDisc.onOpen();
   };
 
-  // --- Confirmar (reserva nueva o renovación) ---
+  // --- Confirmar (nueva o renovación) ---
   const onConfirmarPago = async (bonosIds = []) => {
     if (!seleccion) return;
 
@@ -299,8 +300,11 @@ const ReservarAbono = ({ onClose }) => {
       fd.append("mes", seleccion.mes);
       fd.append("monto", abonoPrice);
       fd.append("monto_esperado", totalEstimado);
+      if (seleccion?.abono_id) {
+        fd.append("abono_id", seleccion.abono_id); // 👈 indica RENOVACIÓN al backend
+      }
       if (archivo) fd.append("archivo", archivo);
-      bonosIds.forEach((id) => fd.append("bonificaciones_ids", String(id)));
+      (bonosIds || []).forEach((id) => fd.append("bonificaciones_ids", String(id)));
 
       await api.post("padel/abonos/reservar/", fd, { headers: { "Content-Type": "multipart/form-data" } });
 
@@ -574,7 +578,7 @@ const ReservarAbono = ({ onClose }) => {
                   <HStack justify="space-between" align="center">
                     <Box>
                       <Text fontWeight="semibold">
-                        {DIAS.find(d => String(d.dia_semana_label) === String(diaSemana))?.label} · {item?.hora_text?.slice(0,5)} hs
+                        {DIAS.find(d => String(d.value) === String(diaSemana))?.label} · {item?.hora_text?.slice(0,5)} hs
                       </Text>
                       <HStack mt={1} spacing={2}>
                         <Badge variant="outline">
@@ -594,14 +598,18 @@ const ReservarAbono = ({ onClose }) => {
         </Box>
       </VStack>
 
-      {/* Modal (reutilizado tal cual) */}
+      {/* Modal */}
       {modalIsRenderable ? (
         <ReservaPagoModalAbono
           isOpen={pagoDisc.isOpen}
           onClose={pagoDisc.onClose}
           alias={alias}
           cbuCvu={cbuCvu}
-          turno={seleccion ? { fecha: `Mes ${mesActual}/${anioActual}`, hora: seleccion.hora } : null}
+          turno={
+            seleccion
+              ? { fecha: `Mes ${String(seleccion.mes).padStart(2,"0")}/${seleccion.anio}`, hora: seleccion.hora }
+              : null
+          }
           tipoClase={seleccion?.tipo_clase || null}
           precioAbono={seleccion?.precio_abono ?? 0}
           precioUnitario={seleccion?.precio_unitario ?? 0}
