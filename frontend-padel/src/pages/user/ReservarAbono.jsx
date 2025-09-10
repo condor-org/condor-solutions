@@ -43,6 +43,7 @@ const ReservarAbono = ({ onClose }) => {
   // Mis abonos
   const [loadingAbonos, setLoadingAbonos] = useState(true);
   const [misAbonos, setMisAbonos] = useState([]);
+  const [abonosPorVencer, setAbonosPorVencer] = useState([]); // 👈 nuevos
   const [showRenewBanner, setShowRenewBanner] = useState(false);
   const [renovandoAbonoId, setRenovandoAbonoId] = useState(null);
 
@@ -76,7 +77,16 @@ const ReservarAbono = ({ onClose }) => {
   const anioActual = now.getFullYear();
   const mesActual = now.getMonth() + 1;
 
-  // Helpers
+  const sedeSel = useMemo(
+  () => sedes.find(s => String(s.id) === String(sedeId)) || null,
+  [sedes, sedeId]
+  );
+  const profSel = useMemo(
+    () => profesores.find(p => String(p.id) === String(profesorId)) || null,
+    [profesores, profesorId]
+  );
+
+    // Helpers
   const fmtHora = (h) => (h || "").slice(0, 5);
   const proximoMes = (anio, mes) => (mes === 12 ? { anio: anio + 1, mes: 1 } : { anio, mes: mes + 1 });
 
@@ -89,10 +99,15 @@ const ReservarAbono = ({ onClose }) => {
         const data = res?.data?.results ?? res?.data ?? [];
         const arr = Array.isArray(data) ? data : [];
         setMisAbonos(arr);
-        setShowRenewBanner(arr.some(a => a?.ventana_renovacion && !a?.renovado));
+        const porVencer = arr.filter(
+          (a) => a?.ventana_renovacion === true && !a?.renovado && a?.estado_vigencia === "activo"
+        );
+        setAbonosPorVencer(porVencer);
+        setShowRenewBanner(porVencer.length > 0);
       })
       .catch(() => {
         setMisAbonos([]);
+        setAbonosPorVencer([]);
         setShowRenewBanner(false);
       })
       .finally(() => setLoadingAbonos(false));
@@ -326,12 +341,13 @@ const ReservarAbono = ({ onClose }) => {
             a.id === renovandoAbonoId ? { ...a, renovado: true, ventana_renovacion: false } : a
           )
         );
+        // actualizar banner localmente para que deje de avisar
+        setAbonosPorVencer(prev => prev.filter(a => a.id !== renovandoAbonoId));
+        setShowRenewBanner(prev => {
+          const quedan = abonosPorVencer.filter(a => a.id !== renovandoAbonoId);
+          return quedan.length > 0;
+        });
         setRenovandoAbonoId(null);
-        setShowRenewBanner(prev =>
-          prev && !misAbonos.some(x => x.id !== renovandoAbonoId && x.ventana_renovacion && !x.renovado)
-            ? false
-            : prev
-        );
       } else {
         onClose?.();
       }
@@ -352,7 +368,20 @@ const ReservarAbono = ({ onClose }) => {
       {showRenewBanner && (
         <Alert status="warning" mb={4} rounded="md">
           <AlertIcon />
-          Tenés abonos por vencer en menos de 7 días. Podés renovarlos desde acá.
+          <Box>
+            <Text fontWeight="semibold" mb={1}>
+              Tenés abonos por vencer en menos de 7 días:
+            </Text>
+            <VStack align="stretch" spacing={1}>
+              {abonosPorVencer.map((a) => (
+                <HStack key={a.id} justify="space-between">
+                  <Text fontSize="sm">
+                    {a.dia_semana_label} · {fmtHora(a.hora)} hs — vence {a.vence_el || "—"} ({String(a.mes).padStart(2,"0")}/{a.anio})
+                  </Text>
+                </HStack>
+              ))}
+            </VStack>
+          </Box>
         </Alert>
       )}
 
@@ -578,9 +607,19 @@ const ReservarAbono = ({ onClose }) => {
                   <HStack justify="space-between" align="center">
                     <Box>
                       <Text fontWeight="semibold">
-                        {DIAS.find(d => String(d.value) === String(diaSemana))?.label} · {item?.hora_text?.slice(0,5)} hs
+                        {DIAS.find(d => String(d.value) === String(diaSemana))?.label} · {fmtHora(item?.hora)} hs
                       </Text>
-                      <HStack mt={1} spacing={2}>
+
+                      {/* SUBLINE igual que en "Mis abonos": MM/AAAA · Sede · Profesor */}
+                      <Text fontSize="sm" color={muted}>
+                        {String(mesActual).padStart(2, "0")}/{anioActual}
+                        {" · "}
+                        {sedeSel?.nombre || sedeSel?.nombre_publico || `Sede ${sedeId}`}
+                        {" · "}
+                        {profSel?.nombre_publico || profSel?.nombre || profSel?.email || `Profe ${profesorId}`}
+                      </Text>
+
+                      <HStack mt={2} spacing={2}>
                         <Badge variant="outline">
                           {item?.tipo_clase?.nombre || LABELS[item?.tipo_clase?.codigo] || "Tipo"}
                         </Badge>
@@ -589,8 +628,10 @@ const ReservarAbono = ({ onClose }) => {
                         </Badge>
                       </HStack>
                     </Box>
+
                     <Button variant="primary">Seleccionar</Button>
                   </HStack>
+
                 </Box>
               );
             })}

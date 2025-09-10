@@ -136,7 +136,7 @@ class TurnoBonificado(models.Model):
 
 
     tipo_turno = models.CharField(max_length=50)
-
+    valor = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     usado_en_abono = models.ForeignKey(
         "turnos_padel.AbonoMes",
         null=True, blank=True,

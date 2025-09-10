@@ -6,7 +6,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError, Per
 from rest_framework.exceptions import ValidationError as DRFValidationError, PermissionDenied as DRFPermissionDenied
 from apps.pagos_core.services.comprobantes import ComprobanteService
 from apps.turnos_core.models import Lugar, Turno, Prestador, Disponibilidad, TurnoBonificado
-
+from django.core.exceptions import ObjectDoesNotExist
 from django.contrib.auth import get_user_model
 from apps.pagos_core.models import PagoIntento
 from django.utils import timezone
@@ -333,6 +333,10 @@ class PrestadorDetailSerializer(LoggedModelSerializer):
 #     * actualiza campos del Usuario (incluye set_password) y del Prestador.
 #     * reemplaza disponibilidades si se envían (borra y bulk_create).
 # ------------------------------------------------------------------------------
+
+
+
+
 class PrestadorConUsuarioSerializer(LoggedModelSerializer):
     # Campos del usuario embebidos
     email = serializers.EmailField(write_only=True)
@@ -464,51 +468,89 @@ class PrestadorConUsuarioSerializer(LoggedModelSerializer):
 # - Validaciones: usuario existe; mapeo de alias a code x1..x4.
 # - create(): llama emitir_bonificacion_manual (service) con admin actual en context.
 # ------------------------------------------------------------------------------
+
 class CrearTurnoBonificadoSerializer(serializers.Serializer):
+    # Requeridos
     usuario_id = serializers.IntegerField()
+    sede_id = serializers.IntegerField()
+    tipo_clase_id = serializers.IntegerField()
+
+    # Opcionales
     motivo = serializers.CharField(required=False, allow_blank=True)
-    valido_hasta = serializers.DateField(required=False)
+    valido_hasta = serializers.DateField(required=False, allow_null=True)
 
-    tipo_turno = serializers.CharField()
+    def validate(self, attrs):
+        request = self.context["request"]
+        admin = request.user
 
-    def validate_tipo_turno(self, value):
-        v = (value or "").strip().lower()
-        mapping = {
-            "individual": "x1", "x1": "x1",
-            "2 personas": "x2", "x2": "x2",
-            "3 personas": "x3", "x3": "x3",
-            "4 personas": "x4", "x4": "x4",
-        }
-        code = mapping.get(v)
-        if code not in {"x1", "x2", "x3", "x4"}:
-            raise serializers.ValidationError("tipo_turno inválido (usar x1/x2/x3/x4 o nombres estándar).")
-        return code
+        # Usuario destino
+        try:
+            usuario = Usuario.objects.only("id", "cliente_id").get(pk=attrs["usuario_id"])
+        except ObjectDoesNotExist:
+            raise serializers.ValidationError({"usuario_id": "Usuario no encontrado."})
 
-    def validate_usuario_id(self, value):
-        User = get_user_model()
-        if not User.objects.filter(id=value).exists():
-            raise serializers.ValidationError("Usuario no encontrado.")
-        return value
+        # Sede (Lugar)
+        try:
+            sede = Lugar.objects.only("id", "cliente_id").get(pk=attrs["sede_id"])
+        except ObjectDoesNotExist:
+            raise serializers.ValidationError({"sede_id": "Sede (Lugar) no encontrada."})
 
-    # Campo explícito (duplicado a propósito para dejarlo visible arriba)
-    tipo_turno = serializers.CharField()
+        # Multi-tenant básico
+        sede_cliente_id = getattr(sede, "cliente_id", None)
+        if hasattr(admin, "cliente_id") and admin.cliente_id != sede_cliente_id:
+            raise serializers.ValidationError("No autorizado a operar sobre esta sede.")
+        if hasattr(usuario, "cliente_id") and usuario.cliente_id != sede_cliente_id:
+            raise serializers.ValidationError("El usuario no pertenece al cliente de la sede.")
+
+        # Tipo de clase (activo) y pertenencia a la sede
+        try:
+            tc = (
+                TipoClasePadel.objects
+                .select_related("configuracion_sede__sede")
+                .only("id", "codigo", "precio", "activo", "configuracion_sede__sede_id")
+                .get(pk=attrs["tipo_clase_id"], activo=True)
+            )
+        except ObjectDoesNotExist:
+            raise serializers.ValidationError({"tipo_clase_id": "Tipo de clase inexistente o inactivo."})
+
+        if tc.configuracion_sede.sede_id != sede.id:
+            raise serializers.ValidationError("El tipo de clase no pertenece a la sede indicada.")
+
+        # Guardar instancias para create()
+        attrs["_admin"] = admin
+        attrs["_usuario"] = usuario
+        attrs["_sede"] = sede
+        attrs["_tc"] = tc
+        return attrs
 
     def create(self, validated_data):
-        admin_user = self.context["request"].user
-        User = get_user_model()
-        usuario = User.objects.get(id=validated_data["usuario_id"])
-        motivo = validated_data.get("motivo", "Bonificación manual")
-        valido_hasta = validated_data.get("valido_hasta")
-        tipo_turno = validated_data["tipo_turno"]  # obligatorio (ya normalizado)
+        admin = validated_data["_admin"]
+        usuario = validated_data["_usuario"]
+        sede = validated_data["_sede"]
+        tc = validated_data["_tc"]
 
-        return emitir_bonificacion_manual(
-            admin_user=admin_user,
+        motivo = validated_data.get("motivo") or "Bonificación manual"
+        valido_hasta = validated_data.get("valido_hasta")
+
+        bono = emitir_bonificacion_manual(
+            admin_user=admin,
             usuario=usuario,
+            sede=sede,                 # requerido por la nueva firma
+            tipo_clase_id=tc.id,       # requerido por la nueva firma
             motivo=motivo,
             valido_hasta=valido_hasta,
-            tipo_turno=tipo_turno,
         )
 
+        logger.info(
+            "[BONIFICACION][manual][api] admin=%s user=%s sede=%s tipo_clase_id=%s bono=%s valor=%s",
+            getattr(admin, "id", None),
+            getattr(usuario, "id", None),
+            getattr(sede, "id", None),
+            tc.id,
+            getattr(bono, "id", None),
+            getattr(bono, "valor", None),
+        )
+        return bono
 
 # ------------------------------------------------------------------------------
 # Serializers de Cancelaciones Administrativas

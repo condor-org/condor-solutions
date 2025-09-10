@@ -640,6 +640,8 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             estado_vigencia = "activo" if ult and hoy <= ult else "vencido"
             ventana_renovacion = bool(dias is not None and 1 <= dias <= 7 and not a.renovado)
 
+                
+            
             item = {
                 "id": a.id,
                 "sede_id": a.sede_id,
@@ -652,7 +654,7 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
                 "renovado": a.renovado,
                 "vence_el": str(ult) if ult else None,
                 "dias_para_vencer": dias,
-                "ventana_renovacion": True,
+                "ventana_renovacion": ventana_renovacion,
                 "estado_vigencia": estado_vigencia,
                 # 👇 claves para render “Lunes 10:00 hs”
                 "dia_semana": a.dia_semana,
@@ -663,8 +665,7 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             data.append(item)
 
         return Response(data, status=200)
-
-        return Response(data, status=200)
+    
     @action(detail=True, methods=["POST"], url_path="marcar-renovado")
     def marcar_renovado(self, request, pk=None):
         """

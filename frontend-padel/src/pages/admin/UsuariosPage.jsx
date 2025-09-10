@@ -37,7 +37,14 @@ const UsuariosPage = () => {
   const [activo, setActivo] = useState(true);
   const [password, setPassword] = useState("");
   const [detalleUsuario, setDetalleUsuario] = useState(null);
-  const [tipoTurnoBono, setTipoTurnoBono] = useState("individual");
+
+  // Sedes / Tipos de clase para emitir bonificación
+  const [sedes, setSedes] = useState([]);
+  const [tiposClase, setTiposClase] = useState([]);
+  const [selectedSedeId, setSelectedSedeId] = useState("");
+  const [selectedTipoClaseId, setSelectedTipoClaseId] = useState("");
+  const [loadingTipos, setLoadingTipos] = useState(false);
+  const LABELS_TIPO = { x1: "Individual", x2: "2 Personas", x3: "3 Personas", x4: "4 Personas" };
 
   const { isOpen, onOpen, onClose } = useDisclosure();
   const {
@@ -53,9 +60,6 @@ const UsuariosPage = () => {
   const modal = useModalColors();
   const input = useInputColors();
   const mutedText = useMutedText();
-  
-
-
 
   const [motivoBonificacion, setMotivoBonificacion] = useState("");
   const [cargandoBono, setCargandoBono] = useState(false);
@@ -77,6 +81,37 @@ const UsuariosPage = () => {
     if (!accessToken) return;
     reloadUsuarios();
   }, [accessToken]);
+
+  // Carga de sedes al abrir el modal de detalle (mismo approach que SedesPage)
+  useEffect(() => {
+    if (!isOpenDetalle || !accessToken) return;
+    const api = axiosAuth(accessToken);
+    setSelectedSedeId("");
+    setSelectedTipoClaseId("");
+    setTiposClase([]);
+    api.get("padel/sedes/")
+      .then(res => setSedes(res.data?.results || res.data || []))
+      .catch(() => toast.error("No se pudieron cargar las sedes"));
+  }, [isOpenDetalle, accessToken]);
+
+  // Al elegir sede, pedir su detalle y extraer configuracion_padel.tipos_clase
+  useEffect(() => {
+    if (!selectedSedeId || !accessToken) return;
+    const api = axiosAuth(accessToken);
+    setLoadingTipos(true);
+    (async () => {
+      try {
+        const r = await api.get(`padel/sedes/${selectedSedeId}/`);
+        const conf = r.data?.configuracion_padel;
+        setTiposClase(conf?.tipos_clase || []);
+      } catch (e) {
+        setTiposClase([]);
+        toast.error("No se pudieron cargar los tipos de clase de la sede");
+      } finally {
+        setLoadingTipos(false);
+      }
+    })();
+  }, [selectedSedeId, accessToken]);
 
   const reloadUsuarios = () => {
     const api = axiosAuth(accessToken);
@@ -124,7 +159,8 @@ const UsuariosPage = () => {
       toast.error("El nombre es obligatorio");
       return;
     }
-    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    // (Se mantiene tu validación original)
+    if (!email.trim() || !/^[^\s@]@[^\s@]\.[^\s@]$/.test(email)) {
       toast.error("Ingresá un email válido.");
       return;
     }
@@ -173,7 +209,6 @@ const UsuariosPage = () => {
 
   const [busqueda, setBusqueda] = useState("");
 
-  // lista filtrada (performante)
   const usuariosFiltrados = React.useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     if (!q) return usuarios;
@@ -291,16 +326,11 @@ const UsuariosPage = () => {
         ]}
       />
 
-      {/* Wrapper consistente */}
       <Box flex="1" p={{ base: 4, md: 8 }} bg={bg} color={card.color}>
-        {/* Header responsivo */}
         <Stack direction={{ base: "column", md: "row" }} justify="space-between" align={{ md: "center" }} mb={4} spacing={3}>
           <Heading size="md">Administrar Usuarios</Heading>
 
-          <InputGroup
-            size={{ base: "md", md: "lg" }}
-            w={{ base: "100%", md: "320px" }}
-          >
+          <InputGroup size={{ base: "md", md: "lg" }} w={{ base: "100%", md: "320px" }}>
             <InputLeftElement pointerEvents="none">
               <SearchIcon color="gray.400" />
             </InputLeftElement>
@@ -321,7 +351,6 @@ const UsuariosPage = () => {
           </Button>
         </Stack>
 
-        {/* Secciones en cards responsivas */}
         <Section title="Usuarios" items={usuariosFinales} />
         <Section title="Profesores" items={empleados} />
         <Section title="Administradores" items={admins} />
@@ -338,79 +367,77 @@ const UsuariosPage = () => {
             <ModalCloseButton />
             <ModalBody maxH="70vh" overflowY="auto">
               <form id="usuario-form" onSubmit={handleSubmit}>
-              <VStack spacing={4} align="stretch">
-                <ChakraInput
-                  placeholder="Nombre"
-                  value={nombre}
-                  onChange={e => setNombre(e.target.value)}
-                  size="md"
-                  fontSize={{ base: "16px", md: "inherit" }}
-                />
-                <ChakraInput
-                  placeholder="Apellido"
-                  value={apellido}
-                  onChange={e => setApellido(e.target.value)}
-                  size="md"
-                  fontSize={{ base: "16px", md: "inherit" }}
-                />
-                <ChakraInput
-                  placeholder="Teléfono"
-                  inputMode="tel"
-                  value={telefono}
-                  onChange={e => setTelefono(e.target.value)}
-                  size="md"
-                  fontSize={{ base: "16px", md: "inherit" }}
-                />
-                <Select
-                  size="md"
-                  fontSize={{ base: "16px", md: "inherit" }}
-                  bg={input.bg}
-                  color={input.color}
-                  value={tipoUsuario}
-                  onChange={e => setTipoUsuario(e.target.value)}
-                >
-                  <option value="admin_cliente">Admin del Cliente</option>
-                  <option value="empleado_cliente">Empleado del Cliente</option>
-                  <option value="usuario_final">Usuario Final</option>
-                </Select>
-                <ChakraInput
-                  placeholder="Email"
-                  type="email"
-                  inputMode="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  size="md"
-                  fontSize={{ base: "16px", md: "inherit" }}
-                />
-                {editingId ? (
-                  // Edición: campo opcional para cambiar password
+                <VStack spacing={4} align="stretch">
                   <ChakraInput
-                    placeholder="Nueva contraseña (opcional)"
-                    type="password"
-                    autoComplete="new-password"
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
+                    placeholder="Nombre"
+                    value={nombre}
+                    onChange={e => setNombre(e.target.value)}
                     size="md"
                     fontSize={{ base: "16px", md: "inherit" }}
                   />
-                ) : (
-                  // Creación: password obligatoria
                   <ChakraInput
-                    placeholder="Contraseña"
-                    type="password"
-                    autoComplete="new-password"
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
+                    placeholder="Apellido"
+                    value={apellido}
+                    onChange={e => setApellido(e.target.value)}
                     size="md"
                     fontSize={{ base: "16px", md: "inherit" }}
                   />
-                )}
+                  <ChakraInput
+                    placeholder="Teléfono"
+                    inputMode="tel"
+                    value={telefono}
+                    onChange={e => setTelefono(e.target.value)}
+                    size="md"
+                    fontSize={{ base: "16px", md: "inherit" }}
+                  />
+                  <Select
+                    size="md"
+                    fontSize={{ base: "16px", md: "inherit" }}
+                    bg={input.bg}
+                    color={input.color}
+                    value={tipoUsuario}
+                    onChange={e => setTipoUsuario(e.target.value)}
+                  >
+                    <option value="admin_cliente">Admin del Cliente</option>
+                    <option value="empleado_cliente">Empleado del Cliente</option>
+                    <option value="usuario_final">Usuario Final</option>
+                  </Select>
+                  <ChakraInput
+                    placeholder="Email"
+                    type="email"
+                    inputMode="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    size="md"
+                    fontSize={{ base: "16px", md: "inherit" }}
+                  />
+                  {editingId ? (
+                    <ChakraInput
+                      placeholder="Nueva contraseña (opcional)"
+                      type="password"
+                      autoComplete="new-password"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      size="md"
+                      fontSize={{ base: "16px", md: "inherit" }}
+                    />
+                  ) : (
+                    <ChakraInput
+                      placeholder="Contraseña"
+                      type="password"
+                      autoComplete="new-password"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      size="md"
+                      fontSize={{ base: "16px", md: "inherit" }}
+                    />
+                  )}
 
-                <HStack justify="space-between">
-                  <Text>Activo</Text>
-                  <Switch isChecked={activo} onChange={e => setActivo(e.target.checked)} colorScheme="green" />
-                </HStack>
-              </VStack>
+                  <HStack justify="space-between">
+                    <Text>Activo</Text>
+                    <Switch isChecked={activo} onChange={e => setActivo(e.target.checked)} colorScheme="green" />
+                  </HStack>
+                </VStack>
               </form>
             </ModalBody>
             <ModalFooter>
@@ -463,30 +490,63 @@ const UsuariosPage = () => {
                 <Box mt={4} p={4} bg={card.bg} borderRadius="md" borderWidth="1px">
                   <Text fontWeight="bold" mb={2}>Emitir Bonificación Manual</Text>
                   <VStack spacing={3} align="stretch">
-                  <ChakraInput
-                    placeholder="Motivo"
-                    value={motivoBonificacion}
-                    onChange={(e) => setMotivoBonificacion(e.target.value)}
-                    size="md"
-                    fontSize={{ base: "16px", md: "inherit" }}
-                  />
+                    <ChakraInput
+                      placeholder="Motivo"
+                      value={motivoBonificacion}
+                      onChange={(e) => setMotivoBonificacion(e.target.value)}
+                      size="md"
+                      fontSize={{ base: "16px", md: "inherit" }}
+                    />
 
+                    {/* Sede */}
                     <Select
                       size={{ base: "sm", md: "md" }}
-                      value={tipoTurnoBono}
-                      onChange={(e) => setTipoTurnoBono(e.target.value)}
+                      placeholder="Seleccioná la sede"
+                      value={selectedSedeId}
+                      onChange={(e) => {
+                        setSelectedSedeId(e.target.value);
+                        setSelectedTipoClaseId("");
+                      }}
                     >
-                      <option value="individual">Individual</option>
-                      <option value="x2">2 Personas</option>
-                      <option value="x3">3 Personas</option>
-                      <option value="x4">4 Personas</option>
+                      {(sedes || []).map((s) => (
+                        <option key={s.id} value={s.id}>{s.nombre}</option>
+                      ))}
                     </Select>
+
+                    {/* Tipo de clase (desde configuracion_padel.tipos_clase del detalle) */}
+                    <Select
+                      size={{ base: "sm", md: "md" }}
+                      placeholder={selectedSedeId ? (loadingTipos ? "Cargando tipos..." : "Seleccioná el tipo de clase") : "Elegí una sede primero"}
+                      value={selectedTipoClaseId}
+                      onChange={(e) => setSelectedTipoClaseId(e.target.value)}
+                      isDisabled={!selectedSedeId || loadingTipos}
+                    >
+                      {(tiposClase || []).map((tc) => (
+                        <option key={tc.id} value={tc.id}>
+                          {(LABELS_TIPO[tc.codigo] || tc.codigo)?.toString()} — ${Number(tc.precio).toLocaleString("es-AR")}
+                        </option>
+                      ))}
+                    </Select>
+
                     <Button
                       isLoading={cargandoBono}
+                      isDisabled={
+                        !motivoBonificacion.trim() ||
+                        !selectedSedeId ||
+                        !selectedTipoClaseId
+                      }
                       w={{ base: "100%", md: "auto" }}
                       onClick={async () => {
                         if (!motivoBonificacion.trim()) {
                           toast.error("El motivo es obligatorio");
+                          return;
+                        }
+                        if (!selectedSedeId) {
+                          toast.error("Seleccioná la sede");
+                          return;
+                        }
+                        if (!selectedTipoClaseId) {
+                          toast.error("Seleccioná el tipo de clase");
                           return;
                         }
                         setCargandoBono(true);
@@ -494,12 +554,17 @@ const UsuariosPage = () => {
                         try {
                           await api.post("/turnos/bonificaciones/crear-manual/", {
                             usuario_id: detalleUsuario.id,
+                            sede_id: Number(selectedSedeId),
+                            tipo_clase_id: Number(selectedTipoClaseId),
                             motivo: motivoBonificacion,
-                            tipo_turno: tipoTurnoBono,
                           });
                           toast.success("Bonificación emitida correctamente");
                           setMotivoBonificacion("");
-                        } catch {
+                          setSelectedSedeId("");
+                          setSelectedTipoClaseId("");
+                          setTiposClase([]);
+                        } catch (err) {
+                          console.error("Emitir bonificación manual:", err?.response?.data || err?.message);
                           toast.error("Error al emitir bonificación");
                         } finally {
                           setCargandoBono(false);

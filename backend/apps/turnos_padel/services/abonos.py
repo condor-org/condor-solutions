@@ -606,8 +606,20 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
             )
         except DjangoValidationError:
             raise serializers.ValidationError({"comprobante": "Comprobante no válido"})
-
-    # Consumir bonificaciones aplicadas
+        
+    # Si hay comprobante, asociarlo a los turnos en prioridad de este abono
+    if comprobante_abono:
+        # bloquea filas y evita reescribir si ya tenían comprobante (idempotente)
+        turnos_prio = list(
+            Turno.objects.select_for_update()
+            .filter(abono_mes_prioridad=abono, comprobante_abono__isnull=True)
+            .only("id")  # evitamos traer columnas demás
+        )
+        for t in turnos_prio:
+            t.comprobante_abono = comprobante_abono
+            t.save(update_fields=["comprobante_abono"])
+            
+    # Consumir bonificaciones aplicadas     
     if n_bonos:
         for b in bonos:
             b.usado = True
