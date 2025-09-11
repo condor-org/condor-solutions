@@ -45,9 +45,11 @@ jobs:
             TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
             REPO="condor-ai-solutions/condor"
 
-            # Descubrir rama default sin clonar
-            DEFAULT_BRANCH=$(git ls-remote --symref "https://x-access-token:${TOKEN}@github.com/${REPO}.git" HEAD \
-              | awk -F'[/ ]' '/^ref:/{print $4}')
+            DEFAULT_BRANCH=$(
+              curl -fsSL -H "Authorization: token ${TOKEN}" \
+                "https://api.github.com/repos/${REPO}" \
+              | awk -F'"' '/"default_branch":/ {print $4; exit}'
+            )
             echo "[i] Default branch: ${DEFAULT_BRANCH:-<desconocida>}"
             [ -n "${DEFAULT_BRANCH:-}" ] || { echo "❌ No pude detectar la default branch"; exit 1; }
 
