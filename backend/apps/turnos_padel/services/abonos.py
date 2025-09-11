@@ -478,21 +478,39 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
 
     # 2) Traer bonificaciones válidas del USUARIO DESTINO y del tipo correcto (DB)
     bonificaciones_ids = bonificaciones_ids or []
-    bonos_qs = TurnoBonificado.objects.select_for_update().filter(
-        id__in=bonificaciones_ids,
-        usuario=abono.usuario,   # 👈 beneficiario real del abono
-        usado=False,
-    ).filter(
-        models.Q(valido_hasta__isnull=True) | models.Q(valido_hasta__gte=timezone.localdate())
-    ).filter(
-        models.Q(tipo_turno__iexact=code) | models.Q(tipo_turno__iexact=code_alias)
+    bonos_qs = (
+        TurnoBonificado.objects
+        .select_for_update()
+        .only("id", "valor", "tipo_turno", "valido_hasta", "usado", "usuario_id")
+        .filter(
+            id__in=bonificaciones_ids,
+            usuario=abono.usuario,   # 👈 beneficiario real del abono
+            usado=False,
+        )
+        .filter(
+            models.Q(valido_hasta__isnull=True) | models.Q(valido_hasta__gte=timezone.localdate())
+        )
+        .filter(
+            models.Q(tipo_turno__iexact=code) | models.Q(tipo_turno__iexact=code_alias)
+        )
     )
     bonos = list(bonos_qs)
-    n_bonos = len(bonos)
 
-    # 3) Calcular restante
-    valor_bonos = n_bonos * precio_turno
+    # 3) Validar y sumar valor de cada bonificación
+    try:
+        valores_bonos = [float(b.valor) for b in bonos]
+    except (TypeError, ValueError):
+        raise serializers.ValidationError({"bonificaciones": "Hay bonificaciones sin valor numérico válido."})
+    if any(v < 0 for v in valores_bonos):
+        raise serializers.ValidationError({"bonificaciones": "Hay bonificaciones con valor negativo."})
+
+    valor_bonos = sum(valores_bonos)
     restante = max(precio_abono - valor_bonos, 0.0)
+
+    # >>> FIX: asegurar que 'abono' tenga ID antes de crear el comprobante <<<
+    # (No cambia ninguna otra parte del flujo)
+    if restante > 0 and not omitir_archivo and not abono.pk:
+        abono.save()
 
     # 4) Si hay restante > 0, exigir comprobante por ese EXACTO monto (salvo override admin)
     comprobante_abono = None
@@ -521,6 +539,7 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
     )
 
     # 5) Persistir abono y reservar (pone locks, setea relaciones, etc.)
+    # (Si ya se guardó antes por el fix, esto es idempotente)
     abono.save()
     resumen = confirmar_y_reservar_abono(
         abono=abono,
@@ -528,7 +547,7 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
     )
 
     # 6) Marcar bonificaciones como usadas si aplicaron (en ambos escenarios)
-    if n_bonos:
+    if bonos:
         for b in bonos:
             b.usado = True
             b.usado_en_abono = abono
@@ -551,9 +570,9 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
     try:
         abono = (
             AbonoMes.objects
-            .select_related(None)           # evita select_related por defecto
-            .prefetch_related(None)         # evita prefetch por defecto
-            .select_for_update(of=('self',))# FOR UPDATE OF sólo sobre AbonoMes
+            .select_related(None)            # evita select_related por defecto
+            .prefetch_related(None)          # evita prefetch por defecto
+            .select_for_update(of=('self',)) # FOR UPDATE OF sólo sobre AbonoMes
             .get(id=int(abono_id))
         )
     except (AbonoMes.DoesNotExist, ValueError, TypeError):
@@ -569,7 +588,6 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
 
     # Precios “server source of truth”
     precio_abono = float(getattr(abono.tipo_abono, "precio", None) or abono.monto or 0.0)
-    precio_turno = float(getattr(abono.tipo_clase, "precio", 0.0))
 
     # Bonificaciones válidas del usuario y del tipo correcto
     code = (getattr(abono.tipo_clase, "codigo", "") or "").strip().lower()
@@ -578,6 +596,7 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
     bonos_qs = (
         TurnoBonificado.objects
         .select_for_update()
+        .only("id", "valor", "tipo_turno", "valido_hasta", "usado", "usuario_id")
         .filter(
             id__in=(bonificaciones_ids or []),
             usuario=abono.usuario,
@@ -587,10 +606,16 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
         .filter(models.Q(tipo_turno__iexact=code) | models.Q(tipo_turno__iexact=code_alias))
     )
     bonos = list(bonos_qs)
-    n_bonos = len(bonos)
 
-    # Cálculo de restante
-    restante = max(precio_abono - n_bonos * precio_turno, 0.0)
+    # Sumar valor real de cada bonificación (no el precio de la clase)
+    try:
+        valores_bonos = [float(b.valor) for b in bonos]
+    except (TypeError, ValueError):
+        raise serializers.ValidationError({"bonificaciones": "Hay bonificaciones sin valor numérico válido."})
+    if any(v < 0 for v in valores_bonos):
+        raise serializers.ValidationError({"bonificaciones": "Hay bonificaciones con valor negativo."})
+
+    restante = max(precio_abono - sum(valores_bonos), 0.0)
 
     # Comprobante (sólo si hace falta y no hay override admin)
     comprobante_abono = None
@@ -606,21 +631,21 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
             )
         except DjangoValidationError:
             raise serializers.ValidationError({"comprobante": "Comprobante no válido"})
-        
-    # Si hay comprobante, asociarlo a los turnos en prioridad de este abono
+
+    # Si hay comprobante, asociarlo a los turnos en prioridad de este abono (idempotente)
     if comprobante_abono:
-        # bloquea filas y evita reescribir si ya tenían comprobante (idempotente)
         turnos_prio = list(
-            Turno.objects.select_for_update()
+            Turno.objects
+            .select_for_update()
             .filter(abono_mes_prioridad=abono, comprobante_abono__isnull=True)
-            .only("id")  # evitamos traer columnas demás
+            .only("id")
         )
         for t in turnos_prio:
             t.comprobante_abono = comprobante_abono
             t.save(update_fields=["comprobante_abono"])
-            
-    # Consumir bonificaciones aplicadas     
-    if n_bonos:
+
+    # Consumir bonificaciones aplicadas
+    if bonos:
         for b in bonos:
             b.usado = True
             b.usado_en_abono = abono
@@ -641,7 +666,7 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
 
     logger.info(
         "[abonos.renovacion] abono=%s renovado=%s bonos=%s restante=%.2f",
-        abono.id, True, n_bonos, restante
+        abono.id, True, len(bonos), restante
     )
 
     return abono, resumen

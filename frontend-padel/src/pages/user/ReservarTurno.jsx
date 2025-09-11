@@ -93,7 +93,6 @@ const ReservarTurno = ({ onClose }) => {
 
   // Bonos
   const [bonificaciones, setBonificaciones] = useState([]);
-  const [usarBonificado, setUsarBonificado] = useState(false);
 
   // Mis próximas reservas (SIEMPRE arriba)
   const [misTurnos, setMisTurnos] = useState([]);
@@ -129,14 +128,7 @@ const ReservarTurno = ({ onClose }) => {
       .sort((a,b) => (a.start < b.start ? -1 : 1));
   }, [turnos, selectedDay]);
 
-  // Tipo de clase seleccionado (para nombre y match de bono)
-  const tipoClaseSeleccionada = tiposClase.find(tc => String(tc.id) === String(tipoClaseId));
-  const codigoSel = tipoClaseSeleccionada?.codigo;
-  const tipoTurnoSeleccionado = (codigoSel === "x2" ? "x2" : codigoSel === "x3" ? "x3" : codigoSel === "x4" ? "x4" : "x1");
-  const tieneBonoDeEsteTipo = bonificaciones.length > 0;
-
   // ==== Cargas base ====
-  // Mis turnos arriba
   const cargarMisTurnos = async () => {
     if (!accessToken) return;
     setLoadingMisTurnos(true);
@@ -196,7 +188,7 @@ const ReservarTurno = ({ onClose }) => {
       .finally(() => setProfesoresLoading(false));
   }, [sedeId, accessToken]);
 
-  // Turnos disponibles (excluye reservado_para_abono, ya lo hace el backend)
+  // Turnos disponibles
   useEffect(() => {
     if (!sedeId || !profesorId || !accessToken) { setTurnos([]); return; }
     const api = axiosAuth(accessToken);
@@ -274,8 +266,7 @@ const ReservarTurno = ({ onClose }) => {
         duration: 5000,
       });
 
-      await cargarMisTurnos();              // refresco lista de arriba
-      // refrescar calendario (si era mismo profe/sede)
+      await cargarMisTurnos();
       const profId = profesorId;
       setProfesorId("");
       setTimeout(() => setProfesorId(profId), 50);
@@ -299,29 +290,10 @@ const ReservarTurno = ({ onClose }) => {
     cerrarConfirmacionCancelacion();
   };
 
-  const handleReserva = async () => {
+  // <- ACTUALIZADO: ya no validamos comprobante acá; el backend decide.
+  const handleReserva = async (bonificacionId) => {
     if (!turnoSeleccionado || !tipoClaseId) {
       toast({ title: "Faltan datos.", description: "Seleccioná un turno y un tipo de clase.", status: "warning", duration: 6000 });
-      return;
-    }
-
-    if (usarBonificado) {
-      if (!tipoTurnoSeleccionado || !tieneBonoDeEsteTipo) {
-        toast({
-          title: "No podés usar Turno Bonificado",
-          description: "No tenés un bono del mismo tipo de clase seleccionada.",
-          status: "warning",
-          duration: 6000,
-        });
-        return;
-      }
-    } else if (!archivo) {
-      toast({
-        title: "Falta comprobante",
-        description: "Subí el comprobante o activá 'Usar Turno Bonificado'.",
-        status: "warning",
-        duration: 6000,
-      });
       return;
     }
 
@@ -330,8 +302,8 @@ const ReservarTurno = ({ onClose }) => {
       const formData = new FormData();
       formData.append("turno_id", turnoSeleccionado.id);
       formData.append("tipo_clase_id", tipoClaseId);
-      if (usarBonificado) formData.append("usar_bonificado", "true");
-      else formData.append("archivo", archivo);
+      if (bonificacionId) formData.append("bonificacion_id", String(bonificacionId));
+      if (archivo) formData.append("archivo", archivo);
 
       const api = axiosAuth(accessToken);
       await api.post("turnos/reservar/", formData, { headers: { "Content-Type": "multipart/form-data" } });
@@ -342,7 +314,6 @@ const ReservarTurno = ({ onClose }) => {
       onClose?.();
       setArchivo(null);
       setTurnoSeleccionado(null);
-      setUsarBonificado(false);
 
       // refrescar bonos
       try {
@@ -358,8 +329,13 @@ const ReservarTurno = ({ onClose }) => {
       setProfesorId("");
       setTimeout(() => setProfesorId(profId), 50);
     } catch (e) {
-      const msg = e?.response?.data?.error || e?.response?.data?.detail || "Error al enviar la reserva";
-      toast({ title: "Error", description: msg, status: "error", duration: 5000 });
+      const msg =
+        e?.response?.data?.archivo ||
+        e?.response?.data?.bonificacion_id ||
+        e?.response?.data?.error ||
+        e?.response?.data?.detail ||
+        "Error al enviar la reserva";
+      toast({ title: "Error", description: String(msg), status: "error", duration: 5000 });
     } finally {
       setLoading(false);
     }
@@ -537,7 +513,7 @@ const ReservarTurno = ({ onClose }) => {
         />
       )}
 
-      {/* Modal de pago (reutilizado tal cual) */}
+      {/* Modal de pago */}
       <ReservaPagoModal
         isOpen={pagoDisc.isOpen}
         onClose={pagoDisc.onClose}
@@ -546,12 +522,10 @@ const ReservarTurno = ({ onClose }) => {
         archivo={archivo}
         onArchivoChange={setArchivo}
         onRemoveArchivo={() => setArchivo(null)}
-        onConfirmar={handleReserva}
+        onConfirmar={handleReserva}               // recibe bonificacionId
         loading={loading}
         tiempoRestante={configPago?.tiempo_maximo_minutos ? configPago.tiempo_maximo_minutos * 60 : undefined}
         bonificaciones={bonificaciones}
-        usarBonificado={usarBonificado}
-        setUsarBonificado={setUsarBonificado}
         alias={configPago.alias}
         cbuCvu={configPago.cbu_cvu}
       />

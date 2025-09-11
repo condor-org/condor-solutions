@@ -15,6 +15,7 @@ from apps.turnos_core.services.bonificaciones import (
     emitir_bonificacion_manual,
     bonificaciones_vigentes,
 )
+from django.db import models,transaction
 
 from apps.turnos_padel.models import TipoClasePadel
 
@@ -75,24 +76,21 @@ class TurnoSerializer(LoggedModelSerializer):
 
 
 # ------------------------------------------------------------------------------
-# TurnoReservaSerializer
-# - Propósito: validar y ejecutar la reserva de un turno.
-# - Input: turno_id, tipo_clase_id, usar_bonificado(bool), archivo(file si no usa bono).
-# - Validaciones:
-#     * turno existe y está libre.
-#     * tipo de clase existe y corresponde a la sede del turno.
-# - create():
-#     * resuelve tipo_turno canónico (x1..x4) por code/codigo/alias.
-#     * si usar_bonificado: busca bono vigente compatible y lo marca usado.
-#     * si no: sube comprobante y crea PagoIntento(pre_aprobado).
-#     * confirma reserva: setea usuario/estado/tipo_turno en Turno.
-# - Side-effects: logs, PagoIntento; (las notifs se hacen en la view).
+# TurnoReservaSerializer (actualizado)
+# - Agrega: bonificacion_id (opcional)
+# - Lógica:
+#      precio_turno = TipoClasePadel.precio
+#      valor_bono = TurnoBonificado.valor (si se envía/elige uno válido)
+#      restante = max(precio_turno - valor_bono, 0)
+#      Si restante > 0 → exigir comprobante; si restante == 0 → sin comprobante.
+#      Marca la bonificación como usada (aunque cubra parcial o totalmente).
 # ------------------------------------------------------------------------------
+
 class TurnoReservaSerializer(serializers.Serializer):
     turno_id = serializers.IntegerField()
     tipo_clase_id = serializers.IntegerField()
     archivo = serializers.FileField(required=False, allow_null=True)
-    usar_bonificado = serializers.BooleanField(default=False)
+    bonificacion_id = serializers.IntegerField(required=False, allow_null=True)
 
     def validate(self, attrs):
         turno_id = attrs["turno_id"]
@@ -124,98 +122,116 @@ class TurnoReservaSerializer(serializers.Serializer):
         return attrs
 
     def create(self, validated_data):
-        from django.db.models import Q  # import local para snippet autocontenible
-
         user = self.context["request"].user
-        turno = validated_data["turno"]
+        turno_in = validated_data["turno"]
         tipo_clase = validated_data["tipo_clase"]
-        usar_bonificado = validated_data.get("usar_bonificado", False)
+        bonificacion_id = validated_data.get("bonificacion_id")
         archivo = validated_data.get("archivo")
 
-        # --- Tipo de turno canónico (choices del modelo) ---
+        # --- Tipo de turno canónico ---
         tipo_turno = (getattr(tipo_clase, "codigo", "") or "").strip().lower()
         if tipo_turno not in {"x1", "x2", "x3", "x4"}:
             logger.warning(
                 "[turno.reservar][tipo_invalido] user=%s turno=%s tipo_clase_id=%s codigo=%r",
-                user.id, turno.id, getattr(tipo_clase, "id", None), getattr(tipo_clase, "codigo", None)
+                getattr(user, "id", None),
+                getattr(turno_in, "id", None),
+                getattr(tipo_clase, "id", None),
+                getattr(tipo_clase, "codigo", None),
             )
             raise DRFValidationError({"tipo_clase_id": "Tipo de clase inválido para la reserva."})
 
-        logger.debug(
-            "[turno.reservar][tipo] user=%s turno=%s tipo=%s",
-            user.id, turno.id, tipo_turno
-        )
+        precio_turno = float(getattr(tipo_clase, "precio", 0) or 0)
+        code_alias = {
+            "x1": "individual", "x2": "2 personas", "x3": "3 personas", "x4": "4 personas"
+        }.get(tipo_turno, "")
 
-        if usar_bonificado:
-            qs = (
-                bonificaciones_vigentes(user)
-                .filter(tipo_turno__iexact=tipo_turno)
-                .order_by("fecha_creacion")
-            )
+        with transaction.atomic():
+            # Lock del turno
+            turno = Turno.objects.select_for_update().get(pk=turno_in.id)
 
-            bono = qs.first()
+            if turno.usuario_id is not None or turno.estado != "disponible":
+                raise DRFValidationError({"turno_id": "Ese turno ya fue tomado."})
 
-            esc = ""
-            try:
-                desc = tipo_clase.get_codigo_display()
-            except Exception:
-                pass
-            if not desc:
-                desc = tipo_turno.upper()
+            # === Bonificación: SOLO la enviada por FE ===
+            bono = None
+            if bonificacion_id is not None:
+                try:
+                    bonificacion_id = int(bonificacion_id)
+                except (TypeError, ValueError):
+                    raise DRFValidationError({"bonificacion_id": "Debés seleccionar una bonificación válida."})
+
+                bono = (
+                    TurnoBonificado.objects
+                    .select_for_update()
+                    .only("id", "valor", "tipo_turno", "valido_hasta", "usado", "usuario_id")
+                    .filter(
+                        id=bonificacion_id,
+                        usuario=user,
+                        usado=False,
+                    )
+                    .filter(models.Q(valido_hasta__isnull=True) | models.Q(valido_hasta__gte=timezone.localdate()))
+                    .filter(models.Q(tipo_turno__iexact=tipo_turno) | models.Q(tipo_turno__iexact=code_alias))
+                    .first()
+                )
+                if not bono:
+                    raise DRFValidationError({
+                        "bonificacion_id": "La bonificación indicada no está disponible o no aplica a este turno."
+                    })
+
+            # Valor del bono (si corresponde)
+            valor_bono = float(getattr(bono, "valor", 0) or 0)
+            if valor_bono < 0:
+                raise DRFValidationError({"bonificacion_id": "La bonificación seleccionada tiene un valor inválido."})
+
+            # Restante = precio_turno - valor_bono (no menor a 0)
+            restante = max(precio_turno - valor_bono, 0.0)
+
+            # Comprobante solo si queda restante
+            comprobante = None
+            if restante > 0:
+                if not archivo:
+                    raise DRFValidationError({"archivo": "Falta comprobante para cubrir el monto restante."})
+                try:
+                    comprobante = ComprobanteService.upload_comprobante(
+                        turno_id=turno.id,
+                        tipo_clase_id=tipo_clase.id,
+                        file_obj=archivo,
+                        usuario=user,
+                        cliente=user.cliente,
+                    )
+                    logger.info(
+                        "[turno.reservar][comprobante] user=%s turno=%s comp_id=%s restante=%.2f precio=%.2f bono=%.2f",
+                        user.id, turno.id, getattr(comprobante, "id", None),
+                        restante, precio_turno, valor_bono
+                    )
+                except DjangoValidationError as e:
+                    mensaje = e.messages[0] if hasattr(e, "messages") else str(e)
+                    raise DRFValidationError({"error": f"Comprobante inválido: {mensaje}"})
+                except DjangoPermissionDenied as e:
+                    raise DRFPermissionDenied({"error": str(e)})
+                except Exception as e:
+                    logger.exception("[turno.reservar][comprobante][fail] user=%s turno=%s err=%s", user.id, turno.id, str(e))
+                    raise DRFValidationError({"error": f"Error inesperado: {str(e)}"})
+
+            # Consumir bonificación (si hay)
+            if bono:
+                logger.info(
+                    "[turno.reservar][bono] user=%s turno=%s bono=%s valor=%.2f precio=%.2f restante=%.2f",
+                    user.id, turno.id, bono.id, valor_bono, precio_turno, restante
+                )
+                bono.marcar_usado(turno)
+
+            # Confirmar reserva
+            turno.usuario = user
+            turno.estado = "reservado"
+            turno.tipo_turno = tipo_turno
+            turno.save(update_fields=["usuario", "estado", "tipo_turno"])
 
             logger.info(
-                "[turno.reservar][bono] user=%s turno=%s tipo=%s disponibles=%s elegido=%s",
-                user.id, turno.id, tipo_turno, qs.count(), (getattr(bono, "id", None) if bono else None)
+                "[turno.reservar][ok] user=%s turno=%s estado=%s tipo_turno=%s restante=%.2f",
+                user.id, turno.id, turno.estado, turno.tipo_turno, restante
             )
-
-            if not bono:
-                raise DRFValidationError({
-                    "usar_bonificado": f"No tenés bonificaciones disponibles para {desc}."
-                })
-
-            bono.marcar_usado(turno)
-
-        else:
-            # Requiere comprobante si no se usa bonificación
-            if not archivo:
-                raise DRFValidationError({
-                    "archivo": "El comprobante es obligatorio si no usás turno bonificado."
-                })
-
-            try:
-                comprobante = ComprobanteService.upload_comprobante(
-                    turno_id=turno.id,
-                    tipo_clase_id=tipo_clase.id,   # ← nuevo
-                    file_obj=archivo,
-                    usuario=user,
-                    cliente=user.cliente,
-                )
-
-                logger.info(
-                    "[turno.reservar][comprobante] user=%s turno=%s comp_id=%s monto=%s",
-                    user.id, turno.id, getattr(comprobante, "id", None), tipo_clase.precio
-                )
-            except DjangoValidationError as e:
-                mensaje = e.messages[0] if hasattr(e, "messages") else str(e)
-                raise DRFValidationError({"error": f"Comprobante inválido: {mensaje}"})
-            except DjangoPermissionDenied as e:
-                raise DRFPermissionDenied({"error": str(e)})
-            except Exception as e:
-                logger.exception("[turno.reservar][comprobante][fail] user=%s turno=%s err=%s", user.id, turno.id, str(e))
-                raise DRFValidationError({"error": f"Error inesperado: {str(e)}"})
-
-
-        # Confirmar reserva en el Turno
-        turno.usuario = user
-        turno.estado = "reservado"
-        turno.tipo_turno = tipo_turno
-        turno.save(update_fields=["usuario", "estado", "tipo_turno"])
-
-        logger.info(
-            "[turno.reservar][ok] user=%s turno=%s estado=%s tipo_turno=%s",
-            user.id, turno.id, turno.estado, turno.tipo_turno
-        )
-        return turno
+            return turno
 
 
 # ------------------------------------------------------------------------------
