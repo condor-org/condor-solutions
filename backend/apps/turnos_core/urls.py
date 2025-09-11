@@ -30,9 +30,6 @@ router.register(r'prestadores', PrestadorViewSet, basename='prestadores')
 router.register(r'disponibilidades', DisponibilidadViewSet, basename='disponibilidades')
 
 urlpatterns = [
-    # Incluye todas las rutas de los ViewSets (sedes, prestadores, disponibilidades)
-    path("", include(router.urls)),
-
     # GET → lista turnos visibles para el usuario actual (según rol, filtros estado/upcoming)
     path("", TurnoListView.as_view(), name="turno-list"),
 
@@ -62,4 +59,7 @@ urlpatterns = [
 
     # POST → admins cancelan en masa turnos de un prestador (opcional filtrar por sede y rango horario)
     path("prestadores/<int:prestador_id>/cancelar_en_rango/", CancelarPorPrestadorAdminView.as_view(), name="cancelar-por-prestador"),
+    
+    # Incluye todas las rutas de los ViewSets (sedes, prestadores, disponibilidades)
+    path("", include(router.urls)),
 ]

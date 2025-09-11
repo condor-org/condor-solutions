@@ -14,6 +14,7 @@ from django.utils import timezone
 from django.db import models, transaction
 from apps.turnos_core.models import TurnoBonificado, Turno
 import logging
+from decimal import Decimal, InvalidOperation
 from apps.notificaciones_core.services import (
     publish_event,
     notify_inapp,
@@ -23,6 +24,75 @@ TYPE_BONIFICACION_CREADA = "BONIFICACION_CREADA"
 
 logger = logging.getLogger(__name__)
 
+
+
+
+# -----------------------------
+# HELPER
+# -----------------------------
+
+
+def _resolver_valor_por_lugar_y_tipo(lugar, tipo_turno):
+    """
+    Devuelve Decimal (precio) para la combinación (sede/lugar, tipo_turno) usando:
+      TipoClasePadel.configuracion_sede.sede == lugar  AND  TipoClasePadel.codigo == tipo_turno
+
+    - Usa iexact para el código (x1/x2/x3/x4).
+    - Considera sólo tipos activos.
+    - Logs claros si no encuentra config por sede o por tipo.
+    """
+    # Acepta objeto Lugar o id
+    sede_id = lugar if isinstance(lugar, int) else getattr(lugar, "id", None)
+    code = (str(tipo_turno).strip() if tipo_turno else None)
+
+    if not sede_id or not code:
+        logger.warning(
+            "[BONIFICACION][_resolver_valor] faltan datos sede_id=%s tipo=%s", sede_id, code
+        )
+        return None
+
+    try:
+        from apps.turnos_padel.models import TipoClasePadel, ConfiguracionSedePadel
+
+        # Validar que exista configuración para la sede (por claridad en logs)
+        existe_conf = ConfiguracionSedePadel.objects.filter(sede_id=sede_id).exists()
+        if not existe_conf:
+            logger.warning(
+                "[BONIFICACION][_resolver_valor] la sede_id=%s no tiene ConfiguracionSedePadel",
+                sede_id,
+            )
+
+        # Buscar el precio del tipo en esa sede (solo activos)
+        precio = (
+            TipoClasePadel.objects
+            .filter(
+                configuracion_sede__sede_id=sede_id,
+                codigo__iexact=code,
+                activo=True,
+            )
+            .values_list("precio", flat=True)
+            .first()
+        )
+
+        if precio is None:
+            logger.warning(
+                "[BONIFICACION][_resolver_valor] sin TipoClasePadel activo para sede_id=%s codigo=%s",
+                sede_id, code
+            )
+        else:
+            logger.debug(
+                "[BONIFICACION][_resolver_valor] OK sede_id=%s codigo=%s -> precio=%s",
+                sede_id, code, precio
+            )
+        return precio
+
+    except Exception:
+        logger.exception(
+            "[BONIFICACION][_resolver_valor] error resolviendo precio sede_id=%s tipo=%s",
+            sede_id, code
+        )
+        return None
+
 # -----------------------------
 # EMISIÓN DE BONIFICACIONES
 # -----------------------------
@@ -31,26 +101,19 @@ logger = logging.getLogger(__name__)
 def emitir_bonificacion_automatica(usuario, turno_original, motivo="Cancelación válida", valido_hasta=None):
     """
     Emite un bono automáticamente asociado a un turno cancelado.
-    ► Regla de negocio:
-      - Requiere que el turno_original tenga tipo_turno seteado (x1/x2/x3/x4).
-      - El bono hereda ese tipo_turno para respetar equivalencia (misma clase).
-      - Se marca 'generado_automaticamente=True' y se deja audit trail (motivo/validez).
-      - Publica evento y envía notificación in-app al usuario (best-effort).
-
-    ► Entradas:
-      - usuario: User dueño del crédito.
-      - turno_original: Turno cancelado que origina la bonificación.
-      - motivo (str): razón visible en auditoría/notificación.
-      - valido_hasta (date|None): fecha de expiración opcional.
-
-    ► Salida:
-      - TurnoBonificado creado.
-
-    ► Transaccionalidad:
-      - Atómico: creación de bono y side effects coherentes en caso de error.
     """
     if not getattr(turno_original, "tipo_turno", None):
         raise ValueError("turno_original.tipo_turno es requerido para emitir bonificación automática.")
+
+    # 🔎 NUEVO: congelar el valor del bono según la sede y el tipo
+    valor = _resolver_valor_por_lugar_y_tipo(turno_original.lugar, turno_original.tipo_turno)
+    if valor is None:
+        logger.warning(
+            "[BONIFICACION][auto] valor no resuelto para turno=%s lugar=%s tipo=%s",
+            getattr(turno_original, "id", None),
+            getattr(turno_original.lugar, "id", None) if getattr(turno_original, "lugar", None) else None,
+            getattr(turno_original, "tipo_turno", None),
+        )
 
     bono = TurnoBonificado.objects.create(
         usuario=usuario,
@@ -58,11 +121,13 @@ def emitir_bonificacion_automatica(usuario, turno_original, motivo="Cancelación
         motivo=motivo,
         generado_automaticamente=True,
         valido_hasta=valido_hasta,
-        tipo_turno=turno_original.tipo_turno,  
+        tipo_turno=turno_original.tipo_turno,
+        valor=valor,  # 💰 ahora se persiste el precio
     )
     logger.info(
-        "[BONIFICACION][auto] user=%s turno=%s tipo=%s",
-        getattr(usuario, "id", None), getattr(turno_original, "id", None), getattr(turno_original, "tipo_turno", None)
+        "[BONIFICACION][auto] user=%s turno=%s tipo=%s valor=%s",
+        getattr(usuario, "id", None), getattr(turno_original, "id", None),
+        getattr(turno_original, "tipo_turno", None), valor
     )
     try:
         ev = publish_event(
@@ -74,6 +139,7 @@ def emitir_bonificacion_automatica(usuario, turno_original, motivo="Cancelación
                 "turno_original": turno_original.id,
                 "tipo_turno": str(turno_original.tipo_turno),
                 "motivo": motivo,
+                "valor": str(valor) if valor is not None else None,  # útil para auditoría
             },
         )
         notify_inapp(
@@ -85,53 +151,86 @@ def emitir_bonificacion_automatica(usuario, turno_original, motivo="Cancelación
                 usuario.id: {
                     "bonificacion_id": bono.id,
                     "tipo_turno": str(turno_original.tipo_turno),
+                    "valor": str(valor) if valor is not None else None,
                 }
             },
         )
         logger.info("[notif][bonif.auto] user=%s bono=%s", getattr(usuario, "id", None), bono.id)
     except Exception:
-        # Notificaciones son best-effort: si fallan no se revierte la emisión.
         logger.exception("[notif][bonif.auto][fail] bono=%s", bono.id)
     return bono
 
 
 @transaction.atomic
-def emitir_bonificacion_manual(admin_user, usuario, motivo="Bonificación manual", valido_hasta=None, tipo_turno=None):
+def emitir_bonificacion_manual(
+    admin_user,
+    usuario,
+    *,
+    sede,               # ← requerido (Lugar o id)
+    tipo_clase_id,      # ← requerido (ID de TipoClasePadel)
+    motivo="Bonificación manual",
+    valido_hasta=None,
+):
     """
-    Emite un bono manualmente (acción de admin).
-    ► Regla de negocio:
-      - tipo_turno es obligatorio (x1/x2/x3/x4 o equivalentes ya mapeados).
-      - Marca 'generado_automaticamente=False' y guarda 'emitido_por'.
-      - Publica evento y notifica in-app al usuario (best-effort).
-
-    ► Entradas:
-      - admin_user: User admin que emite el bono.
-      - usuario: destinatario.
-      - motivo (str): descripción visible.
-      - valido_hasta (date|None): expiración.
-      - tipo_turno (str): código canónico del turno.
-
-    ► Salida:
-      - TurnoBonificado creado.
-
-    ► Transaccionalidad:
-      - Atómico.
+    Emite una bonificación manual EXIGIENDO sede y tipo_clase.
+    - Valida que el TipoClasePadel pertenezca a la sede indicada.
+    - Setea tipo_turno con tc.codigo (x1/x2/x3/x4).
+    - Congela valor con tc.precio.
     """
-    if not tipo_turno:
-        raise ValueError("tipo_turno es obligatorio para bonificación manual.")
+    # Normalizar sede
+    sede_obj = None
+    if isinstance(sede, int):
+        try:
+            sede_obj = Lugar.objects.only("id").get(pk=sede)
+        except ObjectDoesNotExist:
+            raise ValueError(f"Sede/Lugar id={sede} no existe")
+    else:
+        sede_obj = sede
+    if not getattr(sede_obj, "id", None):
+        raise ValueError("Parámetro 'sede' inválido (se esperaba Lugar o id)")
 
+    # Traer TipoClasePadel y validar pertenencia a la sede
+    try:
+        from apps.turnos_padel.models import TipoClasePadel
+        tc = (TipoClasePadel.objects
+              .select_related("configuracion_sede__sede")
+              .only("id", "codigo", "precio", "activo", "configuracion_sede__sede_id")
+              .get(pk=tipo_clase_id, activo=True))
+    except ObjectDoesNotExist:
+        raise ValueError(f"TipoClasePadel id={tipo_clase_id} no existe o no está activo")
+
+    if tc.configuracion_sede.sede_id != sede_obj.id:
+        raise ValueError(
+            f"TipoClasePadel id={tipo_clase_id} no pertenece a la sede id={sede_obj.id}"
+        )
+
+    # Congelar datos del tipo
+    tipo_turno = str(tc.codigo).lower()
+    valor = tc.precio
+
+    # Crear bono
     bono = TurnoBonificado.objects.create(
         usuario=usuario,
         motivo=motivo,
         generado_automaticamente=False,
         emitido_por=admin_user,
         valido_hasta=valido_hasta,
-        tipo_turno=tipo_turno,  # << clave
+        tipo_turno=tipo_turno,
+        valor=valor,
     )
+
     logger.info(
-        "[BONIFICACION][manual] admin=%s user=%s tipo=%s",
-        getattr(admin_user, "id", None), getattr(usuario, "id", None), tipo_turno
+        "[BONIFICACION][manual] admin=%s user=%s sede=%s tipo_clase_id=%s tipo=%s valor=%s bono=%s",
+        getattr(admin_user, "id", None),
+        getattr(usuario, "id", None),
+        sede_obj.id,
+        tipo_clase_id,
+        tipo_turno,
+        valor,
+        bono.id,
     )
+
+    # Eventos / notificación (igual que antes, con metadatos extra)
     try:
         ev = publish_event(
             topic="bonificaciones.manual",
@@ -139,8 +238,11 @@ def emitir_bonificacion_manual(admin_user, usuario, motivo="Bonificación manual
             cliente_id=getattr(usuario, "cliente_id", None),
             metadata={
                 "bonificacion_id": bono.id,
-                "tipo_turno": str(tipo_turno),
+                "sede_id": sede_obj.id,
+                "tipo_clase_id": tipo_clase_id,
+                "tipo_turno": tipo_turno,
                 "motivo": motivo,
+                "valor": str(valor),
             },
         )
         notify_inapp(
@@ -151,13 +253,17 @@ def emitir_bonificacion_manual(admin_user, usuario, motivo="Bonificación manual
             context_by_user={
                 usuario.id: {
                     "bonificacion_id": bono.id,
-                    "tipo_turno": str(tipo_turno),
+                    "sede_id": sede_obj.id,
+                    "tipo_clase_id": tipo_clase_id,
+                    "tipo_turno": tipo_turno,
+                    "valor": str(valor),
                 }
             },
         )
         logger.info("[notif][bonif.manual] user=%s bono=%s", getattr(usuario, "id", None), bono.id)
     except Exception:
         logger.exception("[notif][bonif.manual][fail] bono=%s", bono.id)
+
     return bono
 
 
@@ -243,8 +349,9 @@ def usar_bonificacion(usuario, turno, tipo_turno=None):
     bono.save(update_fields=["usado", "usado_en_turno"])
 
     logger.info(
-        "[BONIFICACION][usar] user=%s bono=%s turno=%s tipo=%s",
-        getattr(usuario, "id", None), bono.id, getattr(turno, "id", None), bono.tipo_turno
+        "[BONIFICACION][usar] user=%s bono=%s turno=%s tipo=%s valor=%s",
+        getattr(usuario, "id", None), bono.id, getattr(turno, "id", None),
+        bono.tipo_turno, bono.valor
     )
     return bono
     

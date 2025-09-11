@@ -24,11 +24,8 @@ import { FaCalendarAlt, FaClock, FaTrash } from "react-icons/fa";
 import CountdownClock from "../ui/CountdownClock";
 import { CopyIcon } from "@chakra-ui/icons";
 import { useToast, Tooltip, IconButton } from "@chakra-ui/react";
+
 const LABELS = { x1: "Individual", x2: "2 Personas", x3: "3 Personas", x4: "4 Personas" };
-
-
-
-
 
 const ReservaPagoModalAbono = ({
   alias,
@@ -38,14 +35,14 @@ const ReservaPagoModalAbono = ({
   turno,                 // {fecha, hora}
   tipoClase,             // {id, codigo, nombre?, precio}
   precioAbono = 0,       // 💰 precio mensual del abono
-  precioUnitario = 0,    // 💸 descuento por cada bonificación (tipo_clase.precio)
+  // precioUnitario (ya no se usa para el cálculo)
   archivo,
   onArchivoChange,
   onRemoveArchivo,
   onConfirmar,           // (selectedBonosIds[]) => void
   loading,
   tiempoRestante,
-  bonificaciones = [],   // [{id, motivo, tipo_turno, fecha_creacion, valido_hasta}]
+  bonificaciones = [],   // [{id, motivo, tipo_turno, fecha_creacion, valido_hasta, valor}]
   selectedBonos = [],
   setSelectedBonos,
 }) => {
@@ -72,11 +69,21 @@ const ReservaPagoModalAbono = ({
     });
   }, [bonificaciones]);
 
+  // ➕ Suma estricta de valores de bonificaciones seleccionadas (sin fallback a otros montos)
+  const totalDescuento = useMemo(() => {
+    const mapaSeleccion = new Set(selectedBonos);
+    return bonosOrdenados.reduce((acc, b) => {
+      if (!mapaSeleccion.has(b.id)) return acc;
+      const v = Number(b?.valor);
+      return Number.isFinite(v) ? acc + v : acc; // solo suma valores numéricos
+    }, 0);
+  }, [bonosOrdenados, selectedBonos]);
+
   const totalEstimado = useMemo(() => {
-    const bonosN = Number(selectedBonos?.length || 0);
-    const total = Math.max(0, Number(precioAbono) - bonosN * Number(precioUnitario));
-    return total;
-  }, [precioAbono, precioUnitario, selectedBonos]);
+    const base = Number(precioAbono) || 0;
+    const total = base - totalDescuento;
+    return total > 0 ? total : 0;
+  }, [precioAbono, totalDescuento]);
 
   const hideComprobante = totalEstimado <= 0;
 
@@ -173,9 +180,6 @@ const ReservaPagoModalAbono = ({
               <Text fontSize={{ base: "sm", md: "md" }}>
                 <b>Precio del abono:</b> ${Number(precioAbono).toLocaleString("es-AR")}
               </Text>
-              <Text fontSize={{ base: "sm", md: "md" }}>
-                <b>Descuento por bonificación:</b> ${Number(precioUnitario).toLocaleString("es-AR")} c/u
-              </Text>
 
               {alias && (
                 <Flex align="center" gap={2} wrap="wrap" mt={1}>
@@ -213,7 +217,6 @@ const ReservaPagoModalAbono = ({
             </Box>
           )}
 
-
           {/* Countdown */}
           {CountdownClock ? (
             <CountdownClock
@@ -242,8 +245,8 @@ const ReservaPagoModalAbono = ({
             </Box>
           )}
 
-          {/* Resumen del cálculo (solo si hay bonos y el usuario activó alguno) */}
-          {bonosOrdenados.length > 0 && selectedBonos.length > 0 && (
+          {/* Resumen del cálculo (si hay bonos seleccionados) */}
+          {selectedBonos.length > 0 && (
             <Box
               mt={{ base: 3, md: 4 }}
               mb={{ base: 2, md: 3 }}
@@ -257,13 +260,11 @@ const ReservaPagoModalAbono = ({
               <Text fontSize={{ base: "sm", md: "sm" }}>
                 Total estimado:{" "}
                 <b>${Number(totalEstimado).toLocaleString("es-AR")}</b>{" "}
-                = ${Number(precioAbono).toLocaleString("es-AR")} − (
-                {selectedBonos.length} × $
-                {Number(precioUnitario).toLocaleString("es-AR")})
+                = ${Number(precioAbono).toLocaleString("es-AR")} − $
+                {Number(totalDescuento).toLocaleString("es-AR")}
               </Text>
             </Box>
           )}
-
 
           {/* Bonificaciones */}
           {!!bonosOrdenados.length && (
@@ -292,7 +293,6 @@ const ReservaPagoModalAbono = ({
                 </HStack>
               </HStack>
 
-              {/* En móvil, lista scrolleable si es larga */}
               <Stack
                 spacing={2}
                 maxH={{ base: '35vh', md: 'none' }}
@@ -303,6 +303,7 @@ const ReservaPagoModalAbono = ({
                   const checked = selectedBonos.includes(b.id);
                   const vence = b.valido_hasta && new Date(b.valido_hasta).toLocaleDateString("es-AR");
                   const tipo = (b.tipo_turno || "").toUpperCase(); // ej: x1
+                  const valor = Number.isFinite(Number(b?.valor)) ? Number(b.valor) : null;
                   return (
                     <Checkbox
                       key={b.id}
@@ -316,6 +317,11 @@ const ReservaPagoModalAbono = ({
                       <HStack spacing={2} flexWrap="wrap" rowGap={1}>
                         <Badge variant="subtle" colorScheme="purple">#{b.id}</Badge>
                         <Badge variant="outline">{tipo}</Badge>
+                        {valor !== null && (
+                          <Badge variant="solid" colorScheme="green">
+                            −${valor.toLocaleString("es-AR")}
+                          </Badge>
+                        )}
                         {vence && (
                           <Badge variant="outline" colorScheme="orange">
                             vence {vence}
@@ -397,8 +403,7 @@ const ReservaPagoModalAbono = ({
               wordBreak="break-word"
             >
               <Text fontSize={{ base: "xs", md: "sm" }} color="gray.700">
-                Con <b>{selectedBonos.length}</b> bonificación
-                {selectedBonos.length > 1 ? "es" : ""} el total es <b>$0</b>. Comprobante <b>no requerido</b>.
+                Con las bonificaciones seleccionadas, el total es <b>$0</b>. Comprobante <b>no requerido</b>.
               </Text>
             </Box>
           )}

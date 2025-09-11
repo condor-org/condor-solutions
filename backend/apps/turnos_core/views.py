@@ -75,6 +75,9 @@ from apps.notificaciones_core.services import (
     notify_inapp,
     TYPE_CANCELACION_TURNO,
 )
+from apps.turnos_core.services.generar_turnos import (
+    generar_turnos_mes_actual_y_siguiente,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,12 +112,22 @@ class TurnoListView(ListAPIView):
         if estado:
             qs = qs.filter(estado=estado)
 
-        upcoming = self.request.query_params.get("upcoming")
-        if (upcoming or "").lower() in {"1", "true", "sí", "si"}:
+        upcoming = (self.request.query_params.get("upcoming") or "").lower()
+        if upcoming in {"1", "true", "sí", "si"}:
             ahora = localtime()
             hoy = ahora.date()
             hora = ahora.time()
             qs = qs.filter(Q(fecha__gt=hoy) | Q(fecha=hoy, hora__gte=hora))
+
+        # 🔒 Para usuarios finales: SIEMPRE mostrar sólo clases sueltas
+        # (excluir cualquier turno que provenga de un abono)
+        if getattr(usuario, "tipo_usuario", None) == "usuario_final":
+            qs = qs.filter(
+                reservado_para_abono=False,
+                abono_mes_reservado__isnull=True,
+                abono_mes_prioridad__isnull=True,
+                comprobante_abono__isnull=True,
+            )
 
         return qs.order_by("fecha", "hora")
 
@@ -194,7 +207,9 @@ class TurnoReservaView(CreateAPIView):
 # - Función: devuelve slots futuros (estados: disponible/reservado) del prestador en la sede.
 # - Tiempo: usa AR local para “hoy desde ahora”.
 # - Respuesta: lista serializada de turnos (ordenada por fecha/hora).
+# Excluye turnos bloqueados por abono (reservado_para_abono=True)
 # ------------------------------------------------------------------------------
+
 @extend_schema(
     description="Devuelve turnos para un prestador en una sede específica y fecha opcional.",
     parameters=[
@@ -216,41 +231,46 @@ class TurnosDisponiblesView(APIView):
         if not prestador_id or not lugar_id:
             return Response({"error": "prestador_id y lugar_id son obligatorios."}, status=400)
 
-        filtros = {
-            "object_id": prestador_id,
-            "lugar_id": lugar_id,
-        }
+        # casteo seguro
+        try:
+            prestador_id = int(prestador_id)
+            lugar_id = int(lugar_id)
+        except (TypeError, ValueError):
+            return Response({"error": "prestador_id y lugar_id deben ser enteros."}, status=400)
 
+        # Fecha opcional
+        fecha = None
         if fecha_str:
             fecha = parse_date(fecha_str)
             if not fecha:
                 return Response({"error": "Formato de fecha inválido (usar YYYY-MM-DD)."}, status=400)
-            filtros["fecha"] = fecha
 
-        # Ventana temporal: hoy desde la hora actual (zona AR) y futuro
+        # Ventana temporal: hoy (AR) desde ahora y futuro
         ahora_ar = timezone.now().astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
         hoy = ahora_ar.date()
         hora = ahora_ar.time().replace(microsecond=0)
 
         ct_prestador = ContentType.objects.get_for_model(Prestador)
 
-        turnos = (
+        qs = (
             Turno.objects
             .filter(
                 content_type=ct_prestador,
-                object_id=int(prestador_id),
-                lugar_id=int(lugar_id),
+                object_id=prestador_id,
+                lugar_id=lugar_id,
                 estado__in=["disponible", "reservado"],
             )
-            .filter(
-                Q(fecha__gt=hoy) |
-                (Q(fecha=hoy) & Q(hora__gte=hora))
-            )
-            .order_by("fecha", "hora")
+            # ⏱ sólo futuro
+            .filter(Q(fecha__gt=hoy) | (Q(fecha=hoy) & Q(hora__gte=hora)))
+            # 🚫 excluir turnos bloqueados por abono
+            .filter(Q(reservado_para_abono=False) | Q(reservado_para_abono__isnull=True))
         )
 
-        return Response(TurnoSerializer(turnos, many=True).data)
+        if fecha:
+            qs = qs.filter(fecha=fecha)
 
+        turnos = qs.order_by("fecha", "hora")
+        return Response(TurnoSerializer(turnos, many=True).data)
 
 # ------------------------------------------------------------------------------
 # Permiso auxiliar: SoloAdminEditar
@@ -372,75 +392,59 @@ class GenerarTurnosView(APIView):
     def post(self, request):
         trace_id = str(uuid.uuid4())[:8]
         user = request.user
-        data = request.data or {}
 
-        fecha_inicio = data.get("fecha_inicio")
-        fecha_fin = data.get("fecha_fin")
-        prestador_id = data.get("prestador_id")
-        duracion_minutos = data.get("duracion_minutos", 60)
+        # Opcional: permitir acotar por prestador_id (lo usa el admin desde el panel)
+        prestador_id = request.data.get("prestador_id")
+        if prestador_id is not None and prestador_id != "":
+            try:
+                prestador_id = int(prestador_id)
+            except (TypeError, ValueError):
+                return Response({"error": "prestador_id inválido."}, status=400)
+        else:
+            prestador_id = None
 
-        if not fecha_inicio or not fecha_fin:
-            return Response({"error": "Faltan parámetros: fecha_inicio y fecha_fin."}, status=400)
-
-        try:
-            fecha_inicio = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
-            fecha_fin = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
-        except ValueError:
-            return Response({"error": "Formato de fecha inválido (usar YYYY-MM-DD)."}, status=400)
-
-        if fecha_inicio > fecha_fin:
-            return Response({"error": "Rango de fechas inválido: fecha_inicio > fecha_fin."}, status=400)
-
-        # No crear pasado
-        hoy = timezone.localdate()
-        if fecha_inicio < hoy:
-            fecha_inicio = hoy
-
-        try:
-            duracion_minutos = int(duracion_minutos)
-            if duracion_minutos <= 0:
-                raise ValueError()
-        except (TypeError, ValueError):
-            return Response({"error": "duracion_minutos debe ser un entero positivo."}, status=400)
-
-        qs = Prestador.objects.filter(cliente=user.cliente, activo=True)
-        if prestador_id:
-            qs = qs.filter(id=prestador_id)
-        prestadores = list(qs)
-
-        if not prestadores:
-            return Response({"turnos_generados": 0, "profesores_afectados": 0, "detalle": []}, status=200)
-
-        total = 0
-        detalle = []
-
-        logger.info(
-            "[turnos.generar][start] user_id=%s cliente_id=%s rango=[%s..%s] dur=%s prestador_id=%s trace=%s",
-            getattr(user, "id", None), getattr(user, "cliente_id", None),
-            fecha_inicio, fecha_fin, duracion_minutos, prestador_id, trace_id
+        # Scope por cliente si es admin_cliente (super_admin no limita)
+        cliente_scope = (
+            getattr(user, "cliente_id", None)
+            if getattr(user, "tipo_usuario", None) == "admin_cliente"
+            else None
         )
 
         try:
-            for p in prestadores:
-                creados = generar_turnos_para_prestador(
-                    prestador_id=p.id,
-                    fecha_inicio=fecha_inicio,
-                    fecha_fin=fecha_fin,
-                    duracion_minutos=duracion_minutos,
-                    estado="disponible",
-                )
-                total += creados
-                detalle.append({"profesor_id": p.id, "nombre": p.nombre_publico, "turnos": creados})
-
-            logger.info("[turnos.generar][done] trace=%s total=%s profesores=%s", trace_id, total, len(detalle))
-            return Response(
-                {"turnos_generados": total, "profesores_afectados": len(detalle), "detalle": detalle, "trace_id": trace_id},
-                status=200
+            # Llama al service idempotente: genera desde HOY→fin de mes y TODO el mes siguiente,
+            # y marca reservado_para_abono en las franjas 07–11 y 14–17.
+            res = generar_turnos_mes_actual_y_siguiente(
+                cliente_id=cliente_scope,
+                prestador_id=prestador_id,
             )
+
+            # Mantener la misma forma que consumía el FE:
+            # - 'prestadores_afectados' del service → 'profesores_afectados' en la respuesta
+            payload = {
+                "turnos_generados": res.get("turnos_generados", 0),
+                "profesores_afectados": res.get("prestadores_afectados", 0),
+                "detalle": res.get("detalle", []),
+                "trace_id": trace_id,
+            }
+            # Campo extra informativo (no rompe FE si no lo usa):
+            if "franjas_marcadas" in res:
+                payload["franjas_marcadas"] = res["franjas_marcadas"]
+
+            logger.info(
+                "[turnos.generar][ok] trace=%s generados=%s profs=%s",
+                trace_id,
+                payload["turnos_generados"],
+                payload["profesores_afectados"],
+            )
+            return Response(payload, status=200)
+
         except Exception as e:
-            logger.exception("[turnos.generar][error] trace=%s %s", trace_id, e)
-            return Response({"error": "No se pudieron generar turnos.", "trace_id": trace_id}, status=500)
-# ------------------------------------------------------------------------------
+            logger.exception("[turnos.generar][error] trace=%s", trace_id)
+            return Response(
+                {"error": "No se pudieron generar turnos.", "trace_id": trace_id},
+                status=500,
+            )# ------------------------------------------------------------------------------
+
 # POST /turnos/bonificaciones/crear-manual/  → Emitir bonificación manual
 # - Permisos: super_admin | admin_cliente.
 # - Body: usuario_id, tipo_turno (x1..x4 o alias), motivo?, valido_hasta?
@@ -456,9 +460,16 @@ class CrearBonificacionManualView(APIView):
         serializer = CrearTurnoBonificadoSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         bono = serializer.save()
-        return Response({"message": "Bonificación creada correctamente."}, status=201)
-
-
+        # Podés devolver más info si querés auditoría frontend
+        return Response(
+            {
+                "message": "Bonificación creada correctamente.",
+                "bonificacion_id": bono.id,
+                "tipo_turno": bono.tipo_turno,
+                "valor": str(bono.valor) if bono.valor is not None else None,
+            },
+            status=201
+        )
 # ------------------------------------------------------------------------------
 # Helper interno: _notify_cancelacion_usuario
 # - Propósito: al cancelar un usuario su turno, avisa a admins del cliente dueño de la sede.
@@ -813,16 +824,14 @@ def bonificaciones_mias(request, tipo_clase_id=None):
                 user.id, tipo_clase_id
             )
 
-    data = [
-        {
-            "id": b.id,
-            "motivo": b.motivo,
-            "tipo_turno": b.tipo_turno,
-            "fecha_creacion": b.fecha_creacion,
-            "valido_hasta": b.valido_hasta,
-        }
-        for b in qs
-    ]
+    data = list(qs.values(
+        "id",
+        "motivo",
+        "tipo_turno",
+        "fecha_creacion",
+        "valido_hasta",
+        "valor",          # 👈 NUEVO
+    ))
     return Response(data)
 
 # ------------------------------------------------------------------------------

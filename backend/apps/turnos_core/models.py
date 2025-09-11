@@ -32,6 +32,7 @@ class Turno(models.Model):
         blank=True
     )
 
+    reservado_para_abono = models.BooleanField(default=False, db_index=True)
     comprobante_abono = models.ForeignKey(
         "pagos_core.ComprobanteAbono",
         on_delete=models.SET_NULL,
@@ -135,7 +136,7 @@ class TurnoBonificado(models.Model):
 
 
     tipo_turno = models.CharField(max_length=50)
-
+    valor = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     usado_en_abono = models.ForeignKey(
         "turnos_padel.AbonoMes",
         null=True, blank=True,

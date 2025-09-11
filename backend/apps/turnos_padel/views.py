@@ -26,7 +26,8 @@ from django.db import transaction
 from calendar import Calendar
 from django.utils import timezone 
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Q
+from django.db.models import Q, Max
+
 
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -39,8 +40,11 @@ from apps.turnos_padel.services.abonos import confirmar_y_reservar_abono
 from apps.turnos_padel.services.abonos import validar_y_confirmar_abono, _notify_abono_admin
 
 import logging
-
+from django.db.models import Max 
 logger = logging.getLogger(__name__)
+
+
+DSEM = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 
 class SedePadelViewSet(viewsets.ModelViewSet):
     """
@@ -557,7 +561,7 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             Usuario = get_user_model()
             cliente_id = getattr(abono.sede, "cliente_id", None)
 
-            DSEM = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+            
             sede_nombre = getattr(abono.sede, "nombre", None)
             prestador_nombre = getattr(abono.prestador, "nombre_publico", None)
             hora_txt = str(abono.hora)[:5]
@@ -610,7 +614,82 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             logger.exception("[notif][abono_reserva][fail]")
 
         return Response(payload, status=201)
-       
+    
+    @action(detail=False, methods=["GET"], url_path="mios")
+    def mios(self, request):
+        """
+        Lista de mis abonos (o de un usuario si admin pasa ?usuario_id=).
+        Incluye último turno, ventana_renovacion, estado_vigencia y
+        datos de día/hora para la UI.
+        """
+        user = request.user
+        qs = self.get_queryset()
+
+        if user.tipo_usuario == "usuario_final":
+            qs = qs.filter(usuario=user)
+        else:
+            uid = request.query_params.get("usuario_id")
+            if uid:
+                qs = qs.filter(usuario_id=uid)
+
+        hoy = timezone.localdate()
+        data = []
+        for a in qs.select_related("sede", "prestador", "tipo_clase"):
+            ult = a.turnos_reservados.aggregate(ultimo=Max("fecha"))["ultimo"]
+            dias = (ult - hoy).days if ult else None
+            estado_vigencia = "activo" if ult and hoy <= ult else "vencido"
+            ventana_renovacion = bool(dias is not None and 1 <= dias <= 7 and not a.renovado)
+
+                
+            
+            item = {
+                "id": a.id,
+                "sede_id": a.sede_id,
+                "sede_nombre": getattr(a.sede, "nombre", None),
+                "prestador_id": a.prestador_id,
+                "prestador_nombre": getattr(a.prestador, "nombre_publico", None) or getattr(a.prestador, "nombre", None),
+                "tipo_clase_id": a.tipo_clase_id,
+                "tipo_clase_codigo": getattr(a.tipo_clase, "codigo", None),
+                "anio": a.anio, "mes": a.mes,
+                "renovado": a.renovado,
+                "vence_el": str(ult) if ult else None,
+                "dias_para_vencer": dias,
+                "ventana_renovacion": ventana_renovacion,
+                "estado_vigencia": estado_vigencia,
+                # 👇 claves para render “Lunes 10:00 hs”
+                "dia_semana": a.dia_semana,
+                "dia_semana_label": DSEM[a.dia_semana] if 0 <= a.dia_semana <= 6 else None,
+                "hora": a.hora.isoformat() if a.hora else None,       # "10:00:00"
+                "hora_text": a.hora.strftime("%H:%M") if a.hora else None,  # "10:00"
+            }
+            data.append(item)
+
+        return Response(data, status=200)
+    
+    @action(detail=True, methods=["POST"], url_path="marcar-renovado")
+    def marcar_renovado(self, request, pk=None):
+        """
+        Marca el abono como renovado (se usará luego por el cron).
+        - usuario_final: sólo sobre sus propios abonos
+        - admin_cliente/super_admin: sobre cualquier abono de su alcance
+        """
+        abono = self.get_object()
+        user = request.user
+
+        if user.tipo_usuario == "usuario_final" and abono.usuario_id != user.id:
+            return Response({"detail": "No autorizado."}, status=403)
+
+        abono.renovado = True
+        abono.save(update_fields=["renovado"])
+
+        # notif opcional (ya tenés helper importado)
+        try:
+            _notify_abono_admin(abono, actor=user, evento="renovado")
+        except Exception:
+            logger.exception("[abonos.marcar_renovado][notif][fail]")
+
+        return Response({"ok": True, "renovado": True}, status=200)
+    
 class TipoAbonoPadelViewSet(viewsets.ModelViewSet):
     """
     CRUD de tipos de abono por sede.
