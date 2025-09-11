@@ -41,21 +41,30 @@ jobs:
             trap 'echo "❌ Error en línea $LINENO" >&2' ERR
             cd /opt/condor
 
-            echo "[+] Sync repo (branch infra)"
-            if [ ! -d .git ]; then
-              git init
-              git remote add origin "https://x-access-token:${{ secrets.GH_AUTOMATION_TOKEN }}@github.com/condor-ai-solutions/condor.git"
-            else
-              git remote set-url origin "https://x-access-token:${{ secrets.GH_AUTOMATION_TOKEN }}@github.com/condor-ai-solutions/condor.git"
-            fi
+            echo "[+] Obtener rama default y bajar SOLO docker-compose-prod.yml"
+            TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
+            REPO="condor-ai-solutions/condor"
+
+            # Descubrir rama default sin clonar
+            DEFAULT_BRANCH=$(git ls-remote --symref "https://x-access-token:${TOKEN}@github.com/${REPO}.git" HEAD \
+              | awk -F'[/ ]' '/^ref:/{print $4}')
+            echo "[i] Default branch: ${DEFAULT_BRANCH:-<desconocida>}"
+            [ -n "${DEFAULT_BRANCH:-}" ] || { echo "❌ No pude detectar la default branch"; exit 1; }
+
+            # Backup si ya existe
             [ -f docker-compose-prod.yml ] && cp -a docker-compose-prod.yml docker-compose-prod.yml.bak.$(date +%F_%H%M) || true
-            git fetch --all --prune
-            git reset --hard
-            git clean -fd
-            git checkout -B infra origin/infra
-            git reset --hard origin/infra
-            git rev-parse --abbrev-ref HEAD
-            git log -1 --oneline
+
+            # Descargar el archivo exacto desde la rama default
+            curl -fsSL \
+              -H "Authorization: token ${TOKEN}" \
+              -H "Accept: application/vnd.github.raw" \
+              "https://api.github.com/repos/${REPO}/contents/docker-compose-prod.yml?ref=${DEFAULT_BRANCH}" \
+              -o docker-compose-prod.yml
+
+            # Validación básica
+            test -s docker-compose-prod.yml || { echo "❌ No se pudo descargar docker-compose-prod.yml"; exit 1; }
+            echo "[OK] docker-compose-prod.yml actualizado desde ${DEFAULT_BRANCH}"
+
 
             echo "[+] Docker login GHCR"
             echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
