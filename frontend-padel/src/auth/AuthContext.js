@@ -1,33 +1,49 @@
 // src/auth/AuthContext.js
 
-import React, { createContext, useState, useEffect, useCallback, useContext, useRef } from "react";
+import React, {
+  createContext,
+  useState,
+  useEffect,
+  useCallback,
+  useContext,
+  useRef,
+} from "react";
 import axios from "axios";
 import { jwtDecode } from "jwt-decode";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { applyAuthInterceptor } from "./axiosInterceptor";
 
-// REACT_APP_API_BASE_URL puede ser "" (same-origin) o "http://localhost:8080"
+/**
+ * REACT_APP_API_BASE_URL puede ser:
+ *  - "" (same-origin detrás del proxy)
+ *  - "http://localhost:8080" (si apuntás directo)
+ */
 const RAW_BASE = process.env.REACT_APP_API_BASE_URL || "";
 const API_BASE = RAW_BASE.replace(/\/+$/, "");
 const API = `${API_BASE}/api`;
 
 export const AuthContext = createContext();
 
-const REFRESH_SAFETY_SECONDS = 60; // refrescar 60s antes del vencimiento
+const REFRESH_SAFETY_SECONDS = 60; // Refrescar 60s antes del vencimiento
 
 const AuthProviderBase = ({ children, onLogoutNavigate }) => {
   const [user, setUser] = useState(() => {
-    const storedUser = localStorage.getItem("user");
-    return storedUser ? JSON.parse(storedUser) : null;
+    const stored = localStorage.getItem("user");
+    return stored ? JSON.parse(stored) : null;
   });
 
-  const [accessToken, setAccessToken] = useState(() => localStorage.getItem("access"));
-  const [refreshToken, setRefreshToken] = useState(() => localStorage.getItem("refresh"));
+  const [accessToken, setAccessToken] = useState(() =>
+    localStorage.getItem("access")
+  );
+  const [refreshToken, setRefreshToken] = useState(() =>
+    localStorage.getItem("refresh")
+  );
   const [loadingUser, setLoadingUser] = useState(true);
 
   const refreshTimerRef = useRef(null);
 
+  // ---- Utils de timers -------------------------------------------------------
   const clearRefreshTimer = () => {
     if (refreshTimerRef.current) {
       clearTimeout(refreshTimerRef.current);
@@ -45,32 +61,38 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
     const secondsLeft = exp - now - REFRESH_SAFETY_SECONDS;
 
     if (secondsLeft <= 0) {
-      // si ya está por vencer o vencido, refrescamos enseguida
+      // Si falta poco o ya venció, refrescar enseguida
       refreshTimerRef.current = setTimeout(() => attemptRefreshToken(), 0);
     } else {
-      refreshTimerRef.current = setTimeout(() => attemptRefreshToken(), secondsLeft * 1000);
+      refreshTimerRef.current = setTimeout(
+        () => attemptRefreshToken(),
+        secondsLeft * 1000
+      );
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---- Logout ---------------------------------------------------------------
   const logout = useCallback(() => {
     console.log("[AUTH] Logout ejecutado.");
     clearRefreshTimer();
+
     setAccessToken(null);
     setRefreshToken(null);
     setUser(null);
 
-    // limpiamos sólo lo que pusimos nosotros
+    // Limpiar solo lo nuestro
     localStorage.removeItem("access");
     localStorage.removeItem("refresh");
     localStorage.removeItem("access_exp");
     localStorage.removeItem("user");
 
-    // removemos header global
+    // Remover header global
     delete axios.defaults.headers.common["Authorization"];
 
     if (onLogoutNavigate) onLogoutNavigate("/login");
   }, [onLogoutNavigate]);
 
+  // ---- Refresh token ---------------------------------------------------------
   const attemptRefreshToken = useCallback(async () => {
     const refresh = localStorage.getItem("refresh");
     if (!refresh) return false;
@@ -98,6 +120,7 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
     }
   }, [logout, scheduleProactiveRefresh]);
 
+  // ---- Login por email/clave (flujo existente) ------------------------------
   const login = async (email, password) => {
     console.log("[AUTH] Intentando login con email:", email);
     try {
@@ -122,12 +145,54 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
 
       scheduleProactiveRefresh();
     } catch (err) {
-      console.error("[AUTH] Error en login:", err?.response?.status, err?.message);
+      console.error(
+        "[AUTH] Error en login:",
+        err?.response?.status,
+        err?.message
+      );
       toast.error("Credenciales inválidas");
       throw err;
     }
   };
 
+  // ---- Login vía OAuth (nuevo) ----------------------------------------------
+  /**
+   * data: { access, refresh, user? }
+   * - Guarda tokens, programa refresh, setea header global.
+   * - Si el backend no envía user, lo trae de /auth/yo/.
+   */
+  // dentro de AuthProviderBase en src/auth/AuthContext.js
+const setAuthFromOAuth = useCallback(async (data) => {
+  try {
+    const { access, refresh, user: userPayload, return_to } = data || {};
+    if (!access || !refresh) {
+      throw new Error("OAuth: faltan tokens 'access' o 'refresh'");
+    }
+    if (!userPayload) {
+      throw new Error("OAuth: falta 'user' en la respuesta");
+    }
+
+    const decoded = jwtDecode(access);
+    localStorage.setItem("access", access);
+    localStorage.setItem("refresh", refresh);
+    localStorage.setItem("access_exp", decoded.exp);
+    localStorage.setItem("user", JSON.stringify(userPayload));
+
+    setAccessToken(access);
+    setRefreshToken(refresh);
+    setUser(userPayload);
+    axios.defaults.headers.common["Authorization"] = `Bearer ${access}`;
+    scheduleProactiveRefresh();
+
+    return return_to || "/";
+  } catch (e) {
+    console.error("[AUTH] setAuthFromOAuth falló:", e.message);
+    throw e;
+  }
+}, [scheduleProactiveRefresh]);
+
+
+  // ---- Inicialización al montar ---------------------------------------------
   useEffect(() => {
     const initializeAuth = async () => {
       try {
@@ -141,9 +206,20 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
             axios.defaults.headers.common["Authorization"] = `Bearer ${accessToken}`;
             scheduleProactiveRefresh();
           }
+
+          // Si hay tokens pero no hay user persistido, intentamos traerlo.
+          if (!user) {
+            try {
+              const perfilRes = await axios.get(`${API}/auth/yo/`);
+              setUser(perfilRes.data);
+              localStorage.setItem("user", JSON.stringify(perfilRes.data));
+            } catch (e) {
+              console.warn("[AUTH] No se pudo obtener /auth/yo al iniciar.", e?.message);
+            }
+          }
         }
       } finally {
-        setLoadingUser(false); // señaliza fin de la carga inicial SIEMPRE
+        setLoadingUser(false); // Terminó la carga inicial SIEMPRE
       }
     };
     initializeAuth();
@@ -152,13 +228,23 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, attemptRefreshToken]);
 
-  // Registramos el interceptor global de axios UNA sola vez, con logout cableado
+  // ---- Interceptor global de axios (401 → logout) ---------------------------
   useEffect(() => {
-    applyAuthInterceptor(axios, logout, { apiBasePath: API }); // 👈 asegura usar /api correcto (abs o relative)
+    applyAuthInterceptor(axios, logout, { apiBasePath: API });
   }, [logout]);
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, accessToken, loadingUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        login,
+        logout,
+        accessToken,
+        refreshToken,
+        loadingUser,
+        setAuthFromOAuth, // <-- expuesto para OAuth callback
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -178,9 +264,9 @@ export const AuthProvider = ({ children }) => {
 };
 
 export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
     throw new Error("useAuth debe usarse dentro de <AuthProvider>");
   }
-  return context;
+  return ctx;
 };

@@ -26,8 +26,8 @@ import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import NotificacionesPage from "../pages/user/NotificacionesPage";
 import NotificacionesAdminPage from '../pages/admin/NotificacionesAdminPage';
-import ReservarAbonoAdmin from "../pages/admin/ReservarAbonoAdmin"; // ⬅️ nuevo import
-
+import ReservarAbonoAdmin from "../pages/admin/ReservarAbonoAdmin";
+import OAuthCallback from "../pages/auth/OAuthCallback";
 
 const AppRoutes = () => {
   const { user } = useContext(AuthContext);
@@ -57,7 +57,15 @@ const AppRoutes = () => {
             </PublicRoute>
           }
         />
-
+        {/* Callback OAuth de Google (público, sin sesión) */}
+       <Route
+         path="/oauth/google/callback"
+         element={
+           <PublicRoute>
+             <OAuthCallback />
+           </PublicRoute>
+         }
+        />
         {/* Admin (SuperAdmin o AdminCliente) */}
         <Route
           path="/admin"

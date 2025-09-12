@@ -47,3 +47,5 @@ google-cloud-storage>=2.18.0
 google-api-core>=2.19.0
 protobuf>=4.25.3
 PyYAML>=6.0.1
+requests>=2.31
+PyJWT[crypto]>=2.8
