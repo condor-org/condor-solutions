@@ -27,7 +27,27 @@ const OAuthCallback = () => {
         }
 
         // 2) Intercambiar code por tokens en backend
-        const data = await exchangeCodeForTokens({ code, state }); // { access, refresh, user, return_to? }
+        const data = await exchangeCodeForTokens({ code, state }); // { ok,... } o { needs_onboarding,... }
+
+        // 2.1) Si requiere onboarding, redirigir a /signup con pending_token
+        if (data?.needs_onboarding) {
+          const { pending_token, prefill, return_to } = data;
+          if (!pending_token) {
+            console.error("[OAuth CB] Falta pending_token en needs_onboarding");
+            toast.error("No se pudo continuar con el registro.");
+            navigate("/login", { replace: true });
+            return;
+          }
+          navigate("/signup", {
+            replace: true,
+            state: {
+              pendingToken: pending_token,
+              prefill: prefill || {},
+              returnTo: return_to || "/",
+            },
+          });
+          return;
+        }
 
         // 3) Setear sesión completa (tokens + user + refresh proactivo)
         await setAuthFromOAuth(data);

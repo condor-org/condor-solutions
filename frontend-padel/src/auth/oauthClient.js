@@ -9,7 +9,8 @@ function readRuntimeConfig() {
   const API_BASE_URL = API_BASE_URL_RAW.replace(/\/+$/, "");
   const API = /\/api$/.test(API_BASE_URL) ? API_BASE_URL : `${API_BASE_URL}/api`;
   const GOOGLE_CLIENT_ID = cfg.GOOGLE_CLIENT_ID || "";
-  const OAUTH_REDIRECT_URI = cfg.OAUTH_REDIRECT_URI || `${w.location?.origin || ""}/oauth/google/callback`;
+  const OAUTH_REDIRECT_URI =
+    cfg.OAUTH_REDIRECT_URI || `${w.location?.origin || ""}/oauth/google/callback`;
   return { API, GOOGLE_CLIENT_ID, OAUTH_REDIRECT_URI, API_BASE_URL };
 }
 
@@ -18,7 +19,7 @@ const OIDC_SCOPE = "openid email profile";
 const RESPONSE_TYPE = "code";
 const PROVIDER = "google";
 
-// Mapea respuestas posibles del backend a un formato estable
+// Mapea respuestas posibles del backend a un formato estable (tokens)
 function normalizeOAuthResponse(raw) {
   if (!raw || typeof raw !== "object") return {};
   const access =
@@ -51,18 +52,24 @@ function normalizeOAuthResponse(raw) {
   return { access, refresh, user, return_to };
 }
 
-export async function startGoogleLogin({ host, returnTo = "/" }) {
+/**
+ * Inicia el flujo OAuth con Google.
+ * @param {{host: string, returnTo?: string, invite?: string}} params
+ */
+export async function startGoogleLogin({ host, returnTo = "/", invite } = {}) {
   const { API, GOOGLE_CLIENT_ID, OAUTH_REDIRECT_URI, API_BASE_URL } = readRuntimeConfig();
 
   const codeVerifier = randomString(96);
   const codeChallenge = await sha256Base64Url(codeVerifier);
 
+  // ⬅️ pasamos invite al backend para que lo meta en el state
   const { data } = await axios.post(
     `${API}/auth/oauth/state/`,
-    { host, return_to: returnTo, provider: PROVIDER },
+    { host, return_to: returnTo, provider: PROVIDER, invite },
     { timeout: 10000 }
   );
   const { state, nonce } = data;
+
   sessionStorage.setItem("oauth_code_verifier", codeVerifier);
   sessionStorage.setItem("oauth_nonce", nonce);
 
@@ -74,6 +81,7 @@ export async function startGoogleLogin({ host, returnTo = "/" }) {
     redirect_uri: OAUTH_REDIRECT_URI,
     api_base_url: API_BASE_URL,
     api_prefix_usado: API,
+    invite_present: !!invite,
   });
 
   const params = new URLSearchParams({
@@ -85,10 +93,13 @@ export async function startGoogleLogin({ host, returnTo = "/" }) {
     nonce,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
+    // ⬅️ fuerza el selector de cuenta para evitar auto-login con la cuenta anterior
+    prompt: "select_account",
   });
 
   window.location.assign(`${GOOGLE_AUTHZ_ENDPOINT}?${params.toString()}`);
 }
+
 
 export async function exchangeCodeForTokens({ code, state }) {
   const { API } = readRuntimeConfig();
@@ -107,10 +118,22 @@ export async function exchangeCodeForTokens({ code, state }) {
   sessionStorage.removeItem("oauth_code_verifier");
   sessionStorage.removeItem("oauth_nonce");
 
-  // Normalizamos para el AuthContext
-  const norm = normalizeOAuthResponse(resp.data);
+  const raw = resp.data;
+
+  // 🔁 Caso onboarding obligatorio: devolvémoslo tal cual necesita el Callback
+  if (raw?.needs_onboarding) {
+    return {
+      needs_onboarding: true,
+      pending_token: raw.pending_token,
+      prefill: raw.prefill || {},
+      return_to: raw.return_to || "/",
+    };
+    }
+
+  // Camino feliz: normalizar tokens + user
+  const norm = normalizeOAuthResponse(raw);
   if (!norm.access || !norm.refresh) {
-    console.error("[OAuth] Respuesta callback sin tokens esperados:", resp.data);
+    console.error("[OAuth] Respuesta callback sin tokens esperados:", raw);
   }
   return norm;
 }

@@ -46,8 +46,10 @@ MIDDLEWARE = [
     'condor_core.middleware.LoggingMiddleware',  # tu middleware
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'condor_core.tenant.TenantMiddleware', 
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+     
 ]
 
 # -------------------------------------------------------------------

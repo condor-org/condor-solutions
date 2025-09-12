@@ -73,33 +73,45 @@ jobs:
 
             echo "[+] Render .env.prod"
             printf '%s\n' \
-            "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" \
-            "DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,${{ vars.ALLOWED_HOSTS }}" \
-            "CSRF_TRUSTED_ORIGINS=${{ vars.CSRF_TRUSTED_ORIGINS }}" \
-            "DJANGO_ENV=prod" \
-            "DJANGO_SECURE_SSL_REDIRECT=False" \
-            "DJANGO_HSTS_SECONDS=0" \
-            "REDIS_URL=${{ vars.REDIS_URL }}" \
-            "PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}" \
-            "PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}" \
-            "PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}" \
-            "PUBLIC_COLOR_PRIMARIO=${{ vars.PUBLIC_COLOR_PRIMARIO }}" \
-            "PUBLIC_COLOR_SECUNDARIO=${{ vars.PUBLIC_COLOR_SECUNDARIO }}" \
-            "POSTGRES_DB=${{ vars.POSTGRES_DB }}" \
-            "POSTGRES_USER=${{ vars.POSTGRES_USER }}" \
-            "POSTGRES_HOST=${{ vars.POSTGRES_HOST }}" \
-            "POSTGRES_PORT=${{ vars.POSTGRES_PORT }}" \
-            "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" \
-            "OWNER=${{ env.OWNER }}" \
-            "IMAGE_PREFIX=${{ env.IMAGE_PREFIX }}" \
-            "BACKEND_TAG=${{ env.BACKEND_TAG }}" \
-            "FRONTEND_TAG=${{ env.FRONTEND_TAG }}" \
-            "CRON_TAG=${{ env.CRON_TAG }}" \
-            "GCP_SA_CLIENT_EMAIL=${{ secrets.GCP_SA_CLIENT_EMAIL }}" \
-            "GCP_SA_PROJECT_ID=${{ secrets.GCP_SA_PROJECT_ID }}" \
-            "GOOGLE_CREDS=${{ secrets.GOOGLE_CREDS }}" \
-            "VISION_OCR_BUCKET=${{ secrets.VISION_OCR_BUCKET }}" \
-            > .env.prod
+              "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" \
+              "DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,${{ vars.ALLOWED_HOSTS }}" \
+              "CSRF_TRUSTED_ORIGINS=${{ vars.CSRF_TRUSTED_ORIGINS }}" \
+              "DJANGO_ENV=prod" \
+              "DJANGO_SECURE_SSL_REDIRECT=False" \
+              "DJANGO_HSTS_SECONDS=0" \
+              "REDIS_URL=${{ vars.REDIS_URL }}" \
+              "PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}" \
+              "PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}" \
+              "PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}" \
+              "PUBLIC_COLOR_PRIMARIO=${{ vars.PUBLIC_COLOR_PRIMARIO }}" \
+              "PUBLIC_COLOR_SECUNDARIO=${{ vars.PUBLIC_COLOR_SECUNDARIO }}" \
+              "POSTGRES_DB=${{ vars.POSTGRES_DB }}" \
+              "POSTGRES_USER=${{ vars.POSTGRES_USER }}" \
+              "POSTGRES_HOST=${{ vars.POSTGRES_HOST }}" \
+              "POSTGRES_PORT=${{ vars.POSTGRES_PORT }}" \
+              "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" \
+              "OWNER=${{ env.OWNER }}" \
+              "IMAGE_PREFIX=${{ env.IMAGE_PREFIX }}" \
+              "BACKEND_TAG=${{ env.BACKEND_TAG }}" \
+              "FRONTEND_TAG=${{ env.FRONTEND_TAG }}" \
+              "CRON_TAG=${{ env.CRON_TAG }}" \
+              "GCP_SA_CLIENT_EMAIL=${{ secrets.GCP_SA_CLIENT_EMAIL }}" \
+              "GCP_SA_PROJECT_ID=${{ secrets.GCP_SA_PROJECT_ID }}" \
+              "GOOGLE_CREDS=${{ secrets.GOOGLE_CREDS }}" \
+              "VISION_OCR_BUCKET=${{ secrets.VISION_OCR_BUCKET }}" \
+              \
+              # --- OAuth / Google ---
+              "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" \
+              "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" \
+              "STATE_HMAC_SECRET=${{ secrets.STATE_HMAC_SECRET }}" \
+              "GOOGLE_ISSUER=${{ vars.GOOGLE_ISSUER }}" \
+              "GOOGLE_JWKS_URL=${{ vars.GOOGLE_JWKS_URL }}" \
+              "OAUTH_REDIRECT_URI=${{ vars.OAUTH_REDIRECT_URI }}" \
+              "FEATURE_OAUTH_INVITES=${{ vars.FEATURE_OAUTH_INVITES }}" \
+              "OAUTH_AUTO_PROVISION=${{ vars.OAUTH_AUTO_PROVISION }}" \
+              "OAUTH_ALLOWED_EMAIL_DOMAIN=${{ vars.OAUTH_ALLOWED_EMAIL_DOMAIN }}" \
+              > .env.prod
+
 
             echo "[+] Verificando compose"
             test -f docker-compose-prod.yml || { echo "FALTA docker-compose-prod.yml"; ls -la; exit 2; }

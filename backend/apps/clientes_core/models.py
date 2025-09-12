@@ -42,3 +42,17 @@ class Cliente(models.Model):
 
     def __str__(self):
         return f"{self.nombre} ({self.get_tipo_cliente_display()})"
+
+class ClienteDominio(models.Model):
+    cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="dominios")
+    hostname = models.CharField(max_length=255, unique=True)  # ej: padel.cnd-ia.com
+    is_primary = models.BooleanField(default=True)
+    activo = models.BooleanField(default=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["hostname"])]
+
+    def __str__(self):
+        return f"{self.hostname} -> {self.cliente_id}"

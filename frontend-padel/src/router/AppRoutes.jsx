@@ -28,6 +28,8 @@ import NotificacionesPage from "../pages/user/NotificacionesPage";
 import NotificacionesAdminPage from '../pages/admin/NotificacionesAdminPage';
 import ReservarAbonoAdmin from "../pages/admin/ReservarAbonoAdmin";
 import OAuthCallback from "../pages/auth/OAuthCallback";
+import Signup from "../pages/auth/Signup";
+
 
 const AppRoutes = () => {
   const { user } = useContext(AuthContext);
@@ -56,6 +58,14 @@ const AppRoutes = () => {
               <RegistroPage />
             </PublicRoute>
           }
+        />
+        <Route
+         path="/signup"
+         element={
+           <PublicRoute>
+             <Signup />
+           </PublicRoute>
+         }
         />
         {/* Callback OAuth de Google (público, sin sesión) */}
        <Route

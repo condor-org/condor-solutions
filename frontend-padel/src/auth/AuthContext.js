@@ -25,6 +25,26 @@ const API = `${API_BASE}/api`;
 
 export const AuthContext = createContext();
 
+// Helpers de resiliencia / logs (sin PII)
+const safeDecodeExp = (jwt) => {
+  try {
+    const { exp } = jwtDecode(jwt);
+    return typeof exp === "number" ? exp : 0;
+  } catch (e) {
+    console.warn("[AUTH] jwtDecode falló:", e?.message);
+    // Fallback conservador: 5 minutos desde ahora para reintentar refresh
+    return Math.floor(Date.now() / 1000) + 300;
+  }
+};
+const maskEmail = (value = "") => {
+  try {
+    const [u, d] = String(value).split("@");
+    return u && d ? `${u.slice(0, 2)}***@${d}` : "***";
+  } catch {
+    return "***";
+  }
+};
+
 const REFRESH_SAFETY_SECONDS = 60; // Refrescar 60s antes del vencimiento
 
 const AuthProviderBase = ({ children, onLogoutNavigate }) => {
@@ -103,9 +123,9 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
       const { access } = res.data;
       if (!access) throw new Error("Respuesta de refresh sin 'access'");
 
-      const decoded = jwtDecode(access);
+      const exp = safeDecodeExp(access);
       localStorage.setItem("access", access);
-      localStorage.setItem("access_exp", decoded.exp);
+      localStorage.setItem("access_exp", exp);
       setAccessToken(access);
 
       axios.defaults.headers.common["Authorization"] = `Bearer ${access}`;
@@ -122,16 +142,16 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
 
   // ---- Login por email/clave (flujo existente) ------------------------------
   const login = async (email, password) => {
-    console.log("[AUTH] Intentando login con email:", email);
+    console.log("[AUTH] Intentando login con email:", maskEmail(email));
     try {
       const res = await axios.post(`${API}/token/`, { email, password });
       const { access, refresh } = res.data;
       if (!access || !refresh) throw new Error("Respuesta de login sin tokens");
 
-      const decoded = jwtDecode(access);
+      const exp = safeDecodeExp(access);
       localStorage.setItem("access", access);
       localStorage.setItem("refresh", refresh);
-      localStorage.setItem("access_exp", decoded.exp);
+      localStorage.setItem("access_exp", exp);
 
       setAccessToken(access);
       setRefreshToken(refresh);
@@ -157,40 +177,40 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
 
   // ---- Login vía OAuth (nuevo) ----------------------------------------------
   /**
-   * data: { access, refresh, user? }
+   * data: { access, refresh, user, return_to? }
    * - Guarda tokens, programa refresh, setea header global.
-   * - Si el backend no envía user, lo trae de /auth/yo/.
    */
-  // dentro de AuthProviderBase en src/auth/AuthContext.js
-const setAuthFromOAuth = useCallback(async (data) => {
-  try {
-    const { access, refresh, user: userPayload, return_to } = data || {};
-    if (!access || !refresh) {
-      throw new Error("OAuth: faltan tokens 'access' o 'refresh'");
-    }
-    if (!userPayload) {
-      throw new Error("OAuth: falta 'user' en la respuesta");
-    }
+  const setAuthFromOAuth = useCallback(
+    async (data) => {
+      try {
+        const { access, refresh, user: userPayload, return_to } = data || {};
+        if (!access || !refresh) {
+          throw new Error("OAuth: faltan tokens 'access' o 'refresh'");
+        }
+        if (!userPayload) {
+          throw new Error("OAuth: falta 'user' en la respuesta");
+        }
 
-    const decoded = jwtDecode(access);
-    localStorage.setItem("access", access);
-    localStorage.setItem("refresh", refresh);
-    localStorage.setItem("access_exp", decoded.exp);
-    localStorage.setItem("user", JSON.stringify(userPayload));
+        const exp = safeDecodeExp(access);
+        localStorage.setItem("access", access);
+        localStorage.setItem("refresh", refresh);
+        localStorage.setItem("access_exp", exp);
+        localStorage.setItem("user", JSON.stringify(userPayload));
 
-    setAccessToken(access);
-    setRefreshToken(refresh);
-    setUser(userPayload);
-    axios.defaults.headers.common["Authorization"] = `Bearer ${access}`;
-    scheduleProactiveRefresh();
+        setAccessToken(access);
+        setRefreshToken(refresh);
+        setUser(userPayload);
+        axios.defaults.headers.common["Authorization"] = `Bearer ${access}`;
+        scheduleProactiveRefresh();
 
-    return return_to || "/";
-  } catch (e) {
-    console.error("[AUTH] setAuthFromOAuth falló:", e.message);
-    throw e;
-  }
-}, [scheduleProactiveRefresh]);
-
+        return return_to || "/";
+      } catch (e) {
+        console.error("[AUTH] setAuthFromOAuth falló:", e.message);
+        throw e;
+      }
+    },
+    [scheduleProactiveRefresh]
+  );
 
   // ---- Inicialización al montar ---------------------------------------------
   useEffect(() => {
@@ -214,7 +234,10 @@ const setAuthFromOAuth = useCallback(async (data) => {
               setUser(perfilRes.data);
               localStorage.setItem("user", JSON.stringify(perfilRes.data));
             } catch (e) {
-              console.warn("[AUTH] No se pudo obtener /auth/yo al iniciar.", e?.message);
+              console.warn(
+                "[AUTH] No se pudo obtener /auth/yo al iniciar.",
+                e?.message
+              );
             }
           }
         }
@@ -242,7 +265,7 @@ const setAuthFromOAuth = useCallback(async (data) => {
         accessToken,
         refreshToken,
         loadingUser,
-        setAuthFromOAuth, // <-- expuesto para OAuth callback
+        setAuthFromOAuth, // <-- expuesto para OAuth callback y signup
       }}
     >
       {children}

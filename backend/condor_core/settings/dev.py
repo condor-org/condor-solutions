@@ -7,3 +7,6 @@ CORS_ALLOW_ALL_ORIGINS = True  # práctico en dev; si querés, controlalo por EN
 
 OAUTH_AUTO_PROVISION = os.getenv("OAUTH_AUTO_PROVISION", "false").lower() == "true"
 OAUTH_ALLOWED_EMAIL_DOMAIN = os.getenv("OAUTH_ALLOWED_EMAIL_DOMAIN", "*")
+TENANT_STRICT_HOST = True
+OAUTH_REQUIRE_EMAIL_VERIFIED = True
+OAUTH_ALLOWED_EMAIL_DOMAIN = "*" 
