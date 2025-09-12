@@ -99,8 +99,6 @@ jobs:
               "GCP_SA_PROJECT_ID=${{ secrets.GCP_SA_PROJECT_ID }}" \
               "GOOGLE_CREDS=${{ secrets.GOOGLE_CREDS }}" \
               "VISION_OCR_BUCKET=${{ secrets.VISION_OCR_BUCKET }}" \
-              \
-              # --- OAuth / Google ---
               "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" \
               "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" \
               "STATE_HMAC_SECRET=${{ secrets.STATE_HMAC_SECRET }}" \
