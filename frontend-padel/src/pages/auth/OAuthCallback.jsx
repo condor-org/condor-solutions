@@ -1,76 +1,88 @@
 // src/pages/auth/OAuthCallback.jsx
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { exchangeCodeForTokens } from "../../auth/oauthClient";
 import { Box, Spinner, Text } from "@chakra-ui/react";
 import { toast } from "react-toastify";
 
+function nowTs() {
+  return new Date().toISOString();
+}
+
 const OAuthCallback = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { setAuthFromOAuth } = useAuth();
+  const ranRef = useRef(false); // evita doble ejecución en StrictMode/dev
 
   useEffect(() => {
+    const traceId = `cb_page_${Date.now()}`;
+
     const run = async () => {
+      if (ranRef.current) {
+        console.warn(`[OAuthCB][${traceId}] Already ran once. Skipping duplicate render.`);
+        return;
+      }
+      ranRef.current = true;
+
       try {
-        // 1) Leer query params
-        console.log("[OAuth CB] mounted at", window.location.href);
-        console.log("[OAuth CB] cfg", window.RUNTIME_CONFIG);
-        console.log("[OAuth CB] has code_verifier?", !!sessionStorage.getItem("oauth_code_verifier"));
- 
         const params = new URLSearchParams(location.search);
         const code = params.get("code");
         const state = params.get("state");
 
+        console.log(`[OAuthCB][${traceId}] ${nowTs()} mounted`, {
+          href: window.location.href,
+          code_present: !!code,
+          state_present: !!state,
+          runtime_config: window.RUNTIME_CONFIG,
+          has_code_verifier: !!sessionStorage.getItem("oauth_code_verifier"),
+        });
+
         if (!code || !state) {
-          console.error("[OAuth CB] Faltan query params", { code: !!code, state: !!state });
+          console.error(`[OAuthCB][${traceId}] missing query params`, { code, state });
           toast.error("No se pudo completar el inicio de sesión (falta code/state).");
           navigate("/login", { replace: true });
           return;
         }
 
-        // 2) Intercambiar code por tokens en backend
-        const data = await exchangeCodeForTokens({ code, state }); // { ok,... } o { needs_onboarding,... }
+        // 1) Intercambio con backend
+        const data = await exchangeCodeForTokens({ code, state });
 
-        // 2.1) Si requiere onboarding, redirigir a /signup con pending_token
+        // 2) Onboarding
         if (data?.needs_onboarding) {
-          const { pending_token, prefill, return_to } = data;
-          if (!pending_token) {
-            console.error("[OAuth CB] Falta pending_token en needs_onboarding");
-            toast.error("No se pudo continuar con el registro.");
-            navigate("/login", { replace: true });
-            return;
-          }
+          console.log(`[OAuthCB][${traceId}] redirecting to /signup`, {
+            has_pending_token: !!data?.pending_token,
+          });
           navigate("/signup", {
             replace: true,
             state: {
-              pendingToken: pending_token,
-              prefill: prefill || {},
-              returnTo: return_to || "/",
+              pendingToken: data.pending_token,
+              prefill: data.prefill || {},
+              returnTo: data.return_to || "/",
             },
           });
           return;
         }
 
-        // 3) Setear sesión completa (tokens + user + refresh proactivo)
-        await setAuthFromOAuth(data);
-
-        // 4) Redirigir a return_to o default
-        const dest = data?.return_to || "/";
-        navigate(dest, { replace: true });
+        // 3) Sesión completa
+        const dest = await setAuthFromOAuth(data);
+        console.log(`[OAuthCB][${traceId}] login completed; navigating to`, dest);
+        navigate(dest || "/", { replace: true });
       } catch (err) {
         const resp = err?.response;
         const detail = resp?.data?.detail || resp?.data || err?.message;
-        console.error("[OAuth CB] Error en callback:", {
+        console.error(`[OAuthCB][${traceId}] error`, {
           status: resp?.status,
           data: resp?.data,
           detail,
         });
-        // feedback al usuario
+
+        // Evita loop: NO relanzamos el flujo. Solo mostramos error.
         toast.error(
-          typeof detail === "string" ? detail :
-          "No se pudo completar el inicio de sesión."
+          typeof detail === "string"
+            ? detail
+            : "No se pudo completar el inicio de sesión."
         );
         navigate("/login", { replace: true });
       }
@@ -81,9 +93,18 @@ const OAuthCallback = () => {
   }, []);
 
   return (
-    <Box minH="60vh" display="flex" alignItems="center" justifyContent="center" flexDir="column" gap={4}>
+    <Box
+      minH="60vh"
+      display="flex"
+      alignItems="center"
+      justifyContent="center"
+      flexDir="column"
+      gap={4}
+    >
       <Spinner size="lg" />
-      <Text fontSize="sm" color="gray.500">Procesando inicio de sesión…</Text>
+      <Text fontSize="sm" color="gray.500">
+        Procesando inicio de sesión…
+      </Text>
     </Box>
   );
 };
