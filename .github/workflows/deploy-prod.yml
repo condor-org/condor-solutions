@@ -12,6 +12,10 @@ on:
       CRON_TAG:
         description: 'Cron image tag (GHCR)'
         required: true
+      REPO_REF:
+        description: 'Rama o tag del repo desde donde bajar configs (p.ej: main, release/v0.0.31)'
+        required: false
+        default: 'main'
 
 permissions:
   contents: read
@@ -24,6 +28,7 @@ env:
   FRONTEND_TAG: ${{ inputs.FRONTEND_TAG }}
   CRON_TAG: ${{ inputs.CRON_TAG }}
   LETSENCRYPT_EMAIL: ${{ vars.LETSENCRYPT_EMAIL || 'admin@cnd-ia.com' }}
+  REPO_REF: ${{ inputs.REPO_REF || 'main' }}
 
 jobs:
   deploy:
@@ -41,40 +46,31 @@ jobs:
             trap 'echo "❌ Error en línea $LINENO" >&2' ERR
             cd /opt/condor
 
-            echo "[+] Obtener rama default y bajar archivos necesarios"
+            echo "[+] Parámetros"
+            echo "    REPO_REF=${{ env.REPO_REF }}"
             TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
             REPO="condor-ai-solutions/condor"
 
-            DEFAULT_BRANCH=$(
-              curl -fsSL -H "Authorization: token ${TOKEN}" \
-                "https://api.github.com/repos/${REPO}" \
-              | awk -F'"' '/"default_branch":/ {print $4; exit}'
-            )
-            echo "[i] Default branch: ${DEFAULT_BRANCH:-<desconocida>}"
-            [ -n "${DEFAULT_BRANCH:-}" ] || { echo "❌ No pude detectar la default branch"; exit 1; }
-
-            # Backups si ya existen
+            echo "[+] Backups si ya existen"
             [ -f docker-compose-prod.yml ] && cp -a docker-compose-prod.yml docker-compose-prod.yml.bak.$(date +%F_%H%M) || true
             [ -f reverse-proxy/nginx.prod.conf ] && cp -a reverse-proxy/nginx.prod.conf reverse-proxy/nginx.prod.conf.bak.$(date +%F_%H%M) || true
 
-            echo "[+] Descargar docker-compose-prod.yml (rama default)"
+            echo "[+] Descargar docker-compose-prod.yml (@ ${{ env.REPO_REF }})"
             curl -fsSL \
               -H "Authorization: token ${TOKEN}" \
               -H "Accept: application/vnd.github.raw" \
-              "https://api.github.com/repos/${REPO}/contents/docker-compose-prod.yml?ref=${DEFAULT_BRANCH}" \
+              "https://api.github.com/repos/${REPO}/contents/docker-compose-prod.yml?ref=${{ env.REPO_REF }}" \
               -o docker-compose-prod.yml
             test -s docker-compose-prod.yml || { echo "❌ No se pudo descargar docker-compose-prod.yml"; exit 1; }
-            echo "[OK] docker-compose-prod.yml actualizado"
 
-            echo "[+] Descargar reverse-proxy/nginx.prod.conf (rama default)"
+            echo "[+] Descargar reverse-proxy/nginx.prod.conf (@ ${{ env.REPO_REF }})"
             mkdir -p reverse-proxy
             curl -fsSL \
               -H "Authorization: token ${TOKEN}" \
               -H "Accept: application/vnd.github.raw" \
-              "https://api.github.com/repos/${REPO}/contents/reverse-proxy/nginx.prod.conf?ref=${DEFAULT_BRANCH}" \
+              "https://api.github.com/repos/${REPO}/contents/reverse-proxy/nginx.prod.conf?ref=${{ env.REPO_REF }}" \
               -o reverse-proxy/nginx.prod.conf
             test -s reverse-proxy/nginx.prod.conf || { echo "❌ No se pudo descargar reverse-proxy/nginx.prod.conf"; exit 1; }
-            echo "[OK] reverse-proxy/nginx.prod.conf actualizado"
 
             echo "[+] Docker login GHCR"
             echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
@@ -144,16 +140,13 @@ jobs:
                 --agree-tos --non-interactive \
                 -m '${{ env.LETSENCRYPT_EMAIL }}' || true
 
-            echo "[+] Listar certificados disponibles"
-            docker run --rm -v condor_certbot_etc:/data alpine sh -lc "ls -l /data/live/cnd-ia.com || true"
-
             echo "[+] Pull de imágenes"
             docker compose --env-file .env.prod -f docker-compose-prod.yml pull
 
             echo "[+] Levantando stack"
             docker compose --env-file .env.prod -f docker-compose-prod.yml up -d --force-recreate
 
-            echo "[+] Esperando servicios healthy"
+            echo "[+] Esperando servicios healthy (BE/FE)"
             for i in $(seq 1 40); do
               B=$(docker inspect -f '{{.State.Health.Status}}' backend_condor 2>/dev/null || echo "starting")
               F=$(docker inspect -f '{{.State.Health.Status}}' frontend_condor 2>/dev/null || echo "starting")
@@ -166,20 +159,24 @@ jobs:
             docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
             docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
 
+            echo "[+] Esperando proxy listo"
+            for i in $(seq 1 40); do
+              S=$(docker inspect -f '{{.State.Status}}' proxy_condor 2>/dev/null || echo "starting")
+              echo "  proxy=$S"
+              [ "$S" = "running" ] && break
+              sleep 2
+            done
+
             echo "[+] Smoke tests (desde dentro del proxy)"
             docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T proxy sh -lc '
               set -e
               command -v curl >/dev/null || apk add --no-cache curl >/dev/null
-
               echo " - /healthz (HTTP 8080 interno)"
               curl -fsS http://localhost:8080/healthz >/dev/null
-
-              echo " - /config.js (pasa por FE)"
+              echo " - /config.js (FE)"
               curl -fsS http://localhost:8080/config.js >/dev/null
-
-              echo " - /api/healthz (pasa por BE)"
+              echo " - /api/healthz (BE)"
               curl -fsS http://localhost:8080/api/healthz >/dev/null || true
-
               echo "OK smoke"
             '
 
