@@ -27,10 +27,17 @@ from apps.clientes_core.models import ClienteDominio
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
+from urllib.parse import quote
+
+
+
+
+
+
+
 # ==========================
 # Helpers OAuth/JWT
 # ==========================
-
 def _email_domain_ok(email: str) -> bool:
     allowed = getattr(settings, "OAUTH_ALLOWED_EMAIL_DOMAIN", "*")
     if not allowed or allowed == "*":
@@ -41,9 +48,9 @@ def _email_domain_ok(email: str) -> bool:
         return False
 
 def _issue_tokens_for_user(user, return_to="/"):
+    from rest_framework_simplejwt.tokens import RefreshToken
     refresh = RefreshToken.for_user(user)
     access = refresh.access_token
-    # ← agrega claims útiles:
     access["email"] = user.email
     access["tipo_usuario"] = user.tipo_usuario
     access["cliente_id"] = user.cliente_id
@@ -164,6 +171,38 @@ class OAuthStateView(APIView):
 class OAuthCallbackView(APIView):
     permission_classes = []  # público
 
+    # --- NUEVO: Google llega por GET con ?code=&state= ---
+    def get(self, request):
+        cfg = GoogleOIDCConfig.from_env()
+        errs = cfg.validate()
+        if errs:
+            logger.warning(f"[OAUTH CB][GET] config_invalid errs={errs}")
+            return Response({"detail": "oauth_config_invalid", "errors": errs}, status=500)
+
+        code = (request.query_params.get("code") or "").strip()
+        state_raw = (request.query_params.get("state") or "").strip()
+        if not code or not state_raw:
+            return Response({"detail": "missing code/state"}, status=400)
+
+        # Validamos el state para extraer el host de retorno
+        try:
+            state, _ = verify_state(state_raw, cfg.state_hmac_secret)
+        except ValueError as ex:
+            logger.info(f"[OAUTH CB][GET] state_invalid reason={ex}")
+            return Response({"detail": "state_invalid", "reason": str(ex)}, status=400)
+
+        host = (state or {}).get("host")
+        if not host:
+            logger.info("[OAUTH CB][GET] missing_host_in_state")
+            return Response({"detail": "cliente_not_resolved"}, status=400)
+
+        # Redirigimos al FE para que complete el flujo con code_verifier (PKCE)
+        redirect_url = f"https://{host}/login?code={quote(code)}&state={quote(state_raw)}"
+        logger.info(f"[OAUTH CB][GET] redirecting_to_fe host={host}")
+        # 302 con Location
+        return Response(status=302, headers={"Location": redirect_url})
+
+    # --- EXISTENTE: callback vía POST desde la SPA con provider/code_verifier ---
     def post(self, request):
         cfg = GoogleOIDCConfig.from_env()
         errs = cfg.validate()
@@ -207,7 +246,7 @@ class OAuthCallbackView(APIView):
             logger.info("[OAUTH CB] missing_cliente_in_state host=%s", host)
             return Response({"detail": "cliente_not_resolved"}, status=400)
 
-        # 1.b) (opcional) validar invite si vino en el state
+        # 1.b) Invite opcional
         invite_raw = state.get("invite")
         inv_payload = None
         invited_admin = False
@@ -295,7 +334,6 @@ class OAuthCallbackView(APIView):
             logger.info("[OAUTH CB] email_not_verified")
             return Response({"detail": "email_not_verified"}, status=403)
 
-        # Si el invite liga a un email concreto, debe coincidir
         if invited_email and invited_email.lower() != (email or "").lower():
             return Response({"detail": "invite_email_mismatch"}, status=403)
 
@@ -309,7 +347,6 @@ class OAuthCallbackView(APIView):
             user = User.objects.filter(email=email).first()
 
             if user:
-                # Enforce tenant si no es super_admin
                 if getattr(user, "tipo_usuario", "") != "super_admin":
                     if cliente_id_state and user.cliente_id != cliente_id_state:
                         logger.info(
@@ -318,18 +355,14 @@ class OAuthCallbackView(APIView):
                         )
                         return Response({"detail": "tenant_mismatch"}, status=403)
 
-                # Completar metadatos de OAuth si faltan
                 updates = {}
-                if not user.oauth_provider:
+                if not getattr(user, "oauth_provider", None):
                     updates["oauth_provider"] = "google"
-                if not user.oauth_uid:
+                if not getattr(user, "oauth_uid", None):
                     updates["oauth_uid"] = sub
-
-                # Promoción por invite (si no es ya admin/super)
                 if invited_admin and user.tipo_usuario not in ("super_admin", "admin_cliente"):
                     updates["tipo_usuario"] = "admin_cliente"
                     logger.info(f"[OAUTH CB] promoting_user_to_admin user_id={user.id} cliente_id={user.cliente_id}")
-
                 if updates:
                     for k, v in updates.items():
                         setattr(user, k, v)
@@ -337,7 +370,6 @@ class OAuthCallbackView(APIView):
 
                 return Response(_issue_tokens_for_user(user, return_to), status=200)
 
-            # Usuario NO existe → onboarding obligatorio
             pending_payload = {
                 "v": 1,
                 "intent": "onboard",
@@ -347,7 +379,7 @@ class OAuthCallbackView(APIView):
                 "email": email,
             }
             if invite_raw:
-                pending_payload["invite"] = invite_raw  # Onboard decidirá rol
+                pending_payload["invite"] = invite_raw
 
             pending_token = sign_state(pending_payload, settings.SECRET_KEY, ttl_seconds=900)
 
@@ -366,7 +398,6 @@ class OAuthCallbackView(APIView):
         except Exception:
             logger.error(f"[OAUTH CB] unexpected_error email_mask={str(email)[:2]}***", exc_info=True)
             return Response({"detail": "unexpected_error"}, status=500)
-
 # ==========================
 # Onboarding (opcional, si OAUTH_AUTO_PROVISION=False)
 # ==========================
