@@ -1,0 +1,5 @@
+services:
+  proxy:
+    volumes:
+      - ./reverse-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./reverse-proxy/conf.d:/etc/nginx/conf.d:ro
