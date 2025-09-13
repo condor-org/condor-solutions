@@ -2,7 +2,7 @@
 import React, { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
-import { exchangeCodeForTokens } from "../../auth/oauthClient";
+import { exchangeCodeForTokens, readRuntimeConfig } from "../../auth/oauthClient";
 import { Box, Spinner, Text } from "@chakra-ui/react";
 import { toast } from "react-toastify";
 
@@ -26,26 +26,32 @@ const OAuthCallback = () => {
       }
       ranRef.current = true;
 
+      // Lectura de params
+      const params = new URLSearchParams(location.search);
+      const code = params.get("code");
+      const state = params.get("state");
+
+      const hasCodeVerifier = !!sessionStorage.getItem("oauth_code_verifier");
+      const { API, OAUTH_REDIRECT_URI } = readRuntimeConfig();
+
+      console.log(`[OAuthCB][${traceId}] ${nowTs()} mounted`, {
+        href: typeof window !== "undefined" ? window.location.href : undefined,
+        code_present: !!code,
+        state_present: !!state,
+        has_code_verifier: hasCodeVerifier,
+        API,
+        OAUTH_REDIRECT_URI,
+        runtime_config: typeof window !== "undefined" ? window.RUNTIME_CONFIG : undefined,
+      });
+
+      if (!code || !state) {
+        console.error(`[OAuthCB][${traceId}] missing query params`, { code, state });
+        toast.error("No se pudo completar el inicio de sesión (falta code/state).");
+        navigate("/login", { replace: true });
+        return;
+      }
+
       try {
-        const params = new URLSearchParams(location.search);
-        const code = params.get("code");
-        const state = params.get("state");
-
-        console.log(`[OAuthCB][${traceId}] ${nowTs()} mounted`, {
-          href: window.location.href,
-          code_present: !!code,
-          state_present: !!state,
-          runtime_config: window.RUNTIME_CONFIG,
-          has_code_verifier: !!sessionStorage.getItem("oauth_code_verifier"),
-        });
-
-        if (!code || !state) {
-          console.error(`[OAuthCB][${traceId}] missing query params`, { code, state });
-          toast.error("No se pudo completar el inicio de sesión (falta code/state).");
-          navigate("/login", { replace: true });
-          return;
-        }
-
         // 1) Intercambio con backend
         const data = await exchangeCodeForTokens({ code, state });
 
@@ -72,18 +78,29 @@ const OAuthCallback = () => {
       } catch (err) {
         const resp = err?.response;
         const detail = resp?.data?.detail || resp?.data || err?.message;
+
         console.error(`[OAuthCB][${traceId}] error`, {
           status: resp?.status,
           data: resp?.data,
           detail,
         });
 
-        // Evita loop: NO relanzamos el flujo. Solo mostramos error.
-        toast.error(
-          typeof detail === "string"
-            ? detail
-            : "No se pudo completar el inicio de sesión."
-        );
+        // Mensajes más claros según error típico
+        if (detail === "missing_pkce" || /missing_pkce|code_verifier/i.test(String(detail))) {
+          toast.error("No se pudo validar el inicio (PKCE faltante). Probá iniciar sesión de nuevo.");
+        } else if (resp?.status === 400) {
+          toast.error("No se pudo completar el inicio de sesión (400). Reintentá desde la pantalla de login.");
+        } else if (resp?.status === 403) {
+          toast.error("Acceso no autorizado para este usuario o dominio.");
+        } else {
+          toast.error(
+            typeof detail === "string"
+              ? detail
+              : "No se pudo completar el inicio de sesión."
+          );
+        }
+
+        // Evita loop: NO relanzamos el flujo. Vamos a /login.
         navigate("/login", { replace: true });
       }
     };

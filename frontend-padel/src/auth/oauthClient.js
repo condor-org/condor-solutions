@@ -11,12 +11,15 @@ function nowTs() {
   return new Date().toISOString();
 }
 
-function readRuntimeConfig() {
+export function readRuntimeConfig() {
   const w = typeof window !== "undefined" ? window : {};
   const cfg = w.RUNTIME_CONFIG || {};
+
+  // /api o absoluto. Normalizamos SIN barra final.
   const API_BASE_URL_RAW = cfg.API_BASE_URL || "";
   const API_BASE_URL = API_BASE_URL_RAW.replace(/\/+$/, "");
   const API = /\/api$/.test(API_BASE_URL) ? API_BASE_URL : `${API_BASE_URL || ""}/api`;
+
   const GOOGLE_CLIENT_ID = cfg.GOOGLE_CLIENT_ID || "";
   const OAUTH_REDIRECT_URI =
     cfg.OAUTH_REDIRECT_URI || `${w.location?.origin || ""}/oauth/google/callback`;
@@ -24,7 +27,7 @@ function readRuntimeConfig() {
   return { API, GOOGLE_CLIENT_ID, OAUTH_REDIRECT_URI, API_BASE_URL };
 }
 
-// Mapea respuestas posibles del backend a un formato estable
+// Normaliza posibles formatos del backend
 function normalizeOAuthResponse(raw) {
   if (!raw || typeof raw !== "object") return {};
   const access =
@@ -58,9 +61,10 @@ function normalizeOAuthResponse(raw) {
 }
 
 /**
- * Inicia el flujo OAuth con Google.
- * - Guarda PKCE/nonce en sessionStorage y un fallback en localStorage.
- * - Pide state al backend (same-origin /api ...).
+ * Inicia login con Google:
+ * - Limpia residuos de intentos previos (defensivo).
+ * - Genera PKCE (code_verifier / code_challenge) + nonce.
+ * - Pide STATE al backend (tenant-aware via Host).
  * - Redirige a Google con todos los parámetros.
  */
 export async function startGoogleLogin({ host, returnTo = "/", invite } = {}) {
@@ -82,18 +86,25 @@ export async function startGoogleLogin({ host, returnTo = "/", invite } = {}) {
   if (!GOOGLE_CLIENT_ID) throw new Error("config_missing_client_id");
   if (!OAUTH_REDIRECT_URI) throw new Error("config_missing_redirect_uri");
 
+  // Limpieza defensiva antes de iniciar (evita confusiones de PKCE viejo)
+  try {
+    sessionStorage.removeItem("oauth_code_verifier");
+    sessionStorage.removeItem("oauth_nonce");
+    // no borro el fallback aún (por si el navegador pierde sessionStorage en la redirección)
+  } catch {}
+
+  // PKCE + nonce
   const codeVerifier = randomString(96);
   const codeChallenge = await sha256Base64Url(codeVerifier);
-
-  // Guardar PKCE y nonce con fallback
   const nonce = randomString(32);
+
+  // Persistencia: sessionStorage + fallback en localStorage
   try {
     sessionStorage.setItem("oauth_code_verifier", codeVerifier);
     sessionStorage.setItem("oauth_nonce", nonce);
-    // Fallback: por si el navegador pierde sessionStorage en navegaciones
     localStorage.setItem("oauth_code_verifier", codeVerifier);
   } catch (e) {
-    console.warn(`[OAuth][${traceId}] No se pudo persistir en storage`, e?.message);
+    console.warn(`[OAuth][${traceId}] No se pudo persistir PKCE/nonce`, e?.message);
   }
 
   // Pedimos STATE al backend (same-origin si PUBLIC_API_BASE_URL=/api)
@@ -123,6 +134,7 @@ export async function startGoogleLogin({ host, returnTo = "/", invite } = {}) {
     throw new Error("state_missing");
   }
 
+  // Armado de URL de autorización
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: OAUTH_REDIRECT_URI,
@@ -146,10 +158,10 @@ export async function startGoogleLogin({ host, returnTo = "/", invite } = {}) {
 }
 
 /**
- * Intercambia code + code_verifier por tokens en el backend.
- * - No exige nonce del lado cliente (el backend lo valida contra el id_token).
- * - Fallback del code_verifier desde localStorage si sessionStorage no lo tiene.
- * - Loguea status y payload de error para diagnóstico.
+ * Intercambia code+state por tokens en backend usando PKCE.
+ * - Recupera code_verifier de sessionStorage (y fallback localStorage si hace falta).
+ * - No exige nonce en FE: backend valida nonce con id_token de Google.
+ * - Limpia storage al finalizar (éxito o error) para evitar residuos.
  */
 export async function exchangeCodeForTokens({ code, state }) {
   const traceId = `oauth_cb_${Date.now()}`;
@@ -165,14 +177,14 @@ export async function exchangeCodeForTokens({ code, state }) {
 
   if (!code || !state) throw new Error("missing_code_or_state");
 
-  // PKCE: buscar primero en sessionStorage, luego fallback en localStorage
+  // PKCE: sessionStorage primero; si no está, usamos fallback de localStorage
   let codeVerifier = null;
   try {
     codeVerifier = sessionStorage.getItem("oauth_code_verifier");
     if (!codeVerifier) {
       const fallback = localStorage.getItem("oauth_code_verifier");
       if (fallback) {
-        console.warn(`[OAuth][${traceId}] sessionStorage empty; using localStorage fallback for code_verifier`);
+        console.warn(`[OAuth][${traceId}] sessionStorage vacío; usando fallback de localStorage para code_verifier`);
         sessionStorage.setItem("oauth_code_verifier", fallback);
         codeVerifier = fallback;
       }
@@ -183,7 +195,7 @@ export async function exchangeCodeForTokens({ code, state }) {
 
   if (!codeVerifier) {
     console.error(`[OAuth][${traceId}] missing_pkce`, {
-      hint: "El navegador pudo limpiar sessionStorage al redirigir. Ver fallback/localStorage y dominios.",
+      hint: "El navegador pudo limpiar sessionStorage al redirigir. Probá iniciar login nuevamente.",
     });
     throw new Error("missing_pkce");
   }
@@ -215,7 +227,6 @@ export async function exchangeCodeForTokens({ code, state }) {
 
     const raw = resp.data;
 
-    // Caso onboarding
     if (raw?.needs_onboarding) {
       console.log(`[OAuth][${traceId}] needs_onboarding`, {
         has_pending_token: !!raw?.pending_token,
@@ -230,26 +241,27 @@ export async function exchangeCodeForTokens({ code, state }) {
 
     const norm = normalizeOAuthResponse(raw);
     if (!norm.access || !norm.refresh) {
-      console.error(`[OAuth][${traceId}] callback OK but tokens missing`, { raw });
+      console.error(`[OAuth][${traceId}] callback OK pero faltan tokens`, { raw });
     }
     return norm;
   } catch (err) {
     const resp = err?.response;
+
     console.error(`[OAuth][${traceId}] POST failed`, {
       status: resp?.status,
       data: resp?.data,
       msg: err?.message,
       hint:
         resp?.status === 400
-          ? "Revisar code_verifier (PKCE) y redirect_uri. ¿Se reutilizó code? ¿Se perdió PKCE?"
+          ? "400 del backend: revisar code_verifier (PKCE) y state/nonce. Es común si Google re-usa code o si se perdió PKCE entre dominios."
           : resp?.status === 403
-          ? "Bloqueo por dominio de email / tenant mismatch / email no verificado."
+          ? "403: política de dominio de email / tenant mismatch / email no verificado."
           : resp?.status === 502
-          ? "Fallo al pedir token a Google (timeout)."
+          ? "502: error al pedir token a Google (timeout)."
           : "Ver logs del backend [OAUTH CB] para detalle.",
     });
 
-    // Limpieza igualmente
+    // Limpieza también en error (evita loops con PKCE viejo)
     try {
       sessionStorage.removeItem("oauth_code_verifier");
       sessionStorage.removeItem("oauth_nonce");
