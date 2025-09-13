@@ -181,3 +181,6 @@ jobs:
               curl -fsS http://localhost:8080/api/healthz >/dev/null || true
 
               echo "OK smoke"
+            '
+
+            echo "[✓] Deploy OK"
