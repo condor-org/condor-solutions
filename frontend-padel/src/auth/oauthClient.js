@@ -63,8 +63,8 @@ function normalizeOAuthResponse(raw) {
 /**
  * Inicia login con Google:
  * - Limpia residuos de intentos previos (defensivo).
- * - Genera PKCE (code_verifier / code_challenge) + nonce.
- * - Pide STATE al backend (tenant-aware via Host).
+ * - Genera PKCE (code_verifier / code_challenge).
+ * - Pide STATE al backend (tenant-aware via Host) y usa el NONCE del backend.
  * - Redirige a Google con todos los parámetros.
  */
 export async function startGoogleLogin({ host, returnTo = "/", invite } = {}) {
@@ -93,21 +93,11 @@ export async function startGoogleLogin({ host, returnTo = "/", invite } = {}) {
     // no borro el fallback aún (por si el navegador pierde sessionStorage en la redirección)
   } catch {}
 
-  // PKCE + nonce
+  // PKCE (solo PKCE se genera en FE)
   const codeVerifier = randomString(96);
   const codeChallenge = await sha256Base64Url(codeVerifier);
-  const nonce = randomString(32);
 
-  // Persistencia: sessionStorage + fallback en localStorage
-  try {
-    sessionStorage.setItem("oauth_code_verifier", codeVerifier);
-    sessionStorage.setItem("oauth_nonce", nonce);
-    localStorage.setItem("oauth_code_verifier", codeVerifier);
-  } catch (e) {
-    console.warn(`[OAuth][${traceId}] No se pudo persistir PKCE/nonce`, e?.message);
-  }
-
-  // Pedimos STATE al backend (same-origin si PUBLIC_API_BASE_URL=/api)
+  // Pedimos STATE + NONCE al backend (same-origin si PUBLIC_API_BASE_URL=/api)
   const stateUrl = `${API}/auth/oauth/state/`;
   let stateResp;
   try {
@@ -128,10 +118,30 @@ export async function startGoogleLogin({ host, returnTo = "/", invite } = {}) {
     throw err;
   }
 
-  const { state } = stateResp?.data || {};
+  const { state, nonce: backendNonce } = stateResp?.data || {};
   if (!state) {
     console.error(`[OAuth][${traceId}] state missing in response`, stateResp?.data);
     throw new Error("state_missing");
+  }
+
+  // Usar SIEMPRE el nonce del backend; si no vino por alguna razón, fallback local.
+  const localNonce = randomString(32);
+  const nonceToUse = backendNonce || localNonce;
+  if (!backendNonce) {
+    console.warn(`[OAuth][${traceId}] backend did not return nonce; using local nonce as fallback`);
+  }
+  console.log(`[OAuth][${traceId}] will use nonce`, {
+    from_backend: !!backendNonce,
+    length: nonceToUse?.length,
+  });
+
+  // Persistencia: sessionStorage + fallback en localStorage
+  try {
+    sessionStorage.setItem("oauth_code_verifier", codeVerifier);
+    sessionStorage.setItem("oauth_nonce", nonceToUse);
+    localStorage.setItem("oauth_code_verifier", codeVerifier);
+  } catch (e) {
+    console.warn(`[OAuth][${traceId}] No se pudo persistir PKCE/nonce`, e?.message);
   }
 
   // Armado de URL de autorización
@@ -141,7 +151,7 @@ export async function startGoogleLogin({ host, returnTo = "/", invite } = {}) {
     response_type: RESPONSE_TYPE,
     scope: OIDC_SCOPE,
     state,
-    nonce,
+    nonce: nonceToUse,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
     // Evita auto-login silencioso con la cuenta previa
