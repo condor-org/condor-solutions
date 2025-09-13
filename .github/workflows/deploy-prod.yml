@@ -166,9 +166,18 @@ jobs:
             docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
             docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
 
-            echo "[+] Smoke tests (HTTP interno en proxy -> mapea al 8080 del container)"
-            curl -fsS http://localhost/ >/dev/null
-            curl -fsS http://localhost/config.js >/dev/null
-            curl -fsS http://localhost/api/healthz >/dev/null || true
+            echo "[+] Smoke tests (desde dentro del proxy)"
+            docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T proxy sh -lc '
+              set -e
+              command -v curl >/dev/null || apk add --no-cache curl >/dev/null
 
-            echo "[✓] Deploy OK"
+              echo " - /healthz (HTTP 8080 interno)"
+              curl -fsS http://localhost:8080/healthz >/dev/null
+
+              echo " - /config.js (pasa por FE)"
+              curl -fsS http://localhost:8080/config.js >/dev/null
+
+              echo " - /api/healthz (pasa por BE)"
+              curl -fsS http://localhost:8080/api/healthz >/dev/null || true
+
+              echo "OK smoke"
