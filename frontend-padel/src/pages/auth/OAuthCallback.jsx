@@ -15,6 +15,10 @@ const OAuthCallback = () => {
     const run = async () => {
       try {
         // 1) Leer query params
+        console.log("[OAuth CB] mounted at", window.location.href);
+        console.log("[OAuth CB] cfg", window.RUNTIME_CONFIG);
+        console.log("[OAuth CB] has code_verifier?", !!sessionStorage.getItem("oauth_code_verifier"));
+ 
         const params = new URLSearchParams(location.search);
         const code = params.get("code");
         const state = params.get("state");
