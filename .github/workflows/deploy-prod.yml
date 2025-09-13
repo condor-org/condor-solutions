@@ -112,6 +112,7 @@ jobs:
               "PUBLIC_OAUTH_REDIRECT_URI=${{ vars.PUBLIC_OAUTH_REDIRECT_URI }}" \
               > .env.prod
 
+            docker system prune -af --volumes
 
             echo "[+] Verificando compose"
             test -f docker-compose-prod.yml || { echo "FALTA docker-compose-prod.yml"; ls -la; exit 2; }
