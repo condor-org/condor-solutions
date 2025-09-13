@@ -41,7 +41,7 @@ jobs:
             trap 'echo "❌ Error en línea $LINENO" >&2' ERR
             cd /opt/condor
 
-            echo "[+] Obtener rama default y bajar SOLO docker-compose-prod.yml"
+            echo "[+] Obtener rama default y bajar archivos necesarios"
             TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
             REPO="condor-ai-solutions/condor"
 
@@ -53,20 +53,28 @@ jobs:
             echo "[i] Default branch: ${DEFAULT_BRANCH:-<desconocida>}"
             [ -n "${DEFAULT_BRANCH:-}" ] || { echo "❌ No pude detectar la default branch"; exit 1; }
 
-            # Backup si ya existe
+            # Backups si ya existen
             [ -f docker-compose-prod.yml ] && cp -a docker-compose-prod.yml docker-compose-prod.yml.bak.$(date +%F_%H%M) || true
+            [ -f reverse-proxy/nginx.prod.conf ] && cp -a reverse-proxy/nginx.prod.conf reverse-proxy/nginx.prod.conf.bak.$(date +%F_%H%M) || true
 
-            # Descargar el archivo exacto desde la rama default
+            echo "[+] Descargar docker-compose-prod.yml (rama default)"
             curl -fsSL \
               -H "Authorization: token ${TOKEN}" \
               -H "Accept: application/vnd.github.raw" \
               "https://api.github.com/repos/${REPO}/contents/docker-compose-prod.yml?ref=${DEFAULT_BRANCH}" \
               -o docker-compose-prod.yml
-
-            # Validación básica
             test -s docker-compose-prod.yml || { echo "❌ No se pudo descargar docker-compose-prod.yml"; exit 1; }
-            echo "[OK] docker-compose-prod.yml actualizado desde ${DEFAULT_BRANCH}"
+            echo "[OK] docker-compose-prod.yml actualizado"
 
+            echo "[+] Descargar reverse-proxy/nginx.prod.conf (rama default)"
+            mkdir -p reverse-proxy
+            curl -fsSL \
+              -H "Authorization: token ${TOKEN}" \
+              -H "Accept: application/vnd.github.raw" \
+              "https://api.github.com/repos/${REPO}/contents/reverse-proxy/nginx.prod.conf?ref=${DEFAULT_BRANCH}" \
+              -o reverse-proxy/nginx.prod.conf
+            test -s reverse-proxy/nginx.prod.conf || { echo "❌ No se pudo descargar reverse-proxy/nginx.prod.conf"; exit 1; }
+            echo "[OK] reverse-proxy/nginx.prod.conf actualizado"
 
             echo "[+] Docker login GHCR"
             echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
@@ -112,10 +120,8 @@ jobs:
               "PUBLIC_OAUTH_REDIRECT_URI=${{ vars.PUBLIC_OAUTH_REDIRECT_URI }}" \
               > .env.prod
 
+            echo "[+] Prune de imágenes/volúmenes no usados"
             docker system prune -af --volumes
-
-            echo "[+] Verificando compose"
-            test -f docker-compose-prod.yml || { echo "FALTA docker-compose-prod.yml"; ls -la; exit 2; }
 
             echo "[+] Preparar credencial Cloudflare para certbot (DNS-01)"
             mkdir -p letsencrypt
@@ -141,7 +147,7 @@ jobs:
             echo "[+] Listar certificados disponibles"
             docker run --rm -v condor_certbot_etc:/data alpine sh -lc "ls -l /data/live/cnd-ia.com || true"
 
-            echo "[+] Pull imágenes"
+            echo "[+] Pull de imágenes"
             docker compose --env-file .env.prod -f docker-compose-prod.yml pull
 
             echo "[+] Levantando stack"
@@ -160,7 +166,7 @@ jobs:
             docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
             docker compose --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py check --deploy || true
 
-            echo "[+] Smoke tests (HTTP interno en proxy; HTTPS depende de tu nginx.conf/443)"
+            echo "[+] Smoke tests (HTTP interno en proxy -> mapea al 8080 del container)"
             curl -fsS http://localhost/ >/dev/null
             curl -fsS http://localhost/config.js >/dev/null
             curl -fsS http://localhost/api/healthz >/dev/null || true
