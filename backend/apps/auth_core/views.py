@@ -197,7 +197,7 @@ class OAuthCallbackView(APIView):
             return Response({"detail": "cliente_not_resolved"}, status=400)
 
         # Redirigir a la SPA con SLASH para que NO matchee el location exacto del BE
-        redirect_url = f"https://{host}/oauth/google/callback/?code={quote(code)}&state={quote(state_raw)}"
+        redirect_url = f"https://{host}/oauth/google/callback?code={quote(code)}&state={quote(state_raw)}"
         logger.info(f"[OAUTH CB][GET] redirecting_to_fe host={host}")
         return Response(status=302, headers={"Location": redirect_url})
 
