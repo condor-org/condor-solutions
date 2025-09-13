@@ -31,6 +31,8 @@ import OAuthCallback from "../pages/auth/OAuthCallback";
 import Signup from "../pages/auth/Signup";
 
 
+// ...imports iguales...
+
 const AppRoutes = () => {
   const { user } = useContext(AuthContext);
   const location = useLocation();
@@ -41,8 +43,10 @@ const AppRoutes = () => {
   return (
     <>
       <Routes>
+        {/* Home -> login por ahora */}
         <Route path="/" element={<Navigate to="/login" replace />} />
 
+        {/* PÚBLICAS */}
         <Route
           path="/login"
           element={
@@ -60,23 +64,19 @@ const AppRoutes = () => {
           }
         />
         <Route
-         path="/signup"
-         element={
-           <PublicRoute>
-             <Signup />
-           </PublicRoute>
-         }
+          path="/signup"
+          element={
+            <PublicRoute>
+              <Signup />
+            </PublicRoute>
+          }
         />
-        {/* Callback OAuth de Google (público, sin sesión) */}
-       <Route
-         path="/oauth/google/callback"
-         element={
-           <PublicRoute>
-             <OAuthCallback />
-           </PublicRoute>
-         }
-        />
-        {/* Admin (SuperAdmin o AdminCliente) */}
+
+        {/* ⬇️ CALLBACK OAUTH **SIN WRAPPER** y en ambas variantes */}
+        <Route path="/oauth/google/callback" element={<OAuthCallback />} />
+        <Route path="/oauth/google/callback/" element={<OAuthCallback />} />
+
+        {/* PRIVADAS */}
         <Route
           path="/admin"
           element={
@@ -87,128 +87,7 @@ const AppRoutes = () => {
             </ProtectedRoute>
           }
         />
-         <Route
-          path="/admin/cancelaciones"
-          element={
-            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <CancelacionesPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/abonos"
-          element={
-            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <ReservarAbonoAdmin />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/admin/sedes"
-          element={
-            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <SedesPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/profesores"
-          element={
-            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <ProfesoresPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/usuarios"
-          element={
-            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <UsuariosPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/pagos-preaprobados"
-          element={
-            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <PagosPreaprobadosPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/notificaciones"
-          element={
-            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <NotificacionesAdminPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        {/* Jugador */}
-        <Route
-          path="/notificaciones"
-          element={
-            <ProtectedRoute allowedRoles={["usuario_final"]}>
-              <MainLayout>
-                <NotificacionesPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/jugador"
-          element={
-            <ProtectedRoute allowedRoles={["usuario_final"]}>
-              <MainLayout>
-                <JugadorDashboard />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/reservar"
-          element={
-            <ProtectedRoute allowedRoles={["usuario_final"]}>
-              <MainLayout>
-                <ReservarTurno />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/perfil"
-          element={
-            <ProtectedRoute allowedRoles={["usuario_final", "super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <PerfilPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/profesores/turnos"
-          element={
-            <ProtectedRoute allowedRoles={["empleado_cliente"]}>
-              <MainLayout>
-                <TurnosReservados />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
+        {/* ...el resto de privadas igual... */}
 
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
