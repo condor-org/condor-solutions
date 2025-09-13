@@ -197,7 +197,7 @@ class OAuthCallbackView(APIView):
             return Response({"detail": "cliente_not_resolved"}, status=400)
 
         # Redirigimos al FE para que complete el flujo con code_verifier (PKCE)
-        redirect_url = f"https://{host}/login?code={quote(code)}&state={quote(state_raw)}"
+        redirect_url = f"https://{host}/oauth/google/callback?code={quote(code)}&state={quote(state_raw)}"
         logger.info(f"[OAUTH CB][GET] redirecting_to_fe host={host}")
         # 302 con Location
         return Response(status=302, headers={"Location": redirect_url})
