@@ -171,7 +171,7 @@ class OAuthStateView(APIView):
 class OAuthCallbackView(APIView):
     permission_classes = []  # público
 
-    # --- NUEVO: Google llega por GET con ?code=&state= ---
+    # --- Google llega por GET con ?code=&state= ---
     def get(self, request):
         cfg = GoogleOIDCConfig.from_env()
         errs = cfg.validate()
@@ -196,13 +196,12 @@ class OAuthCallbackView(APIView):
             logger.info("[OAUTH CB][GET] missing_host_in_state")
             return Response({"detail": "cliente_not_resolved"}, status=400)
 
-        # Redirigimos al FE para que complete el flujo con code_verifier (PKCE)
-        redirect_url = f"https://{host}/oauth/google/callback?code={quote(code)}&state={quote(state_raw)}"
+        # Redirigir a la SPA con SLASH para que NO matchee el location exacto del BE
+        redirect_url = f"https://{host}/oauth/google/callback/?code={quote(code)}&state={quote(state_raw)}"
         logger.info(f"[OAUTH CB][GET] redirecting_to_fe host={host}")
-        # 302 con Location
         return Response(status=302, headers={"Location": redirect_url})
 
-    # --- EXISTENTE: callback vía POST desde la SPA con provider/code_verifier ---
+    # --- Callback vía POST desde la SPA con provider/code_verifier ---
     def post(self, request):
         cfg = GoogleOIDCConfig.from_env()
         errs = cfg.validate()
@@ -342,10 +341,9 @@ class OAuthCallbackView(APIView):
             f"promote={'y' if invited_admin else 'n'} email_v={'y' if email_verified else 'n'}"
         )
 
-        # 4) Usuario existente → tokens (y posible promoción); inexistente → onboarding
+        # 4) Usuario existente / onboarding
         try:
             user = User.objects.filter(email=email).first()
-
             if user:
                 if getattr(user, "tipo_usuario", "") != "super_admin":
                     if cliente_id_state and user.cliente_id != cliente_id_state:
@@ -398,6 +396,7 @@ class OAuthCallbackView(APIView):
         except Exception:
             logger.error(f"[OAUTH CB] unexpected_error email_mask={str(email)[:2]}***", exc_info=True)
             return Response({"detail": "unexpected_error"}, status=500)
+
 # ==========================
 # Onboarding (opcional, si OAUTH_AUTO_PROVISION=False)
 # ==========================
