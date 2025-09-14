@@ -29,7 +29,7 @@ import NotificacionesAdminPage from '../pages/admin/NotificacionesAdminPage';
 import ReservarAbonoAdmin from "../pages/admin/ReservarAbonoAdmin";
 import OAuthCallback from "../pages/auth/OAuthCallback";
 import Signup from "../pages/auth/Signup";
-
+import AgendaAdmin from "../pages/admin/AgendaAdmin";
 
 const AppRoutes = () => {
   const { user } = useContext(AuthContext);
@@ -129,6 +129,16 @@ const AppRoutes = () => {
             <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
               <MainLayout>
                 <UsuariosPage />
+              </MainLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/agenda"
+          element={
+            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
+              <MainLayout>
+                <AgendaAdmin />
               </MainLayout>
             </ProtectedRoute>
           }

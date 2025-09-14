@@ -39,6 +39,12 @@ import json
 from apps.turnos_padel.services.abonos import confirmar_y_reservar_abono
 from apps.turnos_padel.services.abonos import validar_y_confirmar_abono, _notify_abono_admin
 
+
+from datetime import date, timedelta
+from django.utils.dateparse import parse_date
+from django.db.models import Count
+
+
 import logging
 from django.db.models import Max 
 logger = logging.getLogger(__name__)
@@ -178,6 +184,13 @@ class TipoClasePadelViewSet(viewsets.ModelViewSet):
             qs = qs.filter(configuracion_sede__sede_id=sede_id)
 
         return qs
+
+def _week_bounds(d: date):
+    # Lunes a Domingo (ISO)
+    start = d - timedelta(days=d.weekday())
+    end = start + timedelta(days=6)
+    return start, end
+
 
 class AbonoMesViewSet(viewsets.ModelViewSet):
     """
@@ -690,6 +703,196 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
 
         return Response({"ok": True, "renovado": True}, status=200)
     
+    
+    @action(detail=False, methods=["GET"], url_path="admin/resumen", permission_classes=[IsAuthenticated])
+    def admin_resumen(self, request):
+        """
+        Resumen de abonos para admin:
+        - granularity: day|week|month (default=day)
+        - fecha: YYYY-MM-DD (default=hoy)
+        - sede_id?, prestador_id?, usuario_id?
+        - anio?, mes? (si granularity=month; si no vienen, toma de 'fecha')
+        """
+        user = request.user
+        if user.tipo_usuario not in ("super_admin", "admin_cliente"):
+            return Response({"detail": "No autorizado."}, status=403)
+
+        gran = (request.query_params.get("granularity") or "day").lower()
+        fecha_str = request.query_params.get("fecha")
+        hoy = timezone.localdate()
+        base_date = parse_date(fecha_str) if fecha_str else hoy
+        if not base_date:
+            base_date = hoy
+
+        sede_id = request.query_params.get("sede_id")
+        prestador_id = request.query_params.get("prestador_id")
+        usuario_id = request.query_params.get("usuario_id")
+
+        qs = self.get_queryset()  # respeta alcance por rol
+        if sede_id:
+            qs = qs.filter(sede_id=sede_id)
+        if prestador_id:
+            qs = qs.filter(prestador_id=prestador_id)
+        if usuario_id:
+            qs = qs.filter(usuario_id=usuario_id)
+
+        # Ventana temporal
+        if gran == "day":
+            qs = qs.filter(anio=base_date.year, mes=base_date.month)
+            # además, que coincida el día_semana y hora ese día:
+            # el resumen diario se apoya en los turnos confirmados de ese mes
+            ventana_label = base_date.isoformat()
+        elif gran == "week":
+            w_start, w_end = _week_bounds(base_date)
+            qs = qs.filter(
+                anio__in={w_start.year, w_end.year},  # por si cruza año
+                mes__in={w_start.month, w_end.month}
+            )
+            ventana_label = f"{w_start.isoformat()}..{w_end.isoformat()}"
+        else:  # month
+            anio = int(request.query_params.get("anio") or base_date.year)
+            mes = int(request.query_params.get("mes") or base_date.month)
+            qs = qs.filter(anio=anio, mes=mes)
+            ventana_label = f"{anio}-{mes:02d}"
+
+        # Métricas básicas
+        total = qs.count()
+        por_estado = qs.values("estado").annotate(c=Count("id")).order_by()
+
+        # Proyección rápida: próximos vencimientos (último turno reservado por abono)
+        hoy = timezone.localdate()
+        proximos = []
+        for a in qs.select_related("sede", "prestador", "tipo_clase")[:200]:
+            ult = a.turnos_reservados.aggregate(ultimo=Max("fecha"))["ultimo"]
+            dias = (ult - hoy).days if ult else None
+            if dias is not None and 0 <= dias <= 14:
+                proximos.append({
+                    "id": a.id,
+                    "usuario_id": a.usuario_id,
+                    "sede_id": a.sede_id,
+                    "prestador_id": a.prestador_id,
+                    "tipo": getattr(a.tipo_clase, "codigo", None),
+                    "vence_el": str(ult),
+                    "dias_para_vencer": dias,
+                    "renovado": a.renovado,
+                })
+
+        payload = {
+            "ventana": ventana_label,
+            "filtros": {
+                "sede_id": int(sede_id) if sede_id else None,
+                "prestador_id": int(prestador_id) if prestador_id else None,
+                "usuario_id": int(usuario_id) if usuario_id else None,
+                "granularity": gran,
+            },
+            "totales": {
+                "abonos": total,
+                "por_estado": {row["estado"]: row["c"] for row in por_estado},
+            },
+            # opcional para UI: sample para panel (capado a 50)
+            "items": [{
+                "id": a.id,
+                "usuario_id": a.usuario_id,
+                "sede_id": a.sede_id,
+                "prestador_id": a.prestador_id,
+                "anio": a.anio, "mes": a.mes,
+                "dia_semana": a.dia_semana,
+                "hora": a.hora.strftime("%H:%M"),
+                "tipo": getattr(a.tipo_clase, "codigo", None),
+                "estado": a.estado,
+            } for a in qs.select_related("tipo_clase")[:50]],
+            "proximos_vencimientos": proximos[:50],
+        }
+        return Response(payload, status=200)
+
+    @action(detail=True, methods=["post"], url_path="liberar", permission_classes=[IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente)])
+    @transaction.atomic
+    def liberar(self, request, pk=None):
+        """
+        Libera vínculos de un AbonoMes.
+        - Body:
+            solo_prioridad: bool  (default: false)  → si true, sólo quita las "prioridades" del mes siguiente
+            dry_run: bool         (default: true)   → si true, no modifica nada; sólo devuelve conteos
+        - Efectos:
+            * solo_prioridad=true:
+                - Turno.abono_mes_prioridad = NULL
+                - Turno.reservado_para_abono = False  (para que queden disponibles como clases sueltas)
+            * solo_prioridad=false (liberación total):
+                - Abono.estado = "cancelado"
+                - Turno en turnos_reservados: usuario=NULL, estado="disponible", abono_mes_reservado=NULL
+                - Turno en turnos_prioridad: abono_mes_prioridad=NULL, reservado_para_abono=False
+                - Limpia M2M del abono
+        """
+        abono = self.get_object()
+
+        # Tenancy para admin_cliente
+        user = request.user
+        if user.tipo_usuario == "admin_cliente":
+            if getattr(abono.sede, "cliente_id", None) != getattr(user, "cliente_id", None):
+                return Response({"detail": "No autorizado para este abono."}, status=403)
+
+        # Flags
+        def _as_bool_local(v):
+            if v is True:
+                return True
+            if v in (False, None):
+                return False
+            return str(v).strip().lower() in ("1", "true", "t", "yes", "y", "on")
+
+        solo_prioridad = _as_bool_local(request.data.get("solo_prioridad"))
+        dry_run = _as_bool_local(request.data.get("dry_run", True))
+
+        # Conteos previos
+        cnt_res = abono.turnos_reservados.count()
+        cnt_pri = abono.turnos_prioridad.count()
+
+        if dry_run:
+            return Response({
+                "dry_run": True,
+                "solo_prioridad": solo_prioridad,
+                "resumen": {
+                    "turnos_reservados_afectados": 0 if solo_prioridad else cnt_res,
+                    "turnos_prioridad_afectados": cnt_pri,
+                }
+            }, status=200)
+
+        # --- LIBERACIÓN ---
+        afectados_res = 0
+        afectados_pri = 0
+
+        # 1) Prioridades → limpiar vínculo y desbloquear como clase suelta
+        pri_qs = abono.turnos_prioridad.select_for_update()
+        afectados_pri = pri_qs.update(abono_mes_prioridad=None, reservado_para_abono=False)
+        abono.turnos_prioridad.clear()
+
+        if not solo_prioridad:
+            # 2) Reservados → liberar slot y limpiar vínculo
+            res_qs = abono.turnos_reservados.select_for_update()
+            # No emitimos bonificaciones acá: es una operación administrativa de “liberar”
+            for t in res_qs:
+                t.usuario = None
+                t.estado = "disponible"
+                t.abono_mes_reservado = None
+                t.save(update_fields=["usuario", "estado", "abono_mes_reservado"])
+                afectados_res += 1
+
+            abono.turnos_reservados.clear()
+
+            # 3) Marcar abono cancelado
+            abono.estado = "cancelado"
+            abono.save(update_fields=["estado"])
+
+        return Response({
+            "ok": True,
+            "solo_prioridad": solo_prioridad,
+            "resumen": {
+                "turnos_reservados_afectados": afectados_res,
+                "turnos_prioridad_afectados": afectados_pri,
+                "abono_estado": abono.estado,
+            }
+        }, status=200)
+
+
 class TipoAbonoPadelViewSet(viewsets.ModelViewSet):
     """
     CRUD de tipos de abono por sede.

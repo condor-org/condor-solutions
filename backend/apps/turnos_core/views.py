@@ -1,5 +1,4 @@
 # Built-in
-from datetime import datetime
 import logging
 from zoneinfo import ZoneInfo  # Python 3.9+
 import uuid
@@ -12,6 +11,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.utils.timezone import now, localtime
 
+from datetime import date, timedelta
 
 # Django REST Framework
 from rest_framework import permissions, status, viewsets
@@ -61,7 +61,12 @@ from apps.turnos_core.serializers import (
     CancelarTurnoSerializer,
     CancelacionPorSedeSerializer,
     CancelacionPorPrestadorSerializer,
+    ToggleReservadoParaAbonoSerializer,
 )
+
+
+from rest_framework import serializers
+from django.db import transaction
 
 # App imports - Servicios
 from apps.turnos_core.services.bonificaciones import (
@@ -82,6 +87,52 @@ from apps.turnos_core.services.generar_turnos import (
 logger = logging.getLogger(__name__)
 
 
+class ToggleReservadoParaAbonoView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente)]
+
+    def post(self, request):
+        ser = ToggleReservadoParaAbonoSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        turno_id = ser.validated_data["turno_id"]
+        nuevo_flag = ser.validated_data["reservado_para_abono"]
+
+        with transaction.atomic():
+            try:
+                # 🔒 sin joins aquí
+                turno = (
+                    Turno.objects
+                    .filter(pk=turno_id)
+                    .select_for_update(of=('self',))  # asegura que el FOR UPDATE solo apunte a Turno
+                    .only("id", "estado", "reservado_para_abono", "lugar_id","fecha", "hora")
+                    .get()
+                )
+            except Turno.DoesNotExist:
+                return Response({"detail": "Turno no encontrado."}, status=404)
+
+            # Tenancy: admin_cliente solo dentro de su cliente (sin outer join)
+            if request.user.tipo_usuario == "admin_cliente":
+                if not Lugar.objects.filter(id=turno.lugar_id, cliente_id=request.user.cliente_id).exists():
+                    return Response({"detail": "No autorizado para esta sede."}, status=403)
+
+            if turno.estado != "disponible":
+                return Response({"detail": "El turno no está disponible."}, status=400)
+
+            turno.reservado_para_abono = bool(nuevo_flag)
+            turno.save(update_fields=["reservado_para_abono"])
+
+        return Response({
+            "ok": True,
+            "turno": {
+                "id": turno.id,
+                "fecha": str(turno.fecha),
+                "hora": str(turno.hora),
+                "estado": turno.estado,
+                "reservado_para_abono": turno.reservado_para_abono,
+            }
+        }, status=200)
+
+
 # ------------------------------------------------------------------------------
 # GET /turnos/  → Listar turnos visibles (según rol) con filtros opcionales
 # - Permisos: Autenticado.
@@ -97,17 +148,33 @@ class TurnoListView(ListAPIView):
     def get_queryset(self):
         usuario = self.request.user
 
-        if usuario.is_superuser:
+        # super admin (ambas variantes por compat)
+        if getattr(usuario, "tipo_usuario", None) == "super_admin" or getattr(usuario, "is_superuser", False):
             qs = Turno.objects.all().select_related("usuario", "lugar")
+
+        # admin del cliente → TODOS los turnos de su cliente
+        elif getattr(usuario, "tipo_usuario", None) == "admin_cliente" and getattr(usuario, "cliente_id", None):
+            qs = (
+                Turno.objects
+                .filter(lugar__cliente_id=usuario.cliente_id)
+                .select_related("usuario", "lugar")
+            )
+
+        # empleado (prestador) → sus propios turnos
         elif getattr(usuario, "tipo_usuario", None) == "empleado_cliente":
-            qs = Turno.objects.filter(
-                content_type=ContentType.objects.get_for_model(Prestador),
-                object_id__in=Prestador.objects.filter(user=usuario).values_list("id", flat=True)
-            ).select_related("usuario", "lugar")
+            from django.contrib.contenttypes.models import ContentType
+            ct_prestador = ContentType.objects.get_for_model(Prestador)
+            qs = (
+                Turno.objects
+                .filter(content_type=ct_prestador, object_id__in=Prestador.objects.filter(user=usuario).values_list("id", flat=True))
+                .select_related("usuario", "lugar")
+            )
+
+        # usuario final → sus turnos (y más abajo se filtran no-abonos)
         else:
             qs = Turno.objects.filter(usuario=usuario).select_related("usuario", "lugar")
 
-        # --- filtros opcionales ---
+        # filtros opcionales
         estado = self.request.query_params.get("estado")
         if estado:
             qs = qs.filter(estado=estado)
@@ -119,8 +186,7 @@ class TurnoListView(ListAPIView):
             hora = ahora.time()
             qs = qs.filter(Q(fecha__gt=hoy) | Q(fecha=hoy, hora__gte=hora))
 
-        # 🔒 Para usuarios finales: SIEMPRE mostrar sólo clases sueltas
-        # (excluir cualquier turno que provenga de un abono)
+        # 🔒 usuarios finales: ocultar turnos de abonos
         if getattr(usuario, "tipo_usuario", None) == "usuario_final":
             qs = qs.filter(
                 reservado_para_abono=False,
@@ -130,6 +196,257 @@ class TurnoListView(ListAPIView):
             )
 
         return qs.order_by("fecha", "hora")
+
+class TurnosAgendaAdminView(APIView):
+    """
+    GET /turnos/agenda/?scope=day|week|month&date=YYYY-MM-DD&estado=&sede_id=&prestador_id=&include_abonos=0|1
+    - super_admin: todo
+    - admin_cliente: sólo su cliente
+    - empleado_cliente: sólo sus turnos
+    - usuario_final: 403
+    Respuesta: { range:{start,end,granularity}, totals:{...}, items:[TurnoSerializer...] }
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        if getattr(user, "tipo_usuario", "") == "usuario_final":
+            return Response({"detail": "No autorizado"}, status=403)
+
+        scope = (request.query_params.get("scope") or "day").lower()
+        dref = parse_date(request.query_params.get("date") or "") or timezone.localdate()
+
+        # rango
+        if scope == "week":
+            # lunes–domingo de la semana ISO
+            start = dref - timedelta(days=(dref.weekday()))
+            end = start + timedelta(days=6)
+            gran = "week"
+        elif scope == "month":
+            start = dref.replace(day=1)
+            if start.month == 12:
+                end = start.replace(year=start.year + 1, month=1, day=1) - timedelta(days=1)
+            else:
+                end = start.replace(month=start.month + 1, day=1) - timedelta(days=1)
+            gran = "month"
+        else:
+            start = dref
+            end = dref
+            gran = "day"
+
+        qs = Turno.objects.select_related("usuario", "lugar")
+
+        # alcance por rol
+        if getattr(user, "tipo_usuario", "") == "super_admin" or getattr(user, "is_superuser", False):
+            pass
+        elif getattr(user, "tipo_usuario", "") == "admin_cliente" and getattr(user, "cliente_id", None):
+            qs = qs.filter(lugar__cliente_id=user.cliente_id)
+        elif getattr(user, "tipo_usuario", "") == "empleado_cliente":
+            ct_prestador = ContentType.objects.get_for_model(Prestador)
+            qs = qs.filter(content_type=ct_prestador, object_id__in=Prestador.objects.filter(user=user).values_list("id", flat=True))
+        else:
+            return Response({"detail": "No autorizado"}, status=403)
+
+        # filtros
+        sede_id = request.query_params.get("sede_id")
+        if sede_id:
+            qs = qs.filter(lugar_id=sede_id)
+
+        prestador_id = request.query_params.get("prestador_id")
+        if prestador_id:
+            ct_prestador = ContentType.objects.get_for_model(Prestador)
+            qs = qs.filter(content_type=ct_prestador, object_id=int(prestador_id))
+
+        estado = request.query_params.get("estado")
+        if estado:
+            qs = qs.filter(estado=estado)
+
+        include_abonos = (request.query_params.get("include_abonos") or "0").lower() in {"1","true","si","sí","y","yes"}
+        if not include_abonos:
+            qs = qs.filter(
+                reservado_para_abono=False,
+                abono_mes_reservado__isnull=True,
+                abono_mes_prioridad__isnull=True,
+                comprobante_abono__isnull=True,
+            )
+
+        # rango de fechas (inclusive)
+        qs = qs.filter(fecha__gte=start, fecha__lte=end).order_by("fecha", "hora")
+
+        # totales rápidos
+        totals = dict(qs.values_list("estado").order_by().annotate(c=models.Count("id")))
+
+        payload = {
+            "range": {"start": str(start), "end": str(end), "granularity": gran},
+            "totals": {
+                "disponible": totals.get("disponible", 0),
+                "reservado": totals.get("reservado", 0),
+                "cancelado": totals.get("cancelado", 0),
+                "total": qs.count(),
+            },
+            "items": TurnoSerializer(qs, many=True).data,
+        }
+        return Response(payload, status=200)
+
+class _AdminReservarTurnoSerializer(serializers.Serializer):
+    turno_id = serializers.IntegerField()
+    usuario_id = serializers.IntegerField()
+    tipo_clase_id = serializers.IntegerField(required=False)  # opcional → setea Turno.tipo_turno
+    omitir_bloqueo_abono = serializers.BooleanField(required=False, default=False)
+
+class ReservarTurnoAdminView(APIView):
+    """
+    POST /turnos/admin/reservar/
+    Body: { turno_id, usuario_id, tipo_clase_id?, omitir_bloqueo_abono?=false }
+    Efecto: asigna usuario y marca estado="reservado" SIN pagos.
+    Reglas: 
+      - turno debe estar "disponible"
+      - tenancy: admin_cliente sólo en su cliente (por sede del turno y usuario)
+      - respeta bloqueos de abono salvo que omitir_bloqueo_abono=true
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente)]
+
+    def post(self, request):
+        ser = _AdminReservarTurnoSerializer(data=request.data); ser.is_valid(raise_exception=True)
+        vd = ser.validated_data
+
+        # fetch
+        turno = Turno.objects.select_related("lugar").filter(id=vd["turno_id"]).first()
+        if not turno:
+            return Response({"detail": "Turno no encontrado"}, status=404)
+
+        Usuario = get_user_model()
+        usuario = Usuario.objects.only("id", "cliente_id").filter(id=vd["usuario_id"]).first()
+        if not usuario:
+            return Response({"detail": "Usuario destino no encontrado"}, status=404)
+
+        # tenancy
+        if request.user.tipo_usuario == "admin_cliente":
+            if (getattr(turno.lugar, "cliente_id", None) != request.user.cliente_id) or (usuario.cliente_id != request.user.cliente_id):
+                return Response({"detail": "No autorizado para operar fuera de tu cliente."}, status=403)
+
+        # estado
+        if turno.estado != "disponible":
+            return Response({"detail": "El turno no está disponible."}, status=400)
+
+        # bloqueo por abono
+        if (turno.reservado_para_abono or turno.abono_mes_reservado_id or turno.abono_mes_prioridad_id) and not vd.get("omitir_bloqueo_abono", False):
+            return Response({"detail": "Turno bloqueado para abonos."}, status=409)
+
+        # mapear tipo_clase → código (x1..x4) si viene
+        tipo_code = None
+        tc_id = vd.get("tipo_clase_id")
+        if tc_id:
+            try:
+                from apps.turnos_padel.models import TipoClasePadel
+                tc = TipoClasePadel.objects.only("id", "codigo", "configuracion_sede__sede_id").get(id=tc_id)
+                # opcional: validar que sede coincida
+                if getattr(turno.lugar, "id", None) != getattr(tc.configuracion_sede, "sede_id", None):
+                    return Response({"detail": "El tipo de clase no corresponde a la misma sede."}, status=400)
+                tipo_code = tc.codigo
+            except TipoClasePadel.DoesNotExist:
+                return Response({"detail": "Tipo de clase inválido"}, status=400)
+
+        with transaction.atomic():
+            # lock y revalidación rápida
+            turno = Turno.objects.select_for_update().get(id=turno.id)
+            if turno.estado != "disponible":
+                return Response({"detail": "El turno ya no está disponible."}, status=409)
+            if (turno.reservado_para_abono or turno.abono_mes_reservado_id or turno.abono_mes_prioridad_id) \
+                and not vd.get("omitir_bloqueo_abono", False):
+                    return Response({"detail": "Turno bloqueado para abonos."}, status=409)
+            
+            turno.usuario = usuario
+            turno.estado = "reservado"
+            if tipo_code:
+                turno.tipo_turno = tipo_code
+            turno.save(update_fields=["usuario", "estado", "tipo_turno", "actualizado_en"])
+
+        return Response({"ok": True, "turno_id": turno.id}, status=200)
+
+
+class _AdminLiberarTurnoSerializer(serializers.Serializer):
+    turno_id = serializers.IntegerField()
+    emitir_bonificacion = serializers.BooleanField(required=False, default=False)
+    motivo = serializers.CharField(required=False, allow_blank=True)
+
+class LiberarTurnoAdminView(APIView):
+    """
+    POST /turnos/admin/liberar/
+    Body: { turno_id, emitir_bonificacion?=false, motivo? }
+    Efecto: si está reservado, libera el slot. Opcionalmente emite bonificación
+            (devolución) al usuario afectado.
+    - Anula/desasocia comprobante/pago como en CancelarTurnoView.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated & (EsSuperAdmin | EsAdminDeSuCliente)]
+
+    def post(self, request):
+        ser = _AdminLiberarTurnoSerializer(data=request.data); ser.is_valid(raise_exception=True)
+        vd = ser.validated_data
+
+        turno = Turno.objects.select_related("lugar", "usuario").filter(id=vd["turno_id"]).first()
+        if not turno:
+            return Response({"detail": "Turno no encontrado"}, status=404)
+
+        # tenancy
+        if request.user.tipo_usuario == "admin_cliente":
+            if getattr(turno.lugar, "cliente_id", None) != request.user.cliente_id:
+                return Response({"detail": "No autorizado para esta sede"}, status=403)
+
+        if turno.estado != "reservado":
+            # idempotente/benigno: ya libre
+            return Response({"ok": True, "message": "El turno no estaba reservado."}, status=200)
+
+        with transaction.atomic():
+            turno = Turno.objects.select_for_update().get(id=turno.id)
+            if turno.estado != "reservado":
+                return Response({"ok": True, "message": "El turno ya no estaba reservado."}, status=200)
+
+            usuario_original = turno.usuario
+
+            # ===== anular pagos/comprobante (misma lógica que CancelarTurnoView) =====
+            comp = ComprobantePago.objects.select_for_update().filter(turno=turno).first()
+            if comp:
+                try:
+                    ct = ContentType.objects.get_for_model(ComprobantePago)
+                    PagoIntento.objects.filter(
+                        content_type=ct, object_id=comp.id, estado__in=["pre_aprobado", "confirmado"]
+                    ).update(estado="rechazado")
+                    datos = comp.datos_extraidos or {}
+                    datos.update({
+                        "turno_original": turno.id,
+                        "cancelado_en": timezone.now().isoformat(),
+                        "motivo_cancelacion": vd.get("motivo") or "Liberación administrativa",
+                    })
+                    comp.datos_extraidos = datos
+                    comp.valido = False
+                    comp.turno = None
+                    comp.save(update_fields=["datos_extraidos", "valido", "turno"])
+                except Exception:
+                    return Response({"detail": "No se pudo anular/desasociar el pago."}, status=409)
+
+            # ===== liberar =====
+            turno.usuario = None
+            turno.estado = "disponible"
+            turno.save(update_fields=["usuario", "estado", "actualizado_en"])
+
+        # bonificación opcional
+        try:
+            if vd.get("emitir_bonificacion") and usuario_original:
+                emitir_bonificacion_automatica(
+                    usuario=usuario_original,
+                    turno_original=turno,
+                    motivo=vd.get("motivo") or "Liberación administrativa",
+                )
+        except Exception:
+            logger.exception("[turno.admin_liberar][bono][fail] turno=%s", turno.id)
+
+        return Response({"ok": True, "turno_id": turno.id}, status=200)
+
+
 
 
 # ------------------------------------------------------------------------------

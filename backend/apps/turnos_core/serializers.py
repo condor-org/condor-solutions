@@ -609,3 +609,10 @@ class CancelacionPorSedeSerializer(_CancelacionAdminBaseSerializer):
 class CancelacionPorPrestadorSerializer(_CancelacionAdminBaseSerializer):
     # opcional: acotar a una sede
     sede_id = serializers.IntegerField(required=False, allow_null=True)
+
+
+
+
+class ToggleReservadoParaAbonoSerializer(serializers.Serializer):
+    turno_id = serializers.IntegerField()
+    reservado_para_abono = serializers.BooleanField()

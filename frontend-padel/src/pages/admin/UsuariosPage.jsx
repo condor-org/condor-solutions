@@ -25,7 +25,7 @@ import {
 } from "../../components/theme/tokens";
 
 const UsuariosPage = () => {
-  const { accessToken } = useContext(AuthContext);
+  const { accessToken, logout } = useContext(AuthContext);
   const hoverBg = useColorModeValue("gray.200", "gray.700");
   const [usuarios, setUsuarios] = useState([]);
   const [editingId, setEditingId] = useState(null);
@@ -35,7 +35,6 @@ const UsuariosPage = () => {
   const [tipoUsuario, setTipoUsuario] = useState("usuario_final");
   const [email, setEmail] = useState("");
   const [activo, setActivo] = useState(true);
-  const [password, setPassword] = useState("");
   const [detalleUsuario, setDetalleUsuario] = useState(null);
 
   // Sedes / Tipos de clase para emitir bonificación
@@ -68,7 +67,7 @@ const UsuariosPage = () => {
   useEffect(() => {
     const fetchBonificaciones = async () => {
       try {
-        const res = await axiosAuth(accessToken).get("/turnos/bonificados/mios/");
+        const res = await axiosAuth(accessToken, logout).get("/turnos/bonificados/mios/");
         setBonificaciones(res.data || []);
       } catch (e) {
         console.error("Error al obtener bonificaciones:", e);
@@ -85,7 +84,8 @@ const UsuariosPage = () => {
   // Carga de sedes al abrir el modal de detalle (mismo approach que SedesPage)
   useEffect(() => {
     if (!isOpenDetalle || !accessToken) return;
-    const api = axiosAuth(accessToken);
+    
+    const api = axiosAuth(accessToken, logout);
     setSelectedSedeId("");
     setSelectedTipoClaseId("");
     setTiposClase([]);
@@ -97,7 +97,8 @@ const UsuariosPage = () => {
   // Al elegir sede, pedir su detalle y extraer configuracion_padel.tipos_clase
   useEffect(() => {
     if (!selectedSedeId || !accessToken) return;
-    const api = axiosAuth(accessToken);
+    
+    const api = axiosAuth(accessToken, logout);
     setLoadingTipos(true);
     (async () => {
       try {
@@ -114,7 +115,8 @@ const UsuariosPage = () => {
   }, [selectedSedeId, accessToken]);
 
   const reloadUsuarios = () => {
-    const api = axiosAuth(accessToken);
+    
+    const api = axiosAuth(accessToken, logout);
     api.get("auth/usuarios/")
       .then(res => setUsuarios(res.data.results || res.data || []))
       .catch(() => toast.error("Error cargando usuarios"));
@@ -128,7 +130,6 @@ const UsuariosPage = () => {
     setTipoUsuario("usuario_final");
     setEmail("");
     setActivo(true);
-    setPassword("");
   };
 
   const openForCreate = () => {
@@ -144,7 +145,6 @@ const UsuariosPage = () => {
     setTipoUsuario(u.tipo_usuario || "usuario_final");
     setEmail(u.email || "");
     setActivo(!!u.is_active);
-    setPassword("");
     onOpen();
   };
 
@@ -160,12 +160,14 @@ const UsuariosPage = () => {
       return;
     }
     // (Se mantiene tu validación original)
-    if (!email.trim() || !/^[^\s@]@[^\s@]\.[^\s@]$/.test(email)) {
+
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       toast.error("Ingresá un email válido.");
       return;
     }
 
-    const api = axiosAuth(accessToken);
+    
+    const api = axiosAuth(accessToken, logout);
     const data = {
       nombre,
       apellido,
@@ -174,16 +176,6 @@ const UsuariosPage = () => {
       email,
       is_active: activo,
     };
-
-    if (editingId) {
-      if (password.trim()) data.password = password;
-    } else {
-      if (!password.trim()) {
-        toast.error("La contraseña es obligatoria para crear un usuario.");
-        return;
-      }
-      data.password = password;
-    }
 
     try {
       if (editingId) {
@@ -231,7 +223,8 @@ const UsuariosPage = () => {
 
   const handleDelete = async (id, email) => {
     if (!window.confirm(`¿Eliminar el usuario "${email}"?`)) return;
-    const api = axiosAuth(accessToken);
+    
+    const api = axiosAuth(accessToken, logout);
     try {
       await api.delete(`auth/usuarios/${id}/`);
       toast.success("Usuario eliminado");
@@ -319,6 +312,7 @@ const UsuariosPage = () => {
           { label: "Dashboard", path: "/admin" },
           { label: "Sedes", path: "/admin/sedes" },
           { label: "Profesores", path: "/admin/profesores" },
+          { label: "Agenda", path: "/admin/agenda" },
           { label: "Usuarios", path: "/admin/usuarios" },
           { label: "Cancelaciones", path: "/admin/cancelaciones" },
           { label: "Pagos Preaprobados", path: "/admin/pagos-preaprobados" },
@@ -411,27 +405,6 @@ const UsuariosPage = () => {
                     size="md"
                     fontSize={{ base: "16px", md: "inherit" }}
                   />
-                  {editingId ? (
-                    <ChakraInput
-                      placeholder="Nueva contraseña (opcional)"
-                      type="password"
-                      autoComplete="new-password"
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      size="md"
-                      fontSize={{ base: "16px", md: "inherit" }}
-                    />
-                  ) : (
-                    <ChakraInput
-                      placeholder="Contraseña"
-                      type="password"
-                      autoComplete="new-password"
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      size="md"
-                      fontSize={{ base: "16px", md: "inherit" }}
-                    />
-                  )}
 
                   <HStack justify="space-between">
                     <Text>Activo</Text>
@@ -550,7 +523,8 @@ const UsuariosPage = () => {
                           return;
                         }
                         setCargandoBono(true);
-                        const api = axiosAuth(accessToken);
+                        
+                        const api = axiosAuth(accessToken, logout);
                         try {
                           await api.post("/turnos/bonificaciones/crear-manual/", {
                             usuario_id: detalleUsuario.id,

@@ -41,6 +41,10 @@ const Signup = () => {
       toast.error("Completá nombre y apellido.");
       return;
     }
+    if (!telefono.trim() || telefono.replace(/\D/g, "").length < 6) {
+      toast.error("Ingresá un teléfono válido.");
+      return;
+    }
     if (!aceptaTos) {
       toast.error("Debés aceptar los Términos y Condiciones.");
       return;
