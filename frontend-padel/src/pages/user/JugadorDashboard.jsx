@@ -287,7 +287,9 @@ const JugadorDashboard = () => {
         <Heading as="h2" size={{ base: "lg", md: "xl" }} mb={{ base: 4, md: 6 }} lineHeight="1.2">
           Bienvenido,
           <Box as="span" display="block" fontWeight="semibold">
-            {user?.email}
+            {user?.nombre
+            ? `${user.nombre} ${user.apellido || ""}`.trim()
+            : user?.email}
           </Box>
         </Heading>
 

@@ -93,6 +93,7 @@ const DashboardPage = () => {
           { label: "Dashboard", path: "/admin" },
           { label: "Sedes", path: "/admin/sedes" },
           { label: "Profesores", path: "/admin/profesores" },
+          { label: "Agenda", path: "/admin/agenda" },
           { label: "Usuarios", path: "/admin/usuarios" },
           { label: "Cancelaciones", path: "/admin/cancelaciones" },
           { label: "Pagos Preaprobados", path: "/admin/pagos-preaprobados" },
@@ -101,7 +102,9 @@ const DashboardPage = () => {
       />
       <Box flex="1" p={[4, 6, 8]}>
         <Heading size="md" mb={6}>
-          Bienvenido, {user?.email}
+          {user?.nombre
+          ? `${user.nombre} ${user.apellido || ""}`.trim()
+          : user?.email}
         </Heading>
 
         <SimpleGrid columns={[1, 3]} spacing={6}>

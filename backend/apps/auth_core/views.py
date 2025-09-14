@@ -16,7 +16,7 @@ import requests
 import logging
 from jwt import PyJWKClient, decode as jwt_decode, InvalidTokenError
 
-from .serializers import RegistroSerializer, CustomTokenObtainPairSerializer, UsuarioSerializer
+from .serializers import UsuarioSerializer
 from .state import sign_state, verify_state
 from .oauth import GoogleOIDCConfig
 from .models import Usuario
@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 from urllib.parse import quote
-
 
 
 
@@ -48,7 +47,6 @@ def _email_domain_ok(email: str) -> bool:
         return False
 
 def _issue_tokens_for_user(user, return_to="/"):
-    from rest_framework_simplejwt.tokens import RefreshToken
     refresh = RefreshToken.for_user(user)
     access = refresh.access_token
     access["email"] = user.email
@@ -61,6 +59,9 @@ def _issue_tokens_for_user(user, return_to="/"):
         "user": {
             "id": user.id,
             "email": user.email,
+            "nombre": getattr(user, "nombre", None),      # <---
+            "apellido": getattr(user, "apellido", None),  # <---
+            "telefono": getattr(user, "telefono", None),  # opcional
             "tipo_usuario": user.tipo_usuario,
             "cliente_id": user.cliente_id,
         },
@@ -70,11 +71,6 @@ def _issue_tokens_for_user(user, return_to="/"):
 # Vistas existentes
 # ==========================
 
-class RegistroView(CreateAPIView):
-    queryset = User.objects.all()
-    serializer_class = RegistroSerializer
-    permission_classes = []  # Público
-
 class MiPerfilView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -83,19 +79,14 @@ class MiPerfilView(APIView):
         data = {
             "id": user.id,
             "email": user.email,
+            "nombre": getattr(user, "nombre", None),     # <---
+            "apellido": getattr(user, "apellido", None), # <---
             "telefono": getattr(user, "telefono", None),
             "tipo_usuario": getattr(user, "tipo_usuario", None),
             "cliente_id": getattr(user, "cliente_id", None),
         }
         logger.debug(f"[YO VIEW] user_id={user.id} cliente_id={data['cliente_id']}")
         return Response(data)
-
-class CustomTokenObtainPairView(TokenObtainPairView):
-    serializer_class = CustomTokenObtainPairSerializer
-
-    def post(self, request, *args, **kwargs):
-        logger.debug(f"[TOKEN REQUEST] body_keys={list((request.data or {}).keys())}")
-        return super().post(request, *args, **kwargs)
 
 class UsuarioViewSet(viewsets.ModelViewSet):
     serializer_class = UsuarioSerializer

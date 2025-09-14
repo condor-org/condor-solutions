@@ -181,37 +181,41 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
    * - Guarda tokens, programa refresh, setea header global.
    */
   const setAuthFromOAuth = useCallback(
-    async (data) => {
+  async (data) => {
+    try {
+      const { access, refresh, user: userPayload, return_to } = data || {};
+      if (!access || !refresh) throw new Error("OAuth: faltan tokens");
+      if (!userPayload) throw new Error("OAuth: falta 'user'");
+
+      const exp = safeDecodeExp(access);
+      localStorage.setItem("access", access);
+      localStorage.setItem("refresh", refresh);
+      localStorage.setItem("access_exp", exp);
+
+      setAccessToken(access);
+      setRefreshToken(refresh);
+      axios.defaults.headers.common["Authorization"] = `Bearer ${access}`;
+      scheduleProactiveRefresh();
+
+      // 🔽 Nuevo: obtener perfil “completo” del backend
       try {
-        const { access, refresh, user: userPayload, return_to } = data || {};
-        if (!access || !refresh) {
-          throw new Error("OAuth: faltan tokens 'access' o 'refresh'");
-        }
-        if (!userPayload) {
-          throw new Error("OAuth: falta 'user' en la respuesta");
-        }
-
-        const exp = safeDecodeExp(access);
-        localStorage.setItem("access", access);
-        localStorage.setItem("refresh", refresh);
-        localStorage.setItem("access_exp", exp);
-        localStorage.setItem("user", JSON.stringify(userPayload));
-
-        setAccessToken(access);
-        setRefreshToken(refresh);
+        const perfilRes = await axios.get(`${API}/auth/yo/`);
+        setUser(perfilRes.data);
+        localStorage.setItem("user", JSON.stringify(perfilRes.data));
+      } catch {
+        // Fallback: si falla, al menos guardá lo que vino del token
         setUser(userPayload);
-        axios.defaults.headers.common["Authorization"] = `Bearer ${access}`;
-        scheduleProactiveRefresh();
-
-        return return_to || "/";
-      } catch (e) {
-        console.error("[AUTH] setAuthFromOAuth falló:", e.message);
-        throw e;
+        localStorage.setItem("user", JSON.stringify(userPayload));
       }
-    },
-    [scheduleProactiveRefresh]
-  );
 
+      return return_to || "/";
+    } catch (e) {
+      console.error("[AUTH] setAuthFromOAuth falló:", e.message);
+      throw e;
+    }
+  },
+  [scheduleProactiveRefresh]
+);
   // ---- Inicialización al montar ---------------------------------------------
   useEffect(() => {
     const initializeAuth = async () => {

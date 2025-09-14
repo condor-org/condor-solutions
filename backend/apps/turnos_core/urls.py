@@ -16,6 +16,10 @@ from apps.turnos_core.views import (
     CancelarTurnoView,
     CancelarPorSedeAdminView,
     CancelarPorPrestadorAdminView,
+    TurnosAgendaAdminView,
+    ReservarTurnoAdminView,
+    LiberarTurnoAdminView,
+    ToggleReservadoParaAbonoView,
 )
 
 
@@ -59,6 +63,14 @@ urlpatterns = [
 
     # POST → admins cancelan en masa turnos de un prestador (opcional filtrar por sede y rango horario)
     path("prestadores/<int:prestador_id>/cancelar_en_rango/", CancelarPorPrestadorAdminView.as_view(), name="cancelar-por-prestador"),
+    
+    path("agenda/", TurnosAgendaAdminView.as_view(), name="turnos-agenda"),
+    
+    path("admin/reservar/", ReservarTurnoAdminView.as_view(), name="turno-admin-reservar"),
+    
+    path("admin/liberar/",  LiberarTurnoAdminView.as_view(),  name="turno-admin-liberar"),
+    
+    path("admin/marcar_reservado_para_abono/", ToggleReservadoParaAbonoView.as_view(), name="toggle-reservado-para-abono"),
     
     # Incluye todas las rutas de los ViewSets (sedes, prestadores, disponibilidades)
     path("", include(router.urls)),

@@ -288,6 +288,7 @@ const CancelacionesPage = () => {
           { label: "Dashboard", path: "/admin" },
           { label: "Sedes", path: "/admin/sedes" },
           { label: "Profesores", path: "/admin/profesores" },
+          { label: "Agenda", path: "/admin/agenda" },
           { label: "Usuarios", path: "/admin/usuarios" },
           { label: "Cancelaciones", path: "/admin/cancelaciones" },
           { label: "Pagos Preaprobados", path: "/admin/pagos-preaprobados" },
