@@ -54,3 +54,9 @@ OAUTH_AUTO_PROVISION = os.getenv("OAUTH_AUTO_PROVISION", "false").lower() == "tr
 OAUTH_ALLOWED_EMAIL_DOMAIN = os.getenv("OAUTH_ALLOWED_EMAIL_DOMAIN", "*")
 OAUTH_REQUIRE_EMAIL_VERIFIED = os.getenv("OAUTH_REQUIRE_EMAIL_VERIFIED", "true").lower() == "true"
 FEATURE_OAUTH_INVITES = os.getenv("FEATURE_OAUTH_INVITES", "false").lower() == "true"
+
+
+NOTIF_EMAIL_ENABLED = True                 # habilita el envío real
+AWS_REGION = "us-east-1"                   # tu región SES
+NOTIF_EMAIL_FROM = "notificaciones@cnd-ia.com"  # remitente verificado en SES
+SES_CONFIGURATION_SET = None  
