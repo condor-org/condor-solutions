@@ -2,8 +2,8 @@ SHELL=/bin/sh
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 TZ=America/Argentina/Buenos_Aires
 
-# 00:00 del día 1 → genera slots del mes actual (desde hoy) + mes siguiente (idempotente)
-0 0 1 * * /usr/bin/flock -n /tmp/turnos.lock -c 'cd /app && python manage.py generar_turnos_mensuales' >> /proc/1/fd/1 2>&1
+# 00:00 día 1 -> genera turnos
+0 0 1 * * . /etc/environment; /usr/bin/flock -n /tmp/turnos.lock -c 'cd /app && python manage.py generar_turnos_mensuales' >> /proc/1/fd/1 2>&1
 
-# Todos los días 00:05 → recordatorios + transiciones de abonos (renueva/libera)
-5 0 * * * /usr/bin/flock -n /tmp/abonos_diario.lock -c 'cd /app && python manage.py abonos_diario' >> /proc/1/fd/1 2>&1
+# 00:05 todos los días -> abonos
+5 0 * * * . /etc/environment; /usr/bin/flock -n /tmp/abonos_diario.lock -c 'cd /app && python manage.py abonos_diario' >> /proc/1/fd/1 2>&1

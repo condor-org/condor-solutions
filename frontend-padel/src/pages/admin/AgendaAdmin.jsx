@@ -78,6 +78,9 @@ const AgendaAdmin = () => {
 
   const confirmarLiberar = useDisclosure();
   const [slotALiberar, setSlotALiberar] = useState(null);
+  const confirmarEliminarAbono = useDisclosure();
+  const [abonoAEliminar, setAbonoAEliminar] = useState(null);
+  const [eliminandoAbono, setEliminandoAbono] = useState(false);
 
   const onPedirConfirmLiberar = (slot) => {
     // si abro liberar, cierro reservar y limpio su estado
@@ -482,14 +485,41 @@ const fetchAbonosMes = async (fechaBase) => {
     toast({ title: "Error", description: msg, status: "error" });
   }
 };
+  const pedirEliminarAbono = (abonoObj) => {
+    if (!abonoObj) return;
+    setAbonoAEliminar(abonoObj);
+    confirmarEliminarAbono.onOpen();
+  };
 
+  const eliminarAbono = async () => {
+    if (!api || !abonoAEliminar?.id) return;
+    try {
+      setEliminandoAbono(true);
+      await api.delete(`padel/abonos/${abonoAEliminar.id}/`);
+      toast({ title: "Abono eliminado y turnos liberados", status: "success" });
+      setAbonoAEliminar(null);
+      confirmarEliminarAbono.onClose();
+      // refrescar listados
+      fetchAbonosMes(selectedDate);
+      if (!isAbonosTab) {
+        if (rangeType === "day") fetchDia(selectedDate);
+        else if (rangeType === "week") fetchSemana(selectedDate);
+        else fetchMes(selectedDate);
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err?.message || "No se pudo eliminar el abono";
+      toast({ title: "Error", description: msg, status: "error" });
+    } finally {
+      setEliminandoAbono(false);
+    }
+  };
   // ── Abonos (listado mensual)
   const [abonosMes, setAbonosMes] = useState([]);
   const [loadingAbonos, setLoadingAbonos] = useState(false);
 
   // ── Helper: resolver etiqueta de usuario de un slot (para modal liberar)
 
-const getSlotUsuarioLabel = (slot) => {
+  const getSlotUsuarioLabel = (slot) => {
   const u = slot?.usuario;
 
   // si viene como string (email / username)
@@ -517,7 +547,13 @@ const getSlotUsuarioLabel = (slot) => {
   }
   return "—";
 };
-
+const nombreUsuarioFromId = (uid) => {
+  if (!uid) return "—";
+  const found = (usuarios || []).find((x) => Number(x.id) === Number(uid));
+  if (!found) return `Usuario ${uid}`;
+  const nom = [found.nombre, found.apellido].filter(Boolean).join(" ");
+  return nom || found.email || `Usuario ${uid}`;
+};
   // UI helpers
 const HeaderFiltros = (
   <VStack align="stretch" spacing={4}>
@@ -907,24 +943,32 @@ const SlotRow = ({ slot }) => {
                               borderColor={input.border}
                             >
                               {/* Cabecera clickeable */}
-                              <HStack
-                                justify="space-between"
-                                align="center"
-                                _hover={{ bg: hoverBg, cursor: "pointer" }}
-                                p={2}
-                                rounded="md"
-                                onClick={() => toggleAbono(a.id)}
-                              >
-                                <HStack spacing={3}>
-                                  <Badge>{hhmm(a.hora)}</Badge>
-                                  <Text fontWeight="semibold">{a.prestador || `Profe ${a.prestador_id ?? ""}`}</Text>
-                                  <Text color={muted} fontSize="sm">{a.usuario || `Usuario ${a.usuario_id ?? ""}`}</Text>
-                                </HStack>
-                                <HStack>
-                                  <Badge variant="outline">{a?.tipo_clase?.codigo || "—"}</Badge>
-                                  {a?.estado && <Badge colorScheme="blue">{a.estado}</Badge>}
-                                </HStack>
+                            <HStack
+                              justify="space-between"
+                              align="center"
+                              _hover={{ bg: hoverBg, cursor: "pointer" }}
+                              p={2}
+                              rounded="md"
+                              onClick={() => toggleAbono(a.id)}
+                            >
+                              <Text fontWeight="semibold">
+                                Abono {a.dia_semana_label || diaLabel(a.dia_semana)} {hhmm(a.hora)}hs ·{" "}
+                                Usuario: {a.usuario_nombre_completo || a.usuario || nombreUsuarioFromId(a.usuario_id)} ·{" "}
+                                Profesor: {a.prestador || `Profe ${a.prestador_id ?? ""}`} ·{" "}
+                                Sede: {a.sede || `Sede ${a.sede_id ?? ""}`}
+                              </Text>
+                              <HStack spacing={2}>
+                                <Badge variant="outline">{a?.tipo_clase?.codigo || "—"}</Badge>
+                                {a?.estado && <Badge colorScheme="blue">{a.estado}</Badge>}
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={(e) => { e.stopPropagation(); pedirEliminarAbono(a); }}
+                                >
+                                  Eliminar
+                                </Button>
                               </HStack>
+                            </HStack>
 
                               {/* Detalle expandible */}
                               {isOpen && (
@@ -1161,6 +1205,53 @@ const SlotRow = ({ slot }) => {
     </ModalFooter>
   </ModalContent>
 </Modal>
+      {/* Modal: Eliminar abono */}
+      <Modal
+        isOpen={confirmarEliminarAbono.isOpen}
+        onClose={() => { setAbonoAEliminar(null); confirmarEliminarAbono.onClose(); }}
+        isCentered
+        size="lg"
+      >
+        <ModalOverlay />
+        <ModalContent bg={card.bg} color={card.color}>
+          <ModalHeader>Eliminar abono</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            {abonoAEliminar ? (
+              <VStack align="stretch" spacing={3}>
+                <Text>
+                  Estás por eliminar el abono de <b>{abonoAEliminar.dia_semana_label || diaLabel(abonoAEliminar.dia_semana)}</b> a las <b>{hhmm(abonoAEliminar.hora)} hs</b>.
+                </Text>
+                <Text>
+                  <b>Usuario:</b> {abonoAEliminar.usuario_nombre_completo || nombreUsuarioFromId(abonoAEliminar.usuario_id) || abonoAEliminar.usuario || "—"}
+                </Text>
+                <Text><b>Profesor:</b> {abonoAEliminar.prestador || `Profe ${abonoAEliminar.prestador_id ?? ""}`}</Text>
+                <Text><b>Sede:</b> {abonoAEliminar.sede || `Sede ${abonoAEliminar.sede_id ?? ""}`}</Text>
+                <Text color="red.400" fontWeight="bold">
+                  CUIDADO: esto elimina el abono ya pago del Usuario: {abonoAEliminar.usuario_nombre_completo || nombreUsuarioFromId(abonoAEliminar.usuario_id) || abonoAEliminar.usuario || "—"}.
+                </Text>
+                <Text color={muted} fontSize="sm">
+                  Esta acción liberará todos los turnos reservados y los turnos con prioridad asociados a este abono.
+                </Text>
+              </VStack>
+            ) : null}
+          </ModalBody>
+          <ModalFooter>
+            <HStack>
+              <Button
+                variant="secondary"
+                onClick={() => { setAbonoAEliminar(null); confirmarEliminarAbono.onClose(); }}
+                isDisabled={eliminandoAbono}
+              >
+                Cancelar
+              </Button>
+              <Button onClick={eliminarAbono} isLoading={eliminandoAbono}>
+                Confirmar
+              </Button>
+            </HStack>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </PageWrapper>
   );
 };

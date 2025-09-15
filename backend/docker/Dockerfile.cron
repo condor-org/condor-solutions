@@ -7,7 +7,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     TZ=America/Argentina/Buenos_Aires
 
-# cron + tzdata para TZ consistente + util-linux para flock
 RUN apt-get update && apt-get install -y --no-install-recommends \
       cron tzdata util-linux \
   && rm -rf /var/lib/apt/lists/*
@@ -16,12 +15,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Código
 COPY . /app
 
-# Crontab (se carga en el crontab de root)
+# Crontab
 COPY docker/crontab /etc/cron.d/app-cron
 RUN chmod 0644 /etc/cron.d/app-cron && crontab /etc/cron.d/app-cron
 
-# -f: foreground, -L 15: logging verbose (a stdout del contenedor)
-CMD ["cron","-f","-L","15"]
+# EntryPoint
+COPY docker/entrypoint-cron.sh /entrypoint-cron.sh
+RUN chmod +x /entrypoint-cron.sh
+ENTRYPOINT ["/entrypoint-cron.sh"]

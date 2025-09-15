@@ -7,9 +7,25 @@ from django.contrib.auth import get_user_model
 from .models import NotificationEvent, Notification
 import json
 from django.core.serializers.json import DjangoJSONEncoder
+from django.conf import settings
+import os
+try:
+    import boto3
+    from botocore.config import Config as _BotoConfig
+    from botocore.exceptions import ClientError as _BotoClientError
+except Exception:  # boto3 puede no estar instalado en dev
+    boto3 = None
+    _BotoConfig = None
+    _BotoClientError = Exception
 
 logger = logging.getLogger(__name__)
 Usuario = get_user_model()
+
+# --- Email/SES config (feature flag) ---
+NOTIF_EMAIL_ENABLED = getattr(settings, "NOTIF_EMAIL_ENABLED", False)
+SES_REGION = getattr(settings, "AWS_REGION", os.getenv("AWS_REGION", "us-east-1"))
+SES_FROM = getattr(settings, "NOTIF_EMAIL_FROM", os.getenv("SES_FROM", "notificaciones@cnd-ia.com"))
+SES_CONFIGURATION_SET = getattr(settings, "SES_CONFIGURATION_SET", None)  # opcional para métricas/track
 
 # Tipos estandarizados
 TYPE_CANCELACIONES_TURNOS = "CANCELACIONES_TURNOS"
@@ -31,6 +47,71 @@ def _json_safe(obj):
     except Exception:
         # último recurso: si no se pudo serializar, devolvemos {} o el valor original
         return {} if isinstance(obj, dict) else obj
+
+def _send_email_ses(*, to: list[str] | tuple[str, ...], subject: str, text: str = "", html: str | None = None, tags: dict | None = None):
+    """
+    Envío resiliente vía Amazon SES.
+    - Usa boto3 si está disponible; si no, loggea y sale.
+    - No levanta excepción (no rompe el flujo de notificaciones in-app).
+    """
+    if not NOTIF_EMAIL_ENABLED:
+        logger.debug("[notif.email][skip-disabled] to=%s subj=%s", to, subject)
+        return
+    if not boto3:
+        logger.error("[notif.email][disabled-boto3-missing] to=%s subj=%s", to, subject)
+        return
+    if not to:
+        logger.warning("[notif.email][skip-no-dest]")
+        return
+
+    client = boto3.client(
+        "ses",
+        region_name=SES_REGION,
+        config=_BotoConfig(retries={"max_attempts": 3, "mode": "standard"}) if _BotoConfig else None,
+    )
+
+    body: dict = {}
+    if html:
+        body["Html"] = {"Data": html, "Charset": "UTF-8"}
+    body["Text"] = {"Data": text or "", "Charset": "UTF-8"}
+
+    kwargs = {
+        "Source": SES_FROM,
+        "Destination": {"ToAddresses": list(to)},
+        "Message": {
+            "Subject": {"Data": subject, "Charset": "UTF-8"},
+            "Body": body,
+        },
+    }
+    if SES_CONFIGURATION_SET:
+        kwargs["ConfigurationSetName"] = SES_CONFIGURATION_SET
+    if tags:
+        kwargs["Tags"] = [{"Name": str(k), "Value": str(v)} for k, v in tags.items()]
+
+    # Backoff simple con 5 intentos
+    delay = 1.0
+    for attempt in range(1, 6):
+        try:
+            resp = client.send_email(**kwargs)
+            mid = resp.get("MessageId")
+            logger.info("[notif.email][sent] id=%s to=%s subj=%s", mid, to, subject)
+            return
+        except _BotoClientError as e:  # type: ignore
+            code = getattr(e, "response", {}).get("Error", {}).get("Code")
+            retryable = code in {"Throttling", "ThrottlingException", "ServiceUnavailable", "InternalFailure"}
+            logger.warning("[notif.email][fail] code=%s attempt=%s to=%s subj=%s", code, attempt, to, subject, exc_info=True)
+            if retryable and attempt < 5:
+                try:
+                    import time
+                    time.sleep(delay)
+                    delay *= 2
+                except Exception:
+                    pass
+                continue
+            break
+        except Exception:
+            logger.exception("[notif.email][unexpected-error] to=%s subj=%s", to, subject)
+            break
 
 def publish_event(*, topic: str, actor, cliente_id: int | None, metadata: dict | None = None) -> NotificationEvent:
     md = _json_safe(metadata or {})
@@ -259,6 +340,10 @@ def notify_inapp(
     Crea notificaciones in-app por usuario con idempotencia por dedupe_key.
     Retorna cantidad efectivamente creadas (nuevas).
     """
+    # Usamos on_commit para no enviar hasta que la tx quede confirmada
+    from django.db import transaction as _tx
+    to_send_queue: list[tuple[list[str], str, str, str | None, dict | None]] = []
+
     created = 0
     now = timezone.now()
     for u in recipients:
@@ -287,11 +372,33 @@ def notify_inapp(
                 "[notif.inapp][created] user=%s type=%s event_id=%s key=%s",
                 u.id, notif_type, event.id, dedupe_key
             )
+            # Encolamos envío de email solo para notificaciones nuevas
+            try:
+                recipient_email = getattr(u, "email", None)
+            except Exception:
+                recipient_email = None
+            if recipient_email:
+                # Reutilizamos title/body como subject/text; html mínimo opcional
+                html = f"<p>{body}</p>" if body else None
+                # Etiquetas útiles para métricas por tenant y tipo
+                tags = {"type": notif_type}
+                if getattr(u, "cliente_id", None) is not None:
+                    tags["cliente_id"] = str(getattr(u, "cliente_id"))
+                to_send_queue.append(([recipient_email], title, body or "", html, tags))
         else:
             logger.debug(
                 "[notif.inapp][skip-dedupe] user=%s type=%s event_id=%s key=%s",
                 u.id, notif_type, event.id, dedupe_key
             )
+
+    def _flush_email_queue():
+        for to, subject, text, html, tags in to_send_queue:
+            try:
+                _send_email_ses(to=to, subject=subject, text=text, html=html, tags=tags)
+            except Exception:
+                logger.exception("[notif.email][queue-send-error] to=%s subj=%s", to, subject)
+
+    _tx.on_commit(_flush_email_queue)
 
     try:
         total = len(recipients)
