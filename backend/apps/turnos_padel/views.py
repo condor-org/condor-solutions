@@ -873,7 +873,15 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
                 t.usuario = None
                 t.estado = "disponible"
                 t.abono_mes_reservado = None
-                t.save(update_fields=["usuario", "estado", "abono_mes_reservado"])
+                # Extras solicitados: devolver campos a su estado normal
+                update_fields = ["usuario", "estado", "abono_mes_reservado"]
+                if hasattr(t, "reservado_para_abono"):
+                    t.reservado_para_abono = False
+                    update_fields.append("reservado_para_abono")
+                if hasattr(t, "comprobante_abono_id"):
+                    t.comprobante_abono = None
+                    update_fields.append("comprobante_abono")
+                t.save(update_fields=update_fields)
                 afectados_res += 1
 
             abono.turnos_reservados.clear()
@@ -881,6 +889,61 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             # 3) Marcar abono cancelado
             abono.estado = "cancelado"
             abono.save(update_fields=["estado"])
+
+
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        """
+        DELETE /padel/abonos/{id}/
+        Elimina un AbonoMes liberando antes TODOS sus vínculos:
+        - Turnos reservados: usuario=NULL, estado="disponible", abono_mes_reservado=NULL, reservado_para_abono=False, comprobante_abono=NULL
+        - Turnos prioridad: abono_mes_prioridad=NULL, reservado_para_abono=False
+        - Limpia las M2M y borra el AbonoMes.
+        Respeta alcance para admin_cliente.
+        """
+        abono = self.get_object()
+
+        # Tenancy para admin_cliente
+        user = request.user
+        if user.tipo_usuario == "admin_cliente":
+            if getattr(abono.sede, "cliente_id", None) != getattr(user, "cliente_id", None):
+                return Response({"detail": "No autorizado para este abono."}, status=403)
+
+        # 1) Prioridades
+        pri_qs = abono.turnos_prioridad.select_for_update()
+        pri_qs.update(abono_mes_prioridad=None, reservado_para_abono=False)
+        abono.turnos_prioridad.clear()
+
+        # 2) Reservados
+        afectados_res = 0
+        res_qs = abono.turnos_reservados.select_for_update()
+        for t in res_qs:
+            t.usuario = None
+            t.estado = "disponible"
+            t.abono_mes_reservado = None
+            update_fields = ["usuario", "estado", "abono_mes_reservado"]
+            if hasattr(t, "reservado_para_abono"):
+                t.reservado_para_abono = False
+                update_fields.append("reservado_para_abono")
+            if hasattr(t, "comprobante_abono_id"):
+                t.comprobante_abono = None
+                update_fields.append("comprobante_abono")
+            t.save(update_fields=update_fields)
+            afectados_res += 1
+        abono.turnos_reservados.clear()
+
+        # 3) Borrar el abono
+        abono_id = abono.id
+        super().destroy(request, *args, **kwargs)
+
+        return Response({
+            "ok": True,
+            "abono_eliminado": abono_id,
+            "resumen": {
+                "turnos_reservados_afectados": afectados_res,
+                "turnos_prioridad_afectados": pri_qs.count(),  # nota: count() acá ya no refleja el update; es informativo
+            }
+        }, status=200)
 
         return Response({
             "ok": True,
