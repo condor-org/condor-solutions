@@ -1,0 +1,13 @@
+Cancelaciones en la sede
+
+{{ body }}
+
+{% if ctx.sede_nombre %}- Sede: {{ ctx.sede_nombre }}{% endif %}
+{% if ctx.fecha_desde and ctx.fecha_hasta %}- Rango: {{ ctx.fecha_desde }} a {{ ctx.fecha_hasta }}{% endif %}
+{% if ctx.n_cancelados %}- Turnos cancelados: {{ ctx.n_cancelados }}{% endif %}
+{% if ctx.n_bonos %}- Bonos acreditados: {{ ctx.n_bonos }}{% endif %}
+
+{% if url %}Ver: {{ url }}{% endif %}
+
+Saludos!
+LOB Padel

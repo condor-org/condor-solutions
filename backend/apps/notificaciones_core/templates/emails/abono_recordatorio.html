@@ -1,0 +1,17 @@
+<!doctype html>
+<html><body style="font-family: system-ui, -apple-system, Segoe UI, Roboto;">
+  <div style="max-width:600px;margin:auto;border:1px solid #eee;border-radius:12px;padding:24px">
+    <h2 style="margin:0 0 12px 0">{{ title }}</h2>
+    <p>{{ body }}</p>
+    <ul>
+      {% if ctx.vence_el %}<li>Vence el: {{ ctx.vence_el }}</li>{% endif %}
+      {% if ctx.tipo or ctx.tipo_clase_codigo %}<li>Tipo: {{ ctx.tipo|default:ctx.tipo_clase_codigo }}</li>{% endif %}
+      {% if ctx.sede_nombre %}<li>Sede: {{ ctx.sede_nombre }}</li>{% endif %}
+      {% if ctx.prestador %}<li>Profesor: {{ ctx.prestador }}</li>{% endif %}
+      {% if ctx.hora %}<li>Hora: {{ ctx.hora }}</li>{% endif %}
+      {% if ctx.dia_semana_text %}<li>Día: {{ ctx.dia_semana_text }}</li>{% endif %}
+    </ul>
+    {% if url %}<p><a href="{{ url }}">Renovar ahora</a></p>{% endif %}
+    <p style="margin-top:28px">Saludos!<br><b>LOB Padel</b></p>
+  </div>
+</body></html>

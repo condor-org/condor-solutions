@@ -1,25 +1,35 @@
 # apps/notificaciones_core/services.py
 import logging
 from typing import Iterable, Mapping
+from datetime import date, time
 from django.db import transaction
 from django.utils import timezone
 from django.contrib.auth import get_user_model
-from .models import NotificationEvent, Notification
-import json
 from django.core.serializers.json import DjangoJSONEncoder
 from django.conf import settings
+from django.template.loader import render_to_string
+import json
 import os
+
 try:
+    # boto3 puede no estar instalado en dev
     import boto3
     from botocore.config import Config as _BotoConfig
     from botocore.exceptions import ClientError as _BotoClientError
-except Exception:  # boto3 puede no estar instalado en dev
+except Exception:
     boto3 = None
     _BotoConfig = None
     _BotoClientError = Exception
 
 logger = logging.getLogger(__name__)
 Usuario = get_user_model()
+
+# Evitar import circular: Prestador sólo para chequeo de tipo del GFK "recurso"
+try:
+    from apps.turnos_core.models import Prestador  # type: ignore
+except Exception:
+    Prestador = type("PrestadorPlaceholder", (), {})  # fallback innocuo
+
 
 # --- Email/SES config (feature flag) ---
 NOTIF_EMAIL_ENABLED = getattr(settings, "NOTIF_EMAIL_ENABLED", False)
@@ -47,6 +57,7 @@ def _json_safe(obj):
     except Exception:
         # último recurso: si no se pudo serializar, devolvemos {} o el valor original
         return {} if isinstance(obj, dict) else obj
+
 
 def _send_email_ses(*, to: list[str] | tuple[str, ...], subject: str, text: str = "", html: str | None = None, tags: dict | None = None):
     """
@@ -102,8 +113,8 @@ def _send_email_ses(*, to: list[str] | tuple[str, ...], subject: str, text: str 
             logger.warning("[notif.email][fail] code=%s attempt=%s to=%s subj=%s", code, attempt, to, subject, exc_info=True)
             if retryable and attempt < 5:
                 try:
-                    import time
-                    time.sleep(delay)
+                    import time as _t
+                    _t.sleep(delay)
                     delay *= 2
                 except Exception:
                     pass
@@ -113,7 +124,9 @@ def _send_email_ses(*, to: list[str] | tuple[str, ...], subject: str, text: str 
             logger.exception("[notif.email][unexpected-error] to=%s subj=%s", to, subject)
             break
 
-def publish_event(*, topic: str, actor, cliente_id: int | None, metadata: dict | None = None) -> NotificationEvent:
+
+def publish_event(*, topic: str, actor, cliente_id: int | None, metadata: dict | None = None):
+    from .models import NotificationEvent  # local import para evitar ciclos
     md = _json_safe(metadata or {})
     ev = NotificationEvent.objects.create(
         topic=topic,
@@ -128,6 +141,177 @@ def publish_event(*, topic: str, actor, cliente_id: int | None, metadata: dict |
     return ev
 
 
+# -----------------------
+# Helpers de presentación
+# -----------------------
+
+def _public_base_url() -> str:
+    """URL pública del frontend para armar CTA en mails."""
+    return getattr(settings, "PUBLIC_APP_BASE_URL", "https://lob-padel.cnd-ia.com").rstrip("/")
+
+
+def _template_base_name_for(notif_type: str) -> str:
+    """Mapea el tipo de notificación al nombre base de la plantilla de email."""
+    return {
+        TYPE_RESERVA_TURNO: "reserva_turno",
+        TYPE_CANCELACION_TURNO: "cancelacion_turno",
+        TYPE_RESERVA_ABONO: "reserva_abono",
+        TYPE_ABONO_RENOVADO: "abono_renovado",
+        TYPE_BONIFICACION_CREADA: "bonificacion_creada",
+        TYPE_CANCELACIONES_TURNOS: "cancelaciones_turnos",
+        TYPE_ABONO_RECORDATORIO: "abono_recordatorio",
+    }.get(notif_type, "generic")
+
+
+def _human_tipo_clase(val: str | None) -> str:
+    """
+    Normaliza el tipo de turno para mostrar al usuario.
+    x1/x2/x3/x4 -> textos humanos. Si ya viene humanizado, lo deja tal cual.
+    """
+    s = (val or "").strip().lower()
+    return {
+        "x1": "clase individual",
+        "x2": "clase para 2 personas",
+        "x3": "clase para 3 personas",
+        "x4": "clase para 4 personas",
+    }.get(s, val or "")
+
+
+def _nombre_completo(user) -> str:
+    if not user:
+        return "Usuario"
+    nombre = (getattr(user, "nombre", "") or getattr(user, "first_name", "")).strip()
+    apellido = (getattr(user, "apellido", "") or getattr(user, "last_name", "")).strip()
+    full = f"{nombre} {apellido}".strip()
+    return full or getattr(user, "email", "") or "Usuario"
+
+
+def _safe_date_str(d: date | None, fmt: str = "%d/%m/%Y") -> str:
+    try:
+        return d.strftime(fmt) if d else ""
+    except Exception:
+        return ""
+
+
+def _safe_time_str(t: time | None, fmt: str = "%H:%M") -> str:
+    try:
+        return t.strftime(fmt) if t else ""
+    except Exception:
+        return ""
+
+
+def _prestador_display_from_turno(turno) -> str:
+    """
+    Si el GFK 'recurso' del turno es un Prestador, devuelve un nombre mostrable.
+    Usa 'nombre_publico' y si no, cae al usuario vinculado.
+    """
+    try:
+        recurso = getattr(turno, "recurso", None)
+        if recurso and isinstance(recurso, Prestador):
+            # 1) nombre público si está
+            if getattr(recurso, "nombre_publico", None):
+                return recurso.nombre_publico
+            # 2) si no, del user asociado
+            u = getattr(recurso, "user", None)
+            if u:
+                return _nombre_completo(u)
+    except Exception:
+        logger.debug("[notif.ctx][prestador-fallback]", exc_info=True)
+    return ""
+
+
+def build_ctx_reserva_usuario(turno, usuario) -> dict:
+    """
+    Contexto seguro para el mail al USUARIO cuando reserva un turno.
+    No levanta excepciones si faltan datos.
+    """
+    sede = getattr(turno, "lugar", None)
+    ctx = {
+        "audience": "user",
+        "usuario": _nombre_completo(usuario),
+        "fecha": _safe_date_str(getattr(turno, "fecha", None)),
+        "hora": _safe_time_str(getattr(turno, "hora", None)),
+        "sede_nombre": getattr(sede, "nombre", "") if sede else "",
+        "sede_direccion": getattr(sede, "direccion", "") if sede else "",
+        "prestador": _prestador_display_from_turno(turno),
+        "tipo_turno": _human_tipo_clase(getattr(turno, "tipo_turno", "")),
+        "reserva_id": getattr(turno, "id", None),
+        "politicas_breve": "Podés cancelar hasta 12 h antes sin cargo.",
+        # "force_url": "/mis-reservas",  # opcional para forzar CTA
+    }
+    return ctx
+
+
+# -----------------------
+# Render de copies (in-app / email)
+# -----------------------
+
+def _render_email_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
+    """
+    Devuelve (subject, text, html) renderizados desde templates.
+    - Soporta variantes por audiencia con ctx['audience'] = 'user' | 'admin'.
+    - Fallback a generic.* y, si no hay, arma un HTML/TXT básico.
+    - Siempre agrega saludo corporativo "Saludos! LOB Padel".
+    """
+    title, body, deeplink = _render_inapp_copy(notif_type, ctx or {})
+    url = (ctx.get("force_url") or (_public_base_url() + (deeplink or "/")))
+
+    base = _template_base_name_for(notif_type)
+    audience = (ctx or {}).get("audience")
+    names_to_try = [f"{base}__{audience}", base] if audience else [base]
+
+    # Humanizamos tipos en el contexto que va al template
+    _ctx = dict(ctx or {})
+    for k in ("tipo", "tipo_turno", "tipo_clase_codigo"):
+        if k in _ctx:
+            _ctx[k] = _human_tipo_clase(_ctx.get(k))
+
+    tctx = {
+        "title": title or "Notificación",
+        "body": body or "",
+        "deeplink": deeplink,
+        "url": url,
+        "ctx": _ctx,
+        "tenant": getattr(settings, "PUBLIC_CLIENTE_NAME", "Condor"),
+        "brand_color": getattr(settings, "PUBLIC_BRAND_COLOR", "#111827"),
+        "year": timezone.now().year,
+    }
+
+    text = html = None
+    for name in names_to_try:
+        try:
+            html = html or render_to_string(f"emails/{name}.html", tctx).strip()
+        except Exception:
+            pass
+        try:
+            text = text or render_to_string(f"emails/{name}.txt", tctx).strip()
+        except Exception:
+            pass
+        if text and html:
+            break
+
+    # Fallbacks + saludo
+    if not text:
+        text = f"""{tctx['title']}
+
+{tctx['body']}
+
+Abrir: {url}
+
+Saludos!
+LOB Padel"""
+    else:
+        text = text.rstrip() + "\n\nSaludos!\nLOB Padel"
+
+    if not html:
+        html = f"""<h2>{tctx['title']}</h2><p>{tctx['body']}</p><p><a href="{url}">Abrir</a></p><br><br>Saludos!<br><b>LOB Padel</b>"""
+    else:
+        html = html.rstrip() + "<br><br>Saludos!<br><b>LOB Padel</b>"
+
+    subject = tctx["title"]
+    return subject, text, html
+
+
 def _render_inapp_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
     """
     Render mínimo sin plantillas (MVP). Devuelve (title, body, deeplink_path).
@@ -135,18 +319,14 @@ def _render_inapp_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
     """
     # Acepta tanto el enum como el string usado en el cron
     if notif_type in (TYPE_ABONO_RECORDATORIO, "abono_recordatorio"):
-        # ctx esperado (flexible):
-        #   abono_id, vence_el (YYYY-MM-DD), dias (int: 7 o 1),
-        #   tipo (x1..x4 opcional), sede_nombre?, prestador?, hora?, dia_semana_text?
         dias = ctx.get("dias")
         vence_el = ctx.get("vence_el")
-        tipo = ctx.get("tipo") or ctx.get("tipo_clase_codigo")  # x1..x4 u otro alias
+        tipo = _human_tipo_clase(ctx.get("tipo") or ctx.get("tipo_clase_codigo"))
         sede = ctx.get("sede_nombre")
         prestador = ctx.get("prestador")
         hora = ctx.get("hora")
         dsem = ctx.get("dia_semana_text")
 
-        # Título claro según el caso
         if dias == 1:
             title = "¡Tu abono vence mañana!"
         elif dias == 7:
@@ -154,7 +334,6 @@ def _render_inapp_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
         else:
             title = "Recordatorio: vencimiento de tu abono"
 
-        # Cuerpo con detalles (solo si existen en el contexto)
         partes = []
         if tipo:
             partes.append(f"Abono {tipo}")
@@ -170,27 +349,19 @@ def _render_inapp_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
             partes.append(f"• vence el {vence_el}")
 
         body = " ".join(partes) if partes else "Tu abono está por vencer."
-        # Llevamos al usuario directo a su sección de abonos/renovación
         return title, body, "/abonos"
 
-    # ------- NUEVO: Estado de abono (renovado / no renovado) -------
-    # Compatibilidad con el string que manda el cron ("abono_estado")
+    # Estado de abono (renovado / no renovado)
     if notif_type in ("abono_estado", TYPE_ABONO_RENOVADO):
-        # ctx flexible:
-        #   mensaje? (si viene del cron), tipo?, anio?, mes?, sede_nombre?, prestador?, hora?, dia_semana_text?
         msg = ctx.get("mensaje")
-        tipo = ctx.get("tipo")
+        tipo = _human_tipo_clase(ctx.get("tipo"))
         anio = ctx.get("anio"); mes = ctx.get("mes")
         sede = ctx.get("sede_nombre"); prestador = ctx.get("prestador")
         hora = ctx.get("hora"); dsem = ctx.get("dia_semana_text")
 
-        # Si viene un mensaje literal desde el cron, lo priorizamos
         if msg:
-            title = "Estado de tu abono"
-            body = msg
-            return title, body, "/abonos"
+            return "Estado de tu abono", msg, "/abonos"
 
-        # Si no, intentamos render más rico (ej.: renovado)
         title = "Estado de tu abono"
         partes = []
         if tipo: partes.append(f"Abono {tipo}")
@@ -203,10 +374,7 @@ def _render_inapp_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
         return title, body, "/abonos"
     
     if notif_type == TYPE_BONIFICACION_CREADA:
-        # Contexto esperado (flexible): 
-        #   bonificacion_id, tipo_turno (x1/x2/x3/x4 o alias), motivo, valido_hasta,
-        #   turno_id (opcional si proviene de cancelación), fecha, hora, sede_nombre.
-        tipo = ctx.get("tipo_turno") or ctx.get("tipo") or ""
+        tipo = _human_tipo_clase(ctx.get("tipo_turno") or ctx.get("tipo") or "")
         motivo = ctx.get("motivo")
         vence = ctx.get("valido_hasta")
         fecha = ctx.get("fecha")
@@ -217,7 +385,7 @@ def _render_inapp_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
 
         partes = []
         if tipo:
-            partes.append(f"tipo {tipo}")
+            partes.append(tipo)
         if sede:
             partes.append(f"para {sede}")
         if fecha and hora:
@@ -228,7 +396,6 @@ def _render_inapp_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
             partes.append(f"• vence {vence}")
 
         body = " ".join(partes) if partes else "Podés usarla para reservar tu próximo turno."
-        # Para usuarios finales, link directo a sus bonificaciones
         return title, body, "/bonificaciones"
 
     if notif_type == TYPE_CANCELACIONES_TURNOS:
@@ -239,7 +406,6 @@ def _render_inapp_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
         n_bonos = ctx.get("n_bonos", n)
         title = f"Se cancelaron {n} turno(s) en {sede}"
         body = f"Entre {f1} y {f2}. Acreditamos {n_bonos} bono(s)."
-        # Para usuarios finales los llevamos a su sección de bonificaciones
         return title, body, "/bonificaciones"
 
     if notif_type == TYPE_RESERVA_TURNO:
@@ -250,13 +416,11 @@ def _render_inapp_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
         prestador = ctx.get("prestador") or ""
         title = "Nueva reserva de turno"
         body = f"{usuario} reservó {fecha} {hora} en {sede}{f' con {prestador}' if prestador else ''}."
-        # Vista de admin para revisar reservas del día
         return title, body, f"/admin/reservas?fecha={fecha}"
 
     if notif_type == TYPE_RESERVA_ABONO:
-        # Contexto esperado desde _notify_abono_admin(...)
         usuario = ctx.get("usuario") or "Usuario"
-        tipo = ctx.get("tipo") or ""                 # x1/x2/x3/x4 (o alias)
+        tipo = _human_tipo_clase(ctx.get("tipo") or "")
         abono_id = ctx.get("abono_id")
         sede = ctx.get("sede_nombre")
         prestador = ctx.get("prestador")
@@ -264,7 +428,6 @@ def _render_inapp_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
         dia_semana_text = ctx.get("dia_semana_text")
 
         title = f"Nuevo abono {tipo}".strip()
-        # Si tenemos datos enriquecidos, armamos un cuerpo más útil
         if sede or prestador or hora or dia_semana_text:
             partes = []
             if sede:
@@ -283,9 +446,8 @@ def _render_inapp_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
         return title, body, deeplink
 
     if notif_type == TYPE_ABONO_RENOVADO:
-        # Notificación pensada para admins cuando corre la renovación automática
         usuario = ctx.get("usuario") or "Usuario"
-        tipo = ctx.get("tipo") or ""
+        tipo = _human_tipo_clase(ctx.get("tipo") or "")
         abono_id = ctx.get("abono_id")
         sede = ctx.get("sede_nombre")
         prestador = ctx.get("prestador")
@@ -327,10 +489,15 @@ def _render_inapp_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
     # fallback
     return "Notificación", "", "/"
 
+
+# -----------------------
+# Creación de notificaciones + envío de emails
+# -----------------------
+
 @transaction.atomic
 def notify_inapp(
     *,
-    event: NotificationEvent,
+    event,
     recipients: Iterable[Usuario],
     notif_type: str,
     context_by_user: Mapping[int, dict],
@@ -340,12 +507,13 @@ def notify_inapp(
     Crea notificaciones in-app por usuario con idempotencia por dedupe_key.
     Retorna cantidad efectivamente creadas (nuevas).
     """
-    # Usamos on_commit para no enviar hasta que la tx quede confirmada
+    from .models import Notification  # local import para evitar ciclos
     from django.db import transaction as _tx
-    to_send_queue: list[tuple[list[str], str, str, str | None, dict | None]] = []
 
+    to_send_queue: list[tuple[list[str], str, str, str | None, dict | None]] = []
     created = 0
     now = timezone.now()
+
     for u in recipients:
         raw_ctx = context_by_user.get(u.id, {})
         ctx = _json_safe(raw_ctx)  # ← Normalizamos el contexto
@@ -378,13 +546,14 @@ def notify_inapp(
             except Exception:
                 recipient_email = None
             if recipient_email:
-                # Reutilizamos title/body como subject/text; html mínimo opcional
-                html = f"<p>{body}</p>" if body else None
+                subject, text, html = _render_email_copy(notif_type, ctx)
+
                 # Etiquetas útiles para métricas por tenant y tipo
                 tags = {"type": notif_type}
                 if getattr(u, "cliente_id", None) is not None:
                     tags["cliente_id"] = str(getattr(u, "cliente_id"))
-                to_send_queue.append(([recipient_email], title, body or "", html, tags))
+
+                to_send_queue.append(([recipient_email], subject, text or "", html, tags))
         else:
             logger.debug(
                 "[notif.inapp][skip-dedupe] user=%s type=%s event_id=%s key=%s",

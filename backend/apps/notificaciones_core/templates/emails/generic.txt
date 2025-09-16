@@ -1,0 +1,8 @@
+{{ title }}
+
+{{ body }}
+
+{% if url %}Abrir: {{ url }}{% endif %}
+
+Saludos!
+LOB Padel

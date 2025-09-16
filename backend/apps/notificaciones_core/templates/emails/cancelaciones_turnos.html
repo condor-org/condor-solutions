@@ -1,0 +1,15 @@
+<!doctype html>
+<html><body style="font-family: system-ui, -apple-system, Segoe UI, Roboto;">
+  <div style="max-width:600px;margin:auto;border:1px solid #eee;border-radius:12px;padding:24px">
+    <h2 style="margin:0 0 12px 0">Cancelaciones en la sede</h2>
+    <p>{{ body }}</p>
+    <ul>
+      {% if ctx.sede_nombre %}<li>Sede: {{ ctx.sede_nombre }}</li>{% endif %}
+      {% if ctx.fecha_desde and ctx.fecha_hasta %}<li>Rango: {{ ctx.fecha_desde }} a {{ ctx.fecha_hasta }}</li>{% endif %}
+      {% if ctx.n_cancelados %}<li>Turnos cancelados: {{ ctx.n_cancelados }}</li>{% endif %}
+      {% if ctx.n_bonos %}<li>Bonos acreditados: {{ ctx.n_bonos }}</li>{% endif %}
+    </ul>
+    {% if url %}<p><a href="{{ url }}">Ver bonificaciones</a></p>{% endif %}
+    <p style="margin-top:28px">Saludos!<br><b>LOB Padel</b></p>
+  </div>
+</body></html>

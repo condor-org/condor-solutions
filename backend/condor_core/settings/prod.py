@@ -58,5 +58,5 @@ FEATURE_OAUTH_INVITES = os.getenv("FEATURE_OAUTH_INVITES", "false").lower() == "
 
 NOTIF_EMAIL_ENABLED = True                 # habilita el envío real
 AWS_REGION = "us-east-2"                 # tu región SES
-NOTIF_EMAIL_FROM = "notificaciones@cnd-ia.com"  # remitente verificado en SES
+NOTIF_EMAIL_FROM = "no-reply@lob-padel.cnd-ia.com"  # remitente verificado en SES
 SES_CONFIGURATION_SET = None  

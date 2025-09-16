@@ -41,6 +41,7 @@ import { emitNotificationsRefresh } from "../../utils/notificationsBus";
 
 import { useBodyBg, useCardColors, useMutedText } from "../../components/theme/tokens";
 
+// ---------- helpers de UI ----------
 const severityToScheme = (sev) => {
   switch (sev) {
     case "error":
@@ -54,9 +55,143 @@ const severityToScheme = (sev) => {
 };
 
 const formatWhen = (iso) => {
-  try { return new Date(iso).toLocaleString(); } catch { return iso ?? ""; }
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso ?? "";
+  }
 };
 
+const human = {
+  BONIFICACION_CREADA: "Bonificación",
+  CANCELACIONES_TURNOS: "Cancelaciones",
+  RESERVA_TURNO: "Reserva de turno",
+  RESERVA_ABONO: "Reserva de abono",
+  CANCELACION_TURNO: "Cancelación de turno",
+  ABONO_RENOVADO: "Abono renovado",
+  ABONO_RECORDATORIO: "Recordatorio de abono",
+};
+
+const fmt = {
+  date: (s) => {
+    try {
+      return new Date(s).toLocaleDateString();
+    } catch {
+      return s || "";
+    }
+  },
+  time: (s) => (s?.slice?.(0, 5) ?? s ?? ""),
+};
+
+// Detalle amigable por tipo de notificación (no JSON crudo)
+const DetailByType = ({ n }) => {
+  const m = n?.metadata || {};
+  switch (n?.type) {
+    case "BONIFICACION_CREADA": {
+      const tipo = m.tipo_turno || m.tipo || "";
+      return (
+        <VStack align="start" spacing={2}>
+          {tipo && (
+            <Text>
+              <b>Tipo:</b> {tipo}
+            </Text>
+          )}
+          {m.sede_nombre && (
+            <Text>
+              <b>Sede:</b> {m.sede_nombre}
+            </Text>
+          )}
+          {m.valido_hasta && (
+            <Text>
+              <b>Vence:</b> {fmt.date(m.valido_hasta)}
+            </Text>
+          )}
+          {(m.fecha || m.hora) && (
+            <Text>
+              <b>Origen:</b> {m.fecha ? fmt.date(m.fecha) : ""} {m.hora ? fmt.time(m.hora) : ""}
+            </Text>
+          )}
+        </VStack>
+      );
+    }
+
+    case "CANCELACIONES_TURNOS": {
+      const items = Array.isArray(m.turnos) ? m.turnos : [];
+      if (items.length > 0) {
+        return (
+          <VStack align="start" spacing={1}>
+            <Text fontWeight="semibold">Turnos cancelados</Text>
+            <VStack align="stretch" spacing={1}>
+              {items.map((t, i) => (
+                <HStack key={i} spacing={2}>
+                  <Text>• {fmt.date(t.fecha)} {fmt.time(t.hora)}</Text>
+                  {t.sede && <Text color="gray.600">({t.sede})</Text>}
+                  {t.prestador && <Text color="gray.600">– {t.prestador}</Text>}
+                </HStack>
+              ))}
+            </VStack>
+          </VStack>
+        );
+      }
+      // Fallback si no viene la lista detallada
+      return (
+        <VStack align="start" spacing={2}>
+          {(m.fecha_desde || m.fecha_hasta) && (
+            <Text>
+              <b>Período:</b> {fmt.date(m.fecha_desde)} – {fmt.date(m.fecha_hasta)}
+            </Text>
+          )}
+          {m.sede_nombre && (
+            <Text>
+              <b>Sede:</b> {m.sede_nombre}
+            </Text>
+          )}
+          {typeof m.n_bonos !== "undefined" && (
+            <Text>
+              <b>Bonos acreditados:</b> {m.n_bonos}
+            </Text>
+          )}
+        </VStack>
+      );
+    }
+
+    case "RESERVA_TURNO": {
+      return (
+        <VStack align="start" spacing={2}>
+          {m.tipo_turno && (
+            <Text>
+              <b>Clase:</b> {m.tipo_turno}
+            </Text>
+          )}
+          {(m.fecha || m.hora) && (
+            <Text>
+              <b>Cuándo:</b> {fmt.date(m.fecha)} {fmt.time(m.hora)}
+            </Text>
+          )}
+          {m.sede_nombre && (
+            <Text>
+              <b>Sede:</b> {m.sede_nombre}
+            </Text>
+          )}
+          {m.prestador && (
+            <Text>
+              <b>Profesor:</b> {m.prestador}
+            </Text>
+          )}
+        </VStack>
+      );
+    }
+
+    default:
+      return (
+        <VStack align="start" spacing={2}>
+          {n?.body && <Text whiteSpace="pre-wrap">{n.body}</Text>}
+        </VStack>
+      );
+  }
+};
+
+// ---------- componente ----------
 const LIMIT = 20;
 
 const NotificacionesPage = () => {
@@ -135,7 +270,9 @@ const NotificacionesPage = () => {
     }
   }, [api, fetchPage]);
 
-  useEffect(() => { loadFirstPage(); }, [loadFirstPage]);
+  useEffect(() => {
+    loadFirstPage();
+  }, [loadFirstPage]);
 
   const loadMore = async () => {
     if (!api || !hasMore || loadingMore) return;
@@ -209,17 +346,11 @@ const NotificacionesPage = () => {
     else navigate("/jugador");
   };
 
-  // Pretty JSON seguro
-  const pretty = (obj) => {
-    try { return JSON.stringify(obj ?? {}, null, 2); } catch { return String(obj ?? ""); }
-  };
-
   return (
     <Box minH="100vh" bg={bg}>
       <Box maxW="5xl" mx="auto" px={4} py={8}>
         {/* Header */}
         <Stack spacing={{ base: 2, md: 3 }} mb={4}>
-          {/* Fila 1: volver + título (badge incluido). Acciones solo desktop a la derecha */}
           <HStack justify="space-between" align="center">
             <HStack spacing={3} align="center">
               <Tooltip label="Volver">
@@ -265,24 +396,13 @@ const NotificacionesPage = () => {
             </HStack>
           </HStack>
 
-          {/* Acciones en mobile: grid 3 columnas */}
+          {/* Acciones en mobile */}
           <SimpleGrid columns={3} spacing={2} display={{ base: "grid", md: "none" }}>
             <Tooltip label="Refrescar">
-              <IconButton
-                aria-label="Refrescar"
-                icon={<RepeatIcon />}
-                onClick={loadFirstPage}
-                variant="ghost"
-              />
+              <IconButton aria-label="Refrescar" icon={<RepeatIcon />} onClick={loadFirstPage} variant="ghost" />
             </Tooltip>
             <Tooltip label="Marcar todas como leídas">
-              <Button
-                leftIcon={<CheckIcon />}
-                variant="solid"
-                onClick={markAll}
-                isLoading={busyAll}
-                size="sm"
-              >
+              <Button leftIcon={<CheckIcon />} variant="solid" onClick={markAll} isLoading={busyAll} size="sm">
                 Marcar
               </Button>
             </Tooltip>
@@ -303,11 +423,7 @@ const NotificacionesPage = () => {
 
         {/* Filtros */}
         <Stack direction={{ base: "column", md: "row" }} mb={4} spacing={4}>
-          <Checkbox
-            isChecked={unreadOnly}
-            onChange={(e) => setUnreadOnly(e.target.checked)}
-            colorScheme="orange"
-          >
+          <Checkbox isChecked={unreadOnly} onChange={(e) => setUnreadOnly(e.target.checked)} colorScheme="orange">
             Sólo no leídas
           </Checkbox>
         </Stack>
@@ -344,18 +460,10 @@ const NotificacionesPage = () => {
                   >
                     <VStack align="start" spacing={1} w="full">
                       <HStack>
-                        <Badge colorScheme={severityToScheme(n.severity)}>{n.type}</Badge>
+                        <Badge colorScheme={severityToScheme(n.severity)}>{human[n.type] ?? n.type}</Badge>
                         {n.unread && <Badge colorScheme="orange">Nuevo</Badge>}
                       </HStack>
                       <Text fontWeight="semibold" noOfLines={1}>{n.title}</Text>
-                      <Text
-                        fontSize="sm"
-                        color={muted}
-                        whiteSpace="pre-wrap"
-                        noOfLines={{ base: 3, md: undefined }}
-                      >
-                        {n.body}
-                      </Text>
                       <Text fontSize="xs" color={muted}>{formatWhen(n.created_at)}</Text>
                     </VStack>
 
@@ -395,8 +503,8 @@ const NotificacionesPage = () => {
         <AlertDialogContent>
           <AlertDialogHeader fontWeight="bold">Borrar notificaciones</AlertDialogHeader>
           <AlertDialogBody>
-            Vas a borrar <b>{visible.length}</b> notificación(es) <i>de la lista mostrada</i>.
-            Esta acción no se puede deshacer.
+            Vas a borrar <b>{visible.length}</b> notificación(es) <i>de la lista mostrada</i>. Esta acción no se puede
+            deshacer.
           </AlertDialogBody>
           <AlertDialogFooter>
             <Button onClick={delAllDlg.onClose} variant="ghost">Cancelar</Button>
@@ -407,7 +515,7 @@ const NotificacionesPage = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Modal de detalles */}
+      {/* Modal de detalles (amigable) */}
       <Modal isOpen={detailDlg.isOpen} onClose={closeDetail} size={{ base: "full", md: "lg" }} isCentered>
         <ModalOverlay />
         <ModalContent>
@@ -417,31 +525,16 @@ const NotificacionesPage = () => {
             {!selected ? null : (
               <VStack align="stretch" spacing={3}>
                 <HStack>
-                  <Badge colorScheme={severityToScheme(selected.severity)}>{selected.type}</Badge>
+                  <Badge colorScheme={severityToScheme(selected.severity)}>{human[selected.type] ?? selected.type}</Badge>
                   {selected.unread && <Badge colorScheme="orange">Nuevo</Badge>}
                 </HStack>
                 <Text fontWeight="semibold">{selected.title}</Text>
-                <Text whiteSpace="pre-wrap">{selected.body}</Text>
+
+                <DetailByType n={selected} />
+
                 <Text fontSize="sm" color={muted}>
                   Creada: {formatWhen(selected.created_at)}
                 </Text>
-
-                {selected.metadata && Object.keys(selected.metadata || {}).length > 0 && (
-                  <Box>
-                    <Text fontWeight="semibold" mb={1}>Metadata</Text>
-                    <Box
-                      as="pre"
-                      fontSize="sm"
-                      p={3}
-                      bg="gray.50"
-                      borderWidth="1px"
-                      rounded="md"
-                      overflowX="auto"
-                    >
-                      {pretty(selected.metadata)}
-                    </Box>
-                  </Box>
-                )}
               </VStack>
             )}
           </ModalBody>

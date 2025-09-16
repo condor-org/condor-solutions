@@ -665,10 +665,68 @@ class PrestadorViewSet(viewsets.ModelViewSet):
             return PrestadorDetailSerializer
         return PrestadorDetailSerializer  
 
+    
+    @transaction.atomic
     def perform_destroy(self, instance):
+        request = getattr(self, "request", None)
+        force = False
+        if request is not None:
+            # Soportar ?force=true/1
+            qp = request.query_params
+            force = str(qp.get("force", "")).lower() in ("1", "true", "t", "yes", "y")
+
+        ct = ContentType.objects.get_for_model(instance.__class__)
+        hoy = timezone.localdate()
+
+        # Turnos del prestador (todos / por estado / por abono)
+        turnos_qs = Turno.objects.select_for_update().filter(content_type=ct, object_id=instance.id)
+        futuros_qs = turnos_qs.filter(fecha__gte=hoy, estado__in=["disponible", "reservado"])
+        reservados_qs = turnos_qs.filter(estado="reservado")
+        con_abono_qs = turnos_qs.filter(comprobante_abono__isnull=False)
+
+        c_total = turnos_qs.count()
+        c_futuros = futuros_qs.count()
+        c_reservados = reservados_qs.count()
+        c_con_abono = con_abono_qs.count()
+
+        # Regla por defecto (segura): no borrar si hay impacto operativo, salvo force
+        if not force and (c_reservados > 0 or c_con_abono > 0):
+            raise ValidationError({
+                "detail": (
+                    "No se puede eliminar el profesor porque hay turnos reservados o vinculados a abonos."
+                    "Cancelá los turnos reservdos primero o usá ?force=true para forzar la eliminación (se borrarán los turnos)."
+                ),
+                "stats": {
+                    "turnos_total": c_total,
+                    "turnos_futuros": c_futuros,
+                    "turnos_reservados": c_reservados,
+                    "turnos_con_abono": c_con_abono,
+                },
+            })
+
+        # Borrado explícito de todos los turnos vinculados a este prestador
+        borrados_turnos, _ = turnos_qs.delete()
+
+        # Borramos el Prestador y su usuario
         usuario = instance.user
         instance.delete()
         usuario.delete()
+
+        # Log (usa tu logger de proyecto)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(
+            "prestador.eliminado",
+            extra={
+                "prestador_id": instance.id,
+                "user_id": getattr(usuario, "id", None),
+                "turnos_borrados": borrados_turnos,
+                "force": force,
+                "futuros": c_futuros,
+                "reservados": c_reservados,
+                "con_abono": c_con_abono,
+            },
+        )
 
 # ------------------------------------------------------------------------------
 # ViewSet /turnos/disponibilidades/  → CRUD de disponibilidades
