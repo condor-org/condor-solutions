@@ -10,5 +10,3 @@ Nueva reserva de turno
 
 {% if url %}Ver: {{ url }}{% endif %}
 
-Saludos!
-LOB Padel

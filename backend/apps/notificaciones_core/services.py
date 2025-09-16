@@ -254,7 +254,7 @@ def _render_email_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
     - Siempre agrega saludo corporativo "Saludos! LOB Padel".
     """
     title, body, deeplink = _render_inapp_copy(notif_type, ctx or {})
-    url = (ctx.get("force_url") or (_public_base_url() + (deeplink or "/")))
+    url = (ctx.get("force_url") or (_public_base_url()))
 
     base = _template_base_name_for(notif_type)
     audience = (ctx or {}).get("audience")

@@ -79,6 +79,8 @@ from apps.notificaciones_core.services import (
     publish_event,
     notify_inapp,
     TYPE_CANCELACION_TURNO,
+    TYPE_RESERVA_TURNO,              # 👈 nuevo
+    build_ctx_reserva_usuario,       # 👈 nuevo
 )
 from apps.turnos_core.services.generar_turnos import (
     generar_turnos_mes_actual_y_siguiente,
@@ -467,16 +469,22 @@ class TurnoReservaView(CreateAPIView):
         serializer = self.get_serializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         turno = serializer.save()
-        # al final de create(), antes del return
-        try:
-            from apps.notificaciones_core.services import publish_event, notify_inapp, TYPE_RESERVA_TURNO
-            from django.contrib.auth import get_user_model
-            Usuario = get_user_model()
 
-            turno = serializer.instance
+        # 🔔 Notificaciones (admins + usuario)
+        try:
+            from django.contrib.auth import get_user_model
+            from apps.notificaciones_core.services import (
+                publish_event,
+                notify_inapp,
+                TYPE_RESERVA_TURNO,
+                build_ctx_reserva_usuario,
+            )
+
+            Usuario = get_user_model()
             cliente_id = getattr(request.user, "cliente_id", None)
 
-            ev = publish_event(
+            # -------- Admins del cliente --------
+            ev_admin = publish_event(
                 topic="turnos.reserva_confirmada",
                 actor=request.user,
                 cliente_id=cliente_id,
@@ -489,13 +497,12 @@ class TurnoReservaView(CreateAPIView):
                 },
             )
 
-            # 🔹 Solo admins del cliente (sin superadmin)
             admins = Usuario.objects.filter(
                 cliente_id=cliente_id,
                 tipo_usuario="admin_cliente",
             ).only("id", "cliente_id")
 
-            ctx = {
+            ctx_admin = {
                 a.id: {
                     "usuario": getattr(request.user, "email", None),
                     "fecha": str(turno.fecha),
@@ -506,17 +513,37 @@ class TurnoReservaView(CreateAPIView):
             }
 
             notify_inapp(
-                event=ev,
+                event=ev_admin,
                 recipients=admins,
                 notif_type=TYPE_RESERVA_TURNO,
-                context_by_user=ctx,
+                context_by_user=ctx_admin,
                 severity="info",
             )
+
+            # -------- Usuario final --------
+            ev_user = publish_event(
+                topic="turnos.reserva_confirmada.usuario",
+                actor=request.user,
+                cliente_id=cliente_id,
+                metadata={"turno_id": turno.id},
+            )
+
+            ctx_user = {request.user.id: build_ctx_reserva_usuario(turno, request.user)}
+
+            notify_inapp(
+                event=ev_user,
+                recipients=[request.user],
+                notif_type=TYPE_RESERVA_TURNO,
+                context_by_user=ctx_user,
+                severity="info",
+            )
+
         except Exception:
             logger.exception("[notif][turno_reserva][fail]")
 
-        return Response({"message": "Turno reservado exitosamente", "turno_id": turno.id})
-
+        return Response(
+            {"message": "Turno reservado exitosamente", "turno_id": turno.id}
+        )
 
 # ------------------------------------------------------------------------------
 # GET /turnos/disponibles/?prestador_id=&lugar_id=&fecha=YYYY-MM-DD

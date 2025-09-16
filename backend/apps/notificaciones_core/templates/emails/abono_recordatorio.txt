@@ -11,5 +11,3 @@
 
 {% if url %}Renovar: {{ url }}{% endif %}
 
-Saludos!
-LOB Padel

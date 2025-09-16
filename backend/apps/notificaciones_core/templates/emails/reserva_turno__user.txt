@@ -12,5 +12,3 @@ Política: {{ ctx.politicas_breve }}
 
 Podés ver tus reservas en: {{ url }}
 
-Saludos!
-LOB Padel

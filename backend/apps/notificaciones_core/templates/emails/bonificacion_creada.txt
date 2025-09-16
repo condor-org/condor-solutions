@@ -10,5 +10,3 @@ Nueva bonificación disponible
 
 {% if url %}Ver: {{ url }}{% endif %}
 
-Saludos!
-LOB Padel

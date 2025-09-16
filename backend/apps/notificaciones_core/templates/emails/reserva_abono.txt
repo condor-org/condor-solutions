@@ -11,5 +11,3 @@ Nuevo abono confirmado
 
 {% if url %}Ver: {{ url }}{% endif %}
 
-Saludos!
-LOB Padel

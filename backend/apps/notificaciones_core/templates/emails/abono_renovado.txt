@@ -12,5 +12,3 @@ Abono renovado
 
 {% if url %}Ver: {{ url }}{% endif %}
 
-Saludos!
-LOB Padel

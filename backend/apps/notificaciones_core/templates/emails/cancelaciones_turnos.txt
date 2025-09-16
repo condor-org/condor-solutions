@@ -9,5 +9,3 @@ Cancelaciones en la sede
 
 {% if url %}Ver: {{ url }}{% endif %}
 
-Saludos!
-LOB Padel
