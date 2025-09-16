@@ -1,0 +1,12 @@
+Nueva bonificación disponible
+
+{{ body }}
+
+{% if ctx.tipo_turno or ctx.tipo %}- Tipo: {{ ctx.tipo_turno|default:ctx.tipo }}{% endif %}
+{% if ctx.sede_nombre %}- Sede: {{ ctx.sede_nombre }}{% endif %}
+{% if ctx.fecha and ctx.hora %}- Origen: {{ ctx.fecha }} {{ ctx.hora }}{% endif %}
+{% if ctx.motivo %}- Motivo: {{ ctx.motivo }}{% endif %}
+{% if ctx.valido_hasta %}- Vence: {{ ctx.valido_hasta }}{% endif %}
+
+{% if url %}Ver: {{ url }}{% endif %}
+

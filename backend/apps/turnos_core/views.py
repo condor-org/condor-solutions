@@ -79,6 +79,8 @@ from apps.notificaciones_core.services import (
     publish_event,
     notify_inapp,
     TYPE_CANCELACION_TURNO,
+    TYPE_RESERVA_TURNO,              # 👈 nuevo
+    build_ctx_reserva_usuario,       # 👈 nuevo
 )
 from apps.turnos_core.services.generar_turnos import (
     generar_turnos_mes_actual_y_siguiente,
@@ -467,16 +469,22 @@ class TurnoReservaView(CreateAPIView):
         serializer = self.get_serializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         turno = serializer.save()
-        # al final de create(), antes del return
-        try:
-            from apps.notificaciones_core.services import publish_event, notify_inapp, TYPE_RESERVA_TURNO
-            from django.contrib.auth import get_user_model
-            Usuario = get_user_model()
 
-            turno = serializer.instance
+        # 🔔 Notificaciones (admins + usuario)
+        try:
+            from django.contrib.auth import get_user_model
+            from apps.notificaciones_core.services import (
+                publish_event,
+                notify_inapp,
+                TYPE_RESERVA_TURNO,
+                build_ctx_reserva_usuario,
+            )
+
+            Usuario = get_user_model()
             cliente_id = getattr(request.user, "cliente_id", None)
 
-            ev = publish_event(
+            # -------- Admins del cliente --------
+            ev_admin = publish_event(
                 topic="turnos.reserva_confirmada",
                 actor=request.user,
                 cliente_id=cliente_id,
@@ -489,13 +497,12 @@ class TurnoReservaView(CreateAPIView):
                 },
             )
 
-            # 🔹 Solo admins del cliente (sin superadmin)
             admins = Usuario.objects.filter(
                 cliente_id=cliente_id,
                 tipo_usuario="admin_cliente",
             ).only("id", "cliente_id")
 
-            ctx = {
+            ctx_admin = {
                 a.id: {
                     "usuario": getattr(request.user, "email", None),
                     "fecha": str(turno.fecha),
@@ -506,17 +513,37 @@ class TurnoReservaView(CreateAPIView):
             }
 
             notify_inapp(
-                event=ev,
+                event=ev_admin,
                 recipients=admins,
                 notif_type=TYPE_RESERVA_TURNO,
-                context_by_user=ctx,
+                context_by_user=ctx_admin,
                 severity="info",
             )
+
+            # -------- Usuario final --------
+            ev_user = publish_event(
+                topic="turnos.reserva_confirmada.usuario",
+                actor=request.user,
+                cliente_id=cliente_id,
+                metadata={"turno_id": turno.id},
+            )
+
+            ctx_user = {request.user.id: build_ctx_reserva_usuario(turno, request.user)}
+
+            notify_inapp(
+                event=ev_user,
+                recipients=[request.user],
+                notif_type=TYPE_RESERVA_TURNO,
+                context_by_user=ctx_user,
+                severity="info",
+            )
+
         except Exception:
             logger.exception("[notif][turno_reserva][fail]")
 
-        return Response({"message": "Turno reservado exitosamente", "turno_id": turno.id})
-
+        return Response(
+            {"message": "Turno reservado exitosamente", "turno_id": turno.id}
+        )
 
 # ------------------------------------------------------------------------------
 # GET /turnos/disponibles/?prestador_id=&lugar_id=&fecha=YYYY-MM-DD
@@ -665,10 +692,68 @@ class PrestadorViewSet(viewsets.ModelViewSet):
             return PrestadorDetailSerializer
         return PrestadorDetailSerializer  
 
+    
+    @transaction.atomic
     def perform_destroy(self, instance):
+        request = getattr(self, "request", None)
+        force = False
+        if request is not None:
+            # Soportar ?force=true/1
+            qp = request.query_params
+            force = str(qp.get("force", "")).lower() in ("1", "true", "t", "yes", "y")
+
+        ct = ContentType.objects.get_for_model(instance.__class__)
+        hoy = timezone.localdate()
+
+        # Turnos del prestador (todos / por estado / por abono)
+        turnos_qs = Turno.objects.select_for_update().filter(content_type=ct, object_id=instance.id)
+        futuros_qs = turnos_qs.filter(fecha__gte=hoy, estado__in=["disponible", "reservado"])
+        reservados_qs = turnos_qs.filter(estado="reservado")
+        con_abono_qs = turnos_qs.filter(comprobante_abono__isnull=False)
+
+        c_total = turnos_qs.count()
+        c_futuros = futuros_qs.count()
+        c_reservados = reservados_qs.count()
+        c_con_abono = con_abono_qs.count()
+
+        # Regla por defecto (segura): no borrar si hay impacto operativo, salvo force
+        if not force and (c_reservados > 0 or c_con_abono > 0):
+            raise ValidationError({
+                "detail": (
+                    "No se puede eliminar el profesor porque hay turnos reservados o vinculados a abonos."
+                    "Cancelá los turnos reservdos primero o usá ?force=true para forzar la eliminación (se borrarán los turnos)."
+                ),
+                "stats": {
+                    "turnos_total": c_total,
+                    "turnos_futuros": c_futuros,
+                    "turnos_reservados": c_reservados,
+                    "turnos_con_abono": c_con_abono,
+                },
+            })
+
+        # Borrado explícito de todos los turnos vinculados a este prestador
+        borrados_turnos, _ = turnos_qs.delete()
+
+        # Borramos el Prestador y su usuario
         usuario = instance.user
         instance.delete()
         usuario.delete()
+
+        # Log (usa tu logger de proyecto)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(
+            "prestador.eliminado",
+            extra={
+                "prestador_id": instance.id,
+                "user_id": getattr(usuario, "id", None),
+                "turnos_borrados": borrados_turnos,
+                "force": force,
+                "futuros": c_futuros,
+                "reservados": c_reservados,
+                "con_abono": c_con_abono,
+            },
+        )
 
 # ------------------------------------------------------------------------------
 # ViewSet /turnos/disponibilidades/  → CRUD de disponibilidades

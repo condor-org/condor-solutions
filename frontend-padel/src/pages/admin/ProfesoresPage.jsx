@@ -139,16 +139,22 @@ const ProfesoresPage = () => {
   };
 
   const handleDelete = async (id, nombre) => {
-    if (!window.confirm(`¿Eliminar al profesor "${nombre}"?`)) return;
-    const api = axiosAuth(accessToken);
-    try {
-      await api.delete(`turnos/prestadores/${id}/`);
-      toast.success("Profesor eliminado");
-      const res = await api.get("turnos/prestadores/");
-      setProfesores(res.data.results || res.data);
-      if (editingId === id) { onClose(); resetForm(); }
-    } catch { toast.error("Error al eliminar profesor"); }
-  };
+  if (!window.confirm(`CUIDADO: esto eliminará al profesor "${nombre}" y TODOS sus turnos asociados. ¿Continuar?`)) return;
+  const api = axiosAuth(accessToken);
+  try {
+    await api.delete(`turnos/prestadores/${id}/?force=true`); // <<===== fuerza borrado de turnos
+    toast.success("Profesor eliminado con sus turnos");
+    const res = await api.get("turnos/prestadores/");
+    setProfesores(res.data.results || res.data);
+    if (editingId === id) { onClose(); resetForm(); }
+  } catch (err) {
+    const data = err.response?.data;
+    const msg = typeof data === "string" ? data : (data?.detail || "Error al eliminar profesor");
+    const s = data?.stats;
+    toast.error(s ? `${msg} (total=${s.turnos_total}, futuros=${s.turnos_futuros}, reservados=${s.turnos_reservados}, abono=${s.turnos_con_abono})` : msg);
+    console.error("[DELETE prestador] fallo:", data || err.message);
+  }
+};
 
   // ---------- Subcomponentes compactos ----------
   const DisponibilidadRowDesktop = ({ d, i }) => (

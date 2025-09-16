@@ -70,6 +70,24 @@ async function fetchAllPages(api, url, { params = {}, maxPages = 50, pageSize = 
   return items;
 }
 
+function firstApiErrorMessage(data) {
+  if (!data) return null;
+  if (typeof data === "string") return data;
+
+  // DRF: {"field": ["msg1", "msg2"]} o {"detail": "msg"}
+  if (data.detail) return Array.isArray(data.detail) ? data.detail[0] : data.detail;
+
+  // Tomar el primer campo con mensaje
+  const keys = Object.keys(data);
+  for (const k of keys) {
+    const v = data[k];
+    if (typeof v === "string" && v) return v;
+    if (Array.isArray(v) && v.length) return String(v[0]);
+  }
+
+  return null;
+}
+
 const ReservarTurno = ({ onClose }) => {
   const { accessToken } = useContext(AuthContext);
   const toast = useToast();
@@ -271,9 +289,31 @@ const ReservarTurno = ({ onClose }) => {
       setProfesorId("");
       setTimeout(() => setProfesorId(profId), 50);
     } catch (e) {
-      const msg = e?.response?.data?.error || e?.response?.data?.detail || "No se pudo cancelar el turno";
-      toast({ title: "Error", description: msg, status: "error", duration: 5000 });
-    } finally {
+      const data = e?.response?.data;
+      let msg =
+        firstApiErrorMessage(data) ||
+        e?.response?.data?.error ||
+        e?.response?.data?.detail ||
+        "No se pudo cancelar el turno";
+
+      // Caso especial: política de cancelación (400 con 'hasta ... horas' o similar)
+      const isPolicy = /cancelar.*hasta/i.test(String(msg));
+      if (isPolicy) {
+        toast({
+          title: "No se puede cancelar este turno",
+          description: msg,          // ej: “Solo se puede cancelar hasta 12 h antes (hasta 16/09 14:00).”
+          status: "warning",
+          duration: 6000,
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: String(msg),
+          status: "error",
+          duration: 6000,
+        });
+      }
+    }  finally {
       setCancelandoId(null);
     }
   };

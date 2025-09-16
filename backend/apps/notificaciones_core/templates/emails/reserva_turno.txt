@@ -1,0 +1,12 @@
+Nueva reserva de turno
+
+{{ body }}
+
+{% if ctx.usuario %}- Usuario: {{ ctx.usuario }}{% endif %}
+{% if ctx.fecha %}- Fecha: {{ ctx.fecha }}{% endif %}
+{% if ctx.hora %}- Hora: {{ ctx.hora }}{% endif %}
+{% if ctx.sede_nombre %}- Sede: {{ ctx.sede_nombre }}{% endif %}
+{% if ctx.prestador %}- Profesor: {{ ctx.prestador }}{% endif %}
+
+{% if url %}Ver: {{ url }}{% endif %}
+
