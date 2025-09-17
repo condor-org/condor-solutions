@@ -1,16 +1,141 @@
 <!doctype html>
-<html><body style="font-family: system-ui, -apple-system, Segoe UI, Roboto;">
-  <div style="max-width:600px;margin:auto;border:1px solid #eee;border-radius:12px;padding:24px">
-    <h2 style="margin:0 0 12px 0">Nueva bonificación disponible</h2>
-    <p>{{ body }}</p>
-    <ul>
-      {% if ctx.tipo_turno or ctx.tipo %}<li>Tipo: {{ ctx.tipo_turno|default:ctx.tipo }}</li>{% endif %}
-      {% if ctx.sede_nombre %}<li>Sede: {{ ctx.sede_nombre }}</li>{% endif %}
-      {% if ctx.fecha and ctx.hora %}<li>Origen: {{ ctx.fecha }} {{ ctx.hora }}</li>{% endif %}
-      {% if ctx.motivo %}<li>Motivo: {{ ctx.motivo }}</li>{% endif %}
-      {% if ctx.valido_hasta %}<li>Vence: {{ ctx.valido_hasta }}</li>{% endif %}
-    </ul>
-    {% if url %}<p><a href="{{ url }}">Ver bonificaciones</a></p>{% endif %}
-    <p style="margin-top:28px">Saludos!<br><b>LOB Padel</b></p>
-  </div>
-</body></html>
+<html lang="es">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Nueva bonificación disponible</title>
+    <!-- Modo oscuro básico (soportado por algunos clientes) -->
+    <style>
+      @media (prefers-color-scheme: dark) {
+        .bg { background:#0b0b0b !important; }
+        .card { background:#111 !important; border-color:#222 !important; }
+        .text { color:#e8e8e8 !important; }
+        .muted { color:#a1a1a1 !important; }
+        .btn { background:#2a7df6 !important; color:#fff !important; }
+        .hr  { border-color:#222 !important; }
+      }
+      @media screen and (max-width: 620px) {
+        .container { width:100% !important; }
+        .p-24 { padding:16px !important; }
+        .title { font-size:22px !important; line-height:28px !important; }
+      }
+    </style>
+  </head>
+  <body class="bg" style="margin:0;padding:0;background:#f6f7fb;">
+    <!-- Preheader (oculto) -->
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
+      {{ body|default:"Tenés una bonificación para usar en tu próxima clase." }}
+    </div>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+      <tr>
+        <td align="center" style="padding:24px;">
+          <table class="container" role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:600px;">
+            <!-- Header / Logo -->
+            <tr>
+              <td align="left" style="padding:0 8px 12px 8px;">
+                <table role="presentation" width="100%">
+                  <tr>
+                    <td align="left" class="text" style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#111827;">
+                      <strong>LOB Padel</strong>
+                    </td>
+                    <td align="right" class="muted" style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:12px;color:#6b7280;">
+                      Notificación de cuenta
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Card -->
+            <tr>
+              <td class="card p-24" style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;">
+                <h1 class="title text" style="margin:0 0 8px 0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:24px;line-height:32px;color:#111827;">
+                  Nueva bonificación disponible
+                </h1>
+                <p class="muted" style="margin:0 0 16px 0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:20px;color:#6b7280;">
+                  {{ body|default:"Recibiste una bonificación para usar en tus reservas." }}
+                </p>
+
+                <!-- Key-Value list -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:8px 0 16px 0;">
+                  {% if ctx.tipo_turno or ctx.tipo %}
+                  <tr>
+                    <td class="muted" width="120" style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:13px;color:#6b7280;padding:6px 0;">Tipo</td>
+                    <td class="text"  style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#111827;padding:6px 0;">
+                      {{ ctx.tipo_turno|default:ctx.tipo }}
+                    </td>
+                  </tr>
+                  {% endif %}
+                  {% if ctx.sede_nombre %}
+                  <tr>
+                    <td class="muted" width="120" style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:13px;color:#6b7280;padding:6px 0;">Sede</td>
+                    <td class="text"  style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#111827;padding:6px 0;">
+                      {{ ctx.sede_nombre }}
+                    </td>
+                  </tr>
+                  {% endif %}
+                  {% if ctx.fecha and ctx.hora %}
+                  <tr>
+                    <td class="muted" width="120" style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:13px;color:#6b7280;padding:6px 0;">Origen</td>
+                    <td class="text"  style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#111827;padding:6px 0;">
+                      {{ ctx.fecha }} {{ ctx.hora }}
+                    </td>
+                  </tr>
+                  {% endif %}
+                  {% if ctx.motivo %}
+                  <tr>
+                    <td class="muted" width="120" style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:13px;color:#6b7280;padding:6px 0;">Motivo</td>
+                    <td class="text"  style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#111827;padding:6px 0;">
+                      {{ ctx.motivo }}
+                    </td>
+                  </tr>
+                  {% endif %}
+                  {% if ctx.valido_hasta %}
+                  <tr>
+                    <td class="muted" width="120" style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:13px;color:#6b7280;padding:6px 0;">Vence</td>
+                    <td class="text"  style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#111827;padding:6px 0;">
+                      {{ ctx.valido_hasta }}
+                    </td>
+                  </tr>
+                  {% endif %}
+                </table>
+
+                <!-- CTA -->
+                {% if url %}
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:12px 0 4px 0;">
+                  <tr>
+                    <td>
+                      <a class="btn" href="{{ url }}" target="_blank"
+                         style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:10px;
+                                font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+                                font-size:15px;line-height:20px;padding:12px 18px;">
+                        Abrir bonificaciones
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+                {% endif %}
+
+                <hr class="hr" style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;">
+                <p class="muted" style="margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:18px;color:#6b7280;">
+                  Si no esperabas este correo, podés ignorarlo.
+                </p>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td align="center" style="padding:12px 8px 0 8px;">
+                <p class="muted" style="margin:0 0 8px 0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:12px;color:#9ca3af;">
+                  Saludos,<br><strong class="text" style="color:#111827;">LOB Padel</strong>
+                </p>
+              </td>
+            </tr>
+            <tr><td style="height:24px;"></td></tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

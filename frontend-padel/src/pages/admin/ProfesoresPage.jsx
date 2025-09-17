@@ -68,6 +68,12 @@ const ProfesoresPage = () => {
   const {
     isOpen: isModalReservadosOpen, onOpen: openModalReservados, onClose: closeModalReservados
   } = useDisclosure();
+
+  // nuevo modal de confirmación de borrado
+  const confirmarEliminar = useDisclosure();
+  const [prestadorAEliminar, setPrestadorAEliminar] = useState(null);
+  const [eliminando, setEliminando] = useState(false);
+
   const [turnosReservadosAfectados, setTurnosReservadosAfectados] = useState([]);
   const [prestadorIdActivo, setPrestadorIdActivo] = useState(null);
 
@@ -80,7 +86,6 @@ const ProfesoresPage = () => {
   };
 
   const openForCreate = () => { resetForm(); onOpen(); };
-
 
   const openForEdit = (p) => {
     setEditingId(p.id);
@@ -138,23 +143,34 @@ const ProfesoresPage = () => {
     }
   };
 
-  const handleDelete = async (id, nombre) => {
-  if (!window.confirm(`CUIDADO: esto eliminará al profesor "${nombre}" y TODOS sus turnos asociados. ¿Continuar?`)) return;
-  const api = axiosAuth(accessToken);
-  try {
-    await api.delete(`turnos/prestadores/${id}/?force=true`); // <<===== fuerza borrado de turnos
-    toast.success("Profesor eliminado con sus turnos");
-    const res = await api.get("turnos/prestadores/");
-    setProfesores(res.data.results || res.data);
-    if (editingId === id) { onClose(); resetForm(); }
-  } catch (err) {
-    const data = err.response?.data;
-    const msg = typeof data === "string" ? data : (data?.detail || "Error al eliminar profesor");
-    const s = data?.stats;
-    toast.error(s ? `${msg} (total=${s.turnos_total}, futuros=${s.turnos_futuros}, reservados=${s.turnos_reservados}, abono=${s.turnos_con_abono})` : msg);
-    console.error("[DELETE prestador] fallo:", data || err.message);
-  }
-};
+  // ✅ NUEVO flujo: pedir confirmación con Modal y luego eliminar
+  const pedirEliminarPrestador = (prestador) => {
+    setPrestadorAEliminar(prestador);
+    confirmarEliminar.onOpen();
+  };
+
+  const eliminarPrestadorConfirm = async () => {
+    if (!prestadorAEliminar) return;
+    const api = axiosAuth(accessToken);
+    setEliminando(true);
+    try {
+      await api.delete(`turnos/prestadores/${prestadorAEliminar.id}/?force=true`); // fuerza borrado de turnos
+      toast.success("Profesor eliminado con sus turnos");
+      const res = await api.get("turnos/prestadores/");
+      setProfesores(res.data.results || res.data);
+      if (editingId === prestadorAEliminar.id) { onClose(); resetForm(); }
+      confirmarEliminar.onClose();
+      setPrestadorAEliminar(null);
+    } catch (err) {
+      const data = err.response?.data;
+      const msg = typeof data === "string" ? data : (data?.detail || "Error al eliminar profesor");
+      const s = data?.stats;
+      toast.error(s ? `${msg} (total=${s.turnos_total}, futuros=${s.turnos_futuros}, reservados=${s.turnos_reservados}, abono=${s.turnos_con_abono})` : msg);
+      console.error("[DELETE prestador] fallo:", data || err.message);
+    } finally {
+      setEliminando(false);
+    }
+  };
 
   // ---------- Subcomponentes compactos ----------
   const DisponibilidadRowDesktop = ({ d, i }) => (
@@ -240,7 +256,7 @@ const ProfesoresPage = () => {
                 </Box>
                 <ButtonGroup mt={{ base: 3, md: 0 }} size="sm" spacing="2" w={{ base: "100%", md: "auto" }}>
                   <IconButton icon={<EditIcon />} aria-label="Editar" onClick={() => openForEdit(p)} />
-                  <IconButton icon={<DeleteIcon />} aria-label="Eliminar" onClick={() => handleDelete(p.id, p.nombre)} colorScheme="red" />
+                  <IconButton icon={<DeleteIcon />} aria-label="Eliminar" onClick={() => pedirEliminarPrestador(p)} colorScheme="red" />
                 </ButtonGroup>
               </Flex>
             ))}
@@ -325,7 +341,6 @@ const ProfesoresPage = () => {
                 )}
               </VStack>
 
-
                 <Heading size="xs" mt={6} mb={3}>Disponibilidades</Heading>
                 <Box bg={card.bg} color={card.color} p={{ base: 2, md: 4 }} rounded="md">
                   {!isMobile && (
@@ -359,6 +374,59 @@ const ProfesoresPage = () => {
                   Cancelar
                 </Button>
               </Stack>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
+
+        {/* MODAL: Confirmar eliminación de profesor */}
+        <Modal
+          isOpen={confirmarEliminar.isOpen}
+          onClose={() => { setPrestadorAEliminar(null); confirmarEliminar.onClose(); }}
+          isCentered
+          size="lg"
+        >
+          <ModalOverlay />
+          <ModalContent bg={modalTok.bg} color={modalTok.color}>
+            <ModalHeader>Eliminar profesor</ModalHeader>
+            <ModalCloseButton />
+            <ModalBody>
+              {prestadorAEliminar && (
+                <VStack align="stretch" spacing={3}>
+                  <Text>
+                    Estás por eliminar al profesor{" "}
+                    <b>
+                      {prestadorAEliminar.nombre_publico ||
+                        `${prestadorAEliminar.nombre || ""} ${prestadorAEliminar.apellido || ""}`.trim() ||
+                        `#${prestadorAEliminar.id}`}
+                    </b>.
+                  </Text>
+                  {prestadorAEliminar.email && <Text><b>Email:</b> {prestadorAEliminar.email}</Text>}
+                  <Text color="red.400" fontWeight="bold">
+                    CUIDADO: se eliminarán <u>todos sus turnos asociados</u> (incluyendo futuros, reservados y los con abono).
+                  </Text>
+                  <Text fontSize="sm" opacity={0.8}>
+                    Esta acción es irreversible.
+                  </Text>
+                </VStack>
+              )}
+            </ModalBody>
+            <ModalFooter>
+              <HStack>
+                <Button
+                  variant="secondary"
+                  onClick={() => { setPrestadorAEliminar(null); confirmarEliminar.onClose(); }}
+                  isDisabled={eliminando}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  colorScheme="red"
+                  onClick={eliminarPrestadorConfirm}
+                  isLoading={eliminando}
+                >
+                  Eliminar definitivamente
+                </Button>
+              </HStack>
             </ModalFooter>
           </ModalContent>
         </Modal>

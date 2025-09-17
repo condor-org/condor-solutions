@@ -25,7 +25,17 @@ const DSEM = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "
 
 const hhmm = (h) => (h ? String(h).slice(0,5) : "");
 const diaLabel = (i) => (Number.isInteger(i) && i >= 0 && i <= 6 ? DSEM[i] : `Día ${i ?? "-"}`);
-
+const resumenDia = (slots = []) => {
+  let total = slots.length;
+  let reservados = 0;
+  let soloAbonoDisp = 0; // disponibles marcados como solo abono
+  for (const s of slots) {
+    if (s.estado === "reservado") reservados += 1;
+    else if (s.estado === "disponible" && s.reservado_para_abono) soloAbonoDisp += 1;
+  }
+  const disponibles = total - reservados;
+  return { total, reservados, disponibles, soloAbonoDisp };
+};
 const AgendaAdmin = () => {
   const toast = useToast();
   
@@ -781,30 +791,43 @@ const SlotRow = ({ slot }) => {
     );
   };
   const ListadoMes = () => {
-    const dias = Object.keys(agendaMes).sort();
-    if (!dias.length) return <Text color={muted}>{loadingMes ? "Cargando…" : "No hay turnos para este mes."}</Text>;
-    // agrupar por semana visual (7 columnas)
-    const byWeeks = [];
-    let week = [];
-    const first = new Date(dias[0]);
-    // pad inicial (día de semana 0=Domingo, ajustamos a Lunes=0)
-    const padStart = (first.getDay() + 6) % 7; // Lunes=0..Domingo=6
-    for (let i = 0; i < padStart; i++) week.push(null);
-    dias.forEach(d => {
-      week.push(d);
-      if (week.length === 7) { byWeeks.push(week); week = []; }
-    });
-    if (week.length) while (week.length < 7) week.push(null);
-    if (week.length) byWeeks.push(week);
+  const dias = Object.keys(agendaMes).sort();
+  if (!dias.length) return <Text color={muted}>{loadingMes ? "Cargando…" : "No hay turnos para este mes."}</Text>;
 
-    return (
-      <VStack align="stretch" spacing={3}>
-        <HStack fontSize="sm" color={muted} justify="space-between">
-          {["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"].map((d) => <Box key={d} flex="1" textAlign="center">{d}</Box>)}
-        </HStack>
-        {byWeeks.map((w, wi) => (
-          <HStack key={wi} align="stretch" spacing={3}>
-            {w.map((day, di) => (
+  // armar semanas (7 columnas, Lunes a Domingo)
+  const byWeeks = [];
+  let week = [];
+  const first = new Date(dias[0]);
+  const padStart = (first.getDay() + 6) % 7; // Lunes=0..Domingo=6
+  for (let i = 0; i < padStart; i++) week.push(null);
+  dias.forEach(d => {
+    week.push(d);
+    if (week.length === 7) { byWeeks.push(week); week = []; }
+  });
+  if (week.length) while (week.length < 7) week.push(null);
+  if (week.length) byWeeks.push(week);
+
+  return (
+    <VStack align="stretch" spacing={3}>
+      {/* encabezado de días */}
+      <HStack fontSize="sm" color={muted} justify="space-between">
+        {["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"].map((d) => (
+          <Box key={d} flex="1" textAlign="center">{d}</Box>
+        ))}
+      </HStack>
+
+      {/* grilla mensual compacta */}
+      {byWeeks.map((w, wi) => (
+        <HStack key={wi} align="stretch" spacing={3}>
+          {w.map((day, di) => {
+            if (!day) return (
+              <Box key={`${wi}-${di}`} flex="1" minH="110px" bg={card.bg} rounded="lg" borderWidth="1px" borderColor={input.border} />
+            );
+
+            const slots = agendaMes[day] || [];
+            const { total, reservados, disponibles, soloAbonoDisp } = resumenDia(slots);
+
+            return (
               <Box
                 key={`${wi}-${di}`}
                 flex="1"
@@ -814,53 +837,47 @@ const SlotRow = ({ slot }) => {
                 borderWidth="1px"
                 borderColor={input.border}
                 p={2}
+                _hover={{ bg: hoverBg, cursor: "pointer" }}
+                onClick={() => { setRangeType("day"); setSelectedDate(day); }}
               >
-                {day ? (
-                  <>
-                    <HStack justify="space-between" mb={2}>
-                      <Text fontSize="sm" fontWeight="bold">{day.slice(-2)}</Text>
-                      <Badge variant="outline">{(agendaMes[day] || []).length}</Badge>
+                <HStack justify="space-between" mb={2}>
+                  <Text fontSize="sm" fontWeight="bold">{day.slice(-2)}</Text>
+                  <Badge variant="outline">{total}</Badge>
+                </HStack>
+
+                {/* resumen compacto (sin botones, sin listas) */}
+                <VStack align="stretch" spacing={1}>
+                  <HStack justify="space-between">
+                    <Text fontSize="xs" color={muted}>Disponibles</Text>
+                    <Badge colorScheme="green">{disponibles}</Badge>
+                  </HStack>
+                  <HStack justify="space-between">
+                    <Text fontSize="xs" color={muted}>Reservados</Text>
+                    <Badge colorScheme="red">{reservados}</Badge>
+                  </HStack>
+                  {soloAbonoDisp > 0 && (
+                    <HStack justify="space-between">
+                      <Text fontSize="xs" color={muted}>Solo abono</Text>
+                      <Badge variant="outline">{soloAbonoDisp}</Badge>
                     </HStack>
-                    <VStack align="stretch" spacing={1} maxH="72px" overflowY="auto">
-                      {(agendaMes[day] || []).slice(0,5).map((t) => {
-                        const reservado = t.estado === "reservado";
-                        return (
-                          <HStack
-                            key={t.id}
-                            spacing={2}
-                            p={1}
-                            rounded="md"
-                            _hover={{ bg: hoverBg, cursor: "pointer" }}
-                            onClick={() => reservado ? null : openReservar(t)}
-                          >
-                            <Badge colorScheme={reservado ? "red" : "green"}>{String(t.hora).slice(0,5)}</Badge>
-                            {"reservado_para_abono" in t && t.reservado_para_abono && t.estado === "disponible" && (
-                            <Button
-                              size="xs"
-                              variant="secondary"
-                              onClick={(e) => { e.stopPropagation(); habilitarSuelto(t); }}
-                            >
-                              Habilitar Reserva Turno Suelto
-                            </Button>
-                            )}
-                          </HStack>
-                        );
-                      })}
-                      {(agendaMes[day] || []).length > 5 && (
-                        <Text fontSize="xs" color={muted}>+{(agendaMes[day] || []).length - 5} más</Text>
-                      )}
-                    </VStack>
-                  </>
-                ) : (
-                  <Box />
-                )}
+                  )}
+                </VStack>
               </Box>
-            ))}
-          </HStack>
-        ))}
-      </VStack>
-    );
-  };
+            );
+          })}
+        </HStack>
+      ))}
+
+      {/* leyenda opcional */}
+      <HStack pt={1} spacing={4} color={muted} fontSize="xs">
+        <HStack><Badge variant="outline">N</Badge><Text>Total</Text></HStack>
+        <HStack><Badge colorScheme="green">N</Badge><Text>Disponibles</Text></HStack>
+        <HStack><Badge colorScheme="red">N</Badge><Text>Reservados</Text></HStack>
+        <HStack><Badge variant="outline">N</Badge><Text>Solo abono (disp.)</Text></HStack>
+      </HStack>
+    </VStack>
+  );
+};
 
   return (
     <PageWrapper>
