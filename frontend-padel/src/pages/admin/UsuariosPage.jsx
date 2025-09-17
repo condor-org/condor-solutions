@@ -36,6 +36,7 @@ const UsuariosPage = () => {
   const [email, setEmail] = useState("");
   const [activo, setActivo] = useState(true);
   const [detalleUsuario, setDetalleUsuario] = useState(null);
+  const [cargandoUsuarios, setCargandoUsuarios] = useState(false);
 
   // Sedes / Tipos de clase para emitir bonificación
   const [sedes, setSedes] = useState([]);
@@ -114,13 +115,49 @@ const UsuariosPage = () => {
     })();
   }, [selectedSedeId, accessToken]);
 
-  const reloadUsuarios = () => {
-    
-    const api = axiosAuth(accessToken, logout);
-    api.get("auth/usuarios/")
-      .then(res => setUsuarios(res.data.results || res.data || []))
-      .catch(() => toast.error("Error cargando usuarios"));
-  };
+  const reloadUsuarios = async () => {
+  if (!accessToken) return;
+  const api = axiosAuth(accessToken, logout);
+  const PAGE_SIZE = 200; // si tu backend soporta page_size; si no, DRF lo ignora
+
+  setCargandoUsuarios(true);
+  try {
+    let url = `auth/usuarios/?page_size=${PAGE_SIZE}`;
+    const acumulado = [];
+    let safety = 0;
+
+    while (url && safety < 200) { // safety contra loops
+      const resp = await api.get(url);
+      const data = resp.data;
+
+      // Soporta respuesta paginada y no paginada
+      const items = Array.isArray(data) ? data : (data.results || []);
+      if (Array.isArray(items) && items.length) acumulado.push(...items);
+
+      // DRF puede devolver 'next' absoluto; lo mantenemos tal cual
+      url = (data.next && data.next.trim()) ? data.next : null;
+
+      // Si next es absoluto y tu axios tiene baseURL, igual funciona.
+      // Si preferís forzar relativo:
+      if (url && url.startsWith(api.defaults.baseURL || '')) {
+        url = url.slice((api.defaults.baseURL || '').length);
+      }
+      safety += 1;
+    }
+
+    // Si no hubo 'results' y fue array directo
+    if (acumulado.length === 0 && Array.isArray(resp?.data)) {
+      setUsuarios(resp.data);
+    } else {
+      setUsuarios(acumulado);
+    }
+  } catch (e) {
+    console.error("[Usuarios] Error paginando:", e?.response?.data || e?.message);
+    toast.error("Error cargando usuarios");
+  } finally {
+    setCargandoUsuarios(false);
+  }
+};
 
   const resetForm = () => {
     setEditingId(null);
