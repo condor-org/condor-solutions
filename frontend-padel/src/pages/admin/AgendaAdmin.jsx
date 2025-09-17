@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useMemo, useState } from "react";
 import {
   Box, Stack, HStack, VStack, Text, Select, Tabs, TabList, TabPanels, Tab, TabPanel,
   useColorModeValue, Input as ChakraInput, Divider, Badge, useToast, Modal, ModalOverlay,
-  ModalContent, ModalHeader, ModalBody, ModalFooter, ModalCloseButton, useDisclosure
+  ModalContent, ModalHeader, ModalBody, ModalFooter, ModalCloseButton, useDisclosure,Wrap, WrapItem
 } from "@chakra-ui/react";
 import { AuthContext } from "../../auth/AuthContext";
 import { axiosAuth } from "../../utils/axiosAuth";
@@ -568,12 +568,12 @@ const nombreUsuarioFromId = (uid) => {
 const HeaderFiltros = (
   <VStack align="stretch" spacing={4}>
     {/* 3 botones grandes como en Home */}
-    <HStack spacing={3}>
+    <Stack spacing={3} direction={{ base: "column", md: "row" }}>
       <Button
         size="lg"
         variant={rangeType === "day" ? "primary" : "secondary"}
         onClick={() => onPickRange("day")}
-        style={{ flex: 1 }}
+        w={{ base: "100%", md: "auto" }}
       >
         Día
       </Button>
@@ -581,7 +581,7 @@ const HeaderFiltros = (
         size="lg"
         variant={rangeType === "week" ? "primary" : "secondary"}
         onClick={() => onPickRange("week")}
-        style={{ flex: 1 }}
+        w={{ base: "100%", md: "auto" }}
       >
         Semana
       </Button>
@@ -589,21 +589,22 @@ const HeaderFiltros = (
         size="lg"
         variant={rangeType === "month" ? "primary" : "secondary"}
         onClick={() => onPickRange("month")}
-        style={{ flex: 1 }}
+        w={{ base: "100%", md: "auto" }}
       >
         Mes
       </Button>
-    </HStack>
+    </Stack>
 
     {/* Filtros (una línea completa) */}
-    <HStack
+    <Stack
+      direction={{ base: "column", md: "row" }}
       spacing={3}
       bg={card.bg}
       p={4}
       rounded="lg"
       borderWidth="1px"
       borderColor={input.border}
-      align="center"
+      align={{ base: "stretch", md: "center" }}
     >
       <ChakraInput
         type="date"
@@ -611,6 +612,7 @@ const HeaderFiltros = (
         onChange={onPickDate}
         bg={input.bg}
         borderColor={input.border}
+        w={{ base: "100%", md: "auto" }}
       />
 
       <Select
@@ -624,6 +626,7 @@ const HeaderFiltros = (
         }}
         bg={input.bg}
         borderColor={input.border}
+        w={{ base: "100%", md: "auto" }}
       >
         {(sedes || []).map((s) => (
           <option key={s.id} value={s.id}>
@@ -645,6 +648,7 @@ const HeaderFiltros = (
         bg={input.bg}
         borderColor={input.border}
         isDisabled={!sedeId || loadingPrestadores}
+        w={{ base: "100%", md: "auto" }}
       >
         {(prestadores || []).map((p) => (
           <option key={p.id} value={p.id}>
@@ -652,7 +656,7 @@ const HeaderFiltros = (
           </option>
         ))}
       </Select>
-    </HStack>
+    </Stack>
   </VStack>
 );
 
@@ -688,7 +692,8 @@ const SlotRow = ({ slot }) => {
   };
 
   return (
-    <HStack
+    <Stack
+      direction={{ base: "column", md: "row" }}
       key={slot.id}
       p={3}
       bg={card.bg}
@@ -697,9 +702,9 @@ const SlotRow = ({ slot }) => {
       borderColor={input.border}
       _hover={{ bg: hoverBg }}
       justify="space-between"
-      align="center"
+      align={{ base: "stretch", md: "center" }}
     >
-      <HStack spacing={3}>
+      <HStack spacing={3} flex="1">
         <Badge colorScheme={reservado ? "red" : "green"} variant="solid">
           {reservado ? "Reservado" : "Disponible"}
         </Badge>
@@ -714,10 +719,11 @@ const SlotRow = ({ slot }) => {
         )}
       </HStack>
 
-      <HStack spacing={2}>
+      <Wrap spacing={2} justify={{ base: "flex-start", md: "flex-end" }}>
         {/* Toggle abono/suelto si NO está reservado */}
         {!reservado && typeof slot.reservado_para_abono === "boolean" && (
           slot.reservado_para_abono ? (
+            <WrapItem>
             <Button
               size="sm"
               variant="secondary"
@@ -726,7 +732,9 @@ const SlotRow = ({ slot }) => {
             >
               Habilitar sueltos
             </Button>
+            </WrapItem>
           ) : (
+            <WrapItem>
             <Button
               size="sm"
               variant="secondary"
@@ -735,18 +743,22 @@ const SlotRow = ({ slot }) => {
             >
               Marcar solo para abonos
             </Button>
+            </WrapItem>
           )
         )}
 
         {/* Reservar si NO está reservado */}
         {!reservado && (
+          <WrapItem>
           <Button size="sm" onClick={() => openReservar(slot)} isDisabled={busy}>
             Reservar
           </Button>
+          </WrapItem>
         )}
 
         {/* Liberar si está reservado */}
         {reservado && (
+          <WrapItem>
           <Button
             size="sm"
             variant="secondary"
@@ -755,9 +767,10 @@ const SlotRow = ({ slot }) => {
           >
             Liberar
           </Button>
+          </WrapItem>
         )}
-      </HStack>
-    </HStack>
+      </Wrap>
+    </Stack>
   );
 };
 
@@ -776,12 +789,12 @@ const SlotRow = ({ slot }) => {
         {dias.length === 0 && <Text color={muted}>No hay turnos para los filtros seleccionados.</Text>}
         {dias.map(d => (
           <Box key={d} p={3} bg={card.bg} rounded="lg" borderWidth="1px" borderColor={input.border}>
-            <HStack justify="space-between" mb={2}>
+            <Stack direction={{ base: "column", md: "row" }} justify="space-between" mb={2} gap={2}>
               <Text fontWeight="bold">
                 {diaNombreFromISO(d)} · {fmtDDMMYYYY(d)}
               </Text>
               <Badge variant="outline">{(agendaSemana[d] || []).length} slots</Badge>
-            </HStack>
+            </Stack>
             <VStack align="stretch" spacing={2}>
               {(agendaSemana[d] || []).map(t => <SlotRow key={t.id} slot={t} />)}
             </VStack>
@@ -960,9 +973,10 @@ const SlotRow = ({ slot }) => {
                               borderColor={input.border}
                             >
                               {/* Cabecera clickeable */}
-                            <HStack
+                            <Stack
+                              direction={{ base: "column", md: "row" }}
                               justify="space-between"
-                              align="center"
+                              align={{ base: "stretch", md: "center" }}
                               _hover={{ bg: hoverBg, cursor: "pointer" }}
                               p={2}
                               rounded="md"
@@ -974,18 +988,25 @@ const SlotRow = ({ slot }) => {
                                 Profesor: {a.prestador || `Profe ${a.prestador_id ?? ""}`} ·{" "}
                                 Sede: {a.sede || `Sede ${a.sede_id ?? ""}`}
                               </Text>
-                              <HStack spacing={2}>
+                              <Wrap spacing={2} justify={{ base: "flex-start", md: "flex-end" }}>
+                                 <WrapItem>
                                 <Badge variant="outline">{a?.tipo_clase?.codigo || "—"}</Badge>
-                                {a?.estado && <Badge colorScheme="blue">{a.estado}</Badge>}
+                                 </WrapItem>
+                                {a?.estado && (
+                                  <WrapItem><Badge colorScheme="blue">{a.estado}</Badge></WrapItem>
+                                )}
+                                <WrapItem>
                                 <Button
                                   size="sm"
                                   variant="secondary"
                                   onClick={(e) => { e.stopPropagation(); pedirEliminarAbono(a); }}
+                                  w={{ base: "100%", md: "auto" }}
                                 >
                                   Eliminar
                                 </Button>
-                              </HStack>
-                            </HStack>
+                              </WrapItem>
+                              </Wrap>
+                            </Stack>
 
                               {/* Detalle expandible */}
                               {isOpen && (
@@ -1150,10 +1171,10 @@ const SlotRow = ({ slot }) => {
       )}
     </ModalBody>
     <ModalFooter>
-      <HStack>
+      <Stack direction={{ base: "column", md: "row" }} w="100%" gap={2}>
         <Button variant="secondary" onClick={closeReservar}>Cancelar</Button>
         <Button isLoading={enviandoReserva} onClick={reservarSinPago}>Confirmar</Button>
-      </HStack>
+      </Stack>
     </ModalFooter>
   </ModalContent>
 </Modal>
@@ -1213,12 +1234,12 @@ const SlotRow = ({ slot }) => {
       ) : null}
     </ModalBody>
     <ModalFooter>
-      <HStack>
+      <Stack direction={{ base: "column", md: "row" }} w="100%" gap={2}>
         <Button variant="secondary" onClick={() => { setSlotALiberar(null); confirmarLiberar.onClose(); }}>
           Cancelar
         </Button>
         <Button onClick={onConfirmLiberar}>Confirmar</Button>
-      </HStack>
+      </Stack>
     </ModalFooter>
   </ModalContent>
 </Modal>
@@ -1254,18 +1275,19 @@ const SlotRow = ({ slot }) => {
             ) : null}
           </ModalBody>
           <ModalFooter>
-            <HStack>
+            <Stack direction={{ base: "column", md: "row" }} w="100%" gap={2}>
               <Button
                 variant="secondary"
                 onClick={() => { setAbonoAEliminar(null); confirmarEliminarAbono.onClose(); }}
                 isDisabled={eliminandoAbono}
+                w={{ base: "100%", md: "auto" }}
               >
                 Cancelar
               </Button>
-              <Button onClick={eliminarAbono} isLoading={eliminandoAbono}>
+              <Button onClick={eliminarAbono} isLoading={eliminandoAbono} w={{ base: "100%", md: "auto" }}>
                 Confirmar
               </Button>
-            </HStack>
+            </Stack>
           </ModalFooter>
         </ModalContent>
       </Modal>
