@@ -116,49 +116,52 @@ const UsuariosPage = () => {
   }, [selectedSedeId, accessToken]);
 
   const reloadUsuarios = async () => {
-  if (!accessToken) return;
-  const api = axiosAuth(accessToken, logout);
-  const PAGE_SIZE = 200; // si tu backend soporta page_size; si no, DRF lo ignora
-
-  setCargandoUsuarios(true);
-  try {
-    let url = `auth/usuarios/?page_size=${PAGE_SIZE}`;
-    const acumulado = [];
-    let safety = 0;
-
-    while (url && safety < 200) { // safety contra loops
-      const resp = await api.get(url);
-      const data = resp.data;
-
-      // Soporta respuesta paginada y no paginada
-      const items = Array.isArray(data) ? data : (data.results || []);
-      if (Array.isArray(items) && items.length) acumulado.push(...items);
-
-      // DRF puede devolver 'next' absoluto; lo mantenemos tal cual
-      url = (data.next && data.next.trim()) ? data.next : null;
-
-      // Si next es absoluto y tu axios tiene baseURL, igual funciona.
-      // Si preferís forzar relativo:
-      if (url && url.startsWith(api.defaults.baseURL || '')) {
-        url = url.slice((api.defaults.baseURL || '').length);
+    if (!accessToken) return;
+    const api = axiosAuth(accessToken, logout);
+    const PAGE_SIZE = 200;
+  
+    setCargandoUsuarios(true);
+    try {
+      let url = `auth/usuarios/?page_size=${PAGE_SIZE}`;
+      const acumulado = [];
+      let safety = 0;
+      let firstData = null; // guarda la 1ra respuesta para el caso "array directo"
+  
+      while (url && safety < 200) {
+        const { data } = await api.get(url);
+        if (firstData === null) firstData = data;
+  
+        const items = Array.isArray(data) ? data : (data.results || []);
+        if (Array.isArray(items) && items.length) acumulado.push(...items);
+  
+        // next puede ser absoluto o relativo
+        let nextUrl = (data.next && String(data.next).trim()) ? String(data.next) : null;
+        const base = api.defaults.baseURL || "";
+        if (nextUrl && base && nextUrl.startsWith(base)) {
+          nextUrl = nextUrl.slice(base.length);
+        }
+        url = nextUrl;
+        safety += 1;
       }
-      safety += 1;
+  
+      // Si no hubo paginación y la API responde un array directo
+      if (acumulado.length === 0) {
+        if (Array.isArray(firstData)) {
+          setUsuarios(firstData);
+        } else {
+          setUsuarios(firstData?.results || []);
+        }
+      } else {
+        setUsuarios(acumulado);
+      }
+    } catch (e) {
+      console.error("[Usuarios] Error paginando:", e?.response?.data || e?.message);
+      toast.error("Error cargando usuarios");
+    } finally {
+      setCargandoUsuarios(false);
     }
-
-    // Si no hubo 'results' y fue array directo
-    if (acumulado.length === 0 && Array.isArray(resp?.data)) {
-      setUsuarios(resp.data);
-    } else {
-      setUsuarios(acumulado);
-    }
-  } catch (e) {
-    console.error("[Usuarios] Error paginando:", e?.response?.data || e?.message);
-    toast.error("Error cargando usuarios");
-  } finally {
-    setCargandoUsuarios(false);
-  }
-};
-
+  };
+  
   const resetForm = () => {
     setEditingId(null);
     setNombre("");
