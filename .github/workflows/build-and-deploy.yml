@@ -3,6 +3,7 @@ name: Build & Deploy (DEV/PROD)
 on:
   release:
     types: [published]  # Solo cuando se publica un release
+  pull_request:
   workflow_dispatch:
     inputs:
       environment:
@@ -17,6 +18,8 @@ on:
         required: false
         type: boolean
         default: false
+
+run-name: 'Build & Deploy (DEV/PROD)'
 
 permissions:
   contents: read
