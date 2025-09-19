@@ -29,8 +29,6 @@ permissions:
 env:
   REGISTRY: ghcr.io
   OWNER: ${{ github.repository_owner }}
-  # Para release usa el tag del release; para manual usa el input o último release
-  RELEASE_TAG: ${{ needs.determine-environment.outputs.release_tag || github.event.release.tag_name || 'latest' }}
 
 jobs:
   # Obtener último release si no se especifica tag
@@ -148,6 +146,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [determine-environment, detect-changes]
     if: needs.detect-changes.outputs.any_changes == 'true'
+    env:
+      RELEASE_TAG: ${{ needs.determine-environment.outputs.release_tag }}
     strategy:
       fail-fast: false
       matrix:
@@ -194,7 +194,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
-            ${{ env.REGISTRY }}/${{ steps.lower.outputs.OWNER_LC }}/condor-${{ matrix.name }}:${{ needs.determine-environment.outputs.release_tag }}
+            ${{ env.REGISTRY }}/${{ steps.lower.outputs.OWNER_LC }}/condor-${{ matrix.name }}:${{ env.RELEASE_TAG }}
             ${{ env.REGISTRY }}/${{ steps.lower.outputs.OWNER_LC }}/condor-${{ matrix.name }}:${{ needs.determine-environment.outputs.environment }}-latest
           push: true
 
@@ -204,6 +204,8 @@ jobs:
     needs: [determine-environment, build-and-push]
     if: needs.determine-environment.outputs.is_dev == 'true'
     environment: dev
+    env:
+      RELEASE_TAG: ${{ needs.determine-environment.outputs.release_tag }}
     steps:
       - name: Setup GitHub CLI
         run: |
@@ -345,6 +347,8 @@ jobs:
     needs: [determine-environment, build-and-push]
     if: needs.determine-environment.outputs.is_prod == 'true'
     environment: prod
+    env:
+      RELEASE_TAG: ${{ needs.determine-environment.outputs.release_tag }}
     steps:
       - name: Setup GitHub CLI
         run: |
