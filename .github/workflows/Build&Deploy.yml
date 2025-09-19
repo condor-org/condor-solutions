@@ -38,6 +38,8 @@ jobs:
     outputs:
       latest_tag: ${{ steps.latest.outputs.tag }}
     steps:
+      - uses: actions/checkout@v4
+      
       - name: Get latest release
         id: latest
         env:
