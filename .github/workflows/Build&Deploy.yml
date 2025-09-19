@@ -1,4 +1,4 @@
-name: Build & Deploy (DEV/PROD)
+name: Build & Deploy (DEV/PROD) v2
 
 on:
   release:
@@ -19,7 +19,7 @@ on:
         type: boolean
         default: false
 
-run-name: 'Build & Deploy (DEV/PROD)'
+run-name: 'Build & Deploy (DEV/PROD) final'
 
 permissions:
   contents: read
