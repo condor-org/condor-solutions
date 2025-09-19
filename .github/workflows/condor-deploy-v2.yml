@@ -221,18 +221,18 @@ jobs:
       - name: Exportar secrets del environment dev
         run: |
           # Exportar secrets a GITHUB_ENV para que estén disponibles en el siguiente step
-          echo "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" >> $GITHUB_ENV
-          echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> $GITHUB_ENV
-          echo "GCP_SA_CLIENT_EMAIL=${{ secrets.GCP_SA_CLIENT_EMAIL }}" >> $GITHUB_ENV
-          echo "GCP_SA_PROJECT_ID=${{ secrets.GCP_SA_PROJECT_ID }}" >> $GITHUB_ENV
-          echo "GOOGLE_CREDS=${{ secrets.GOOGLE_CREDS }}" >> $GITHUB_ENV
-          echo "VISION_OCR_BUCKET=${{ secrets.VISION_OCR_BUCKET }}" >> $GITHUB_ENV
-          echo "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
-          echo "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" >> $GITHUB_ENV
-          echo "STATE_HMAC_SECRET=${{ secrets.STATE_HMAC_SECRET }}" >> $GITHUB_ENV
-          echo "PUBLIC_GOOGLE_CLIENT_ID=${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
-          echo "GH_AUTOMATION_TOKEN=${{ secrets.GH_AUTOMATION_TOKEN }}" >> $GITHUB_ENV
-          echo "GHCR_USERNAME=${{ secrets.GHCR_USERNAME }}" >> $GITHUB_ENV
+          printf "DJANGO_SECRET_KEY=%s\n" "${{ secrets.DJANGO_SECRET_KEY }}" >> $GITHUB_ENV
+          printf "POSTGRES_PASSWORD=%s\n" "${{ secrets.POSTGRES_PASSWORD }}" >> $GITHUB_ENV
+          printf "GCP_SA_CLIENT_EMAIL=%s\n" "${{ secrets.GCP_SA_CLIENT_EMAIL }}" >> $GITHUB_ENV
+          printf "GCP_SA_PROJECT_ID=%s\n" "${{ secrets.GCP_SA_PROJECT_ID }}" >> $GITHUB_ENV
+          printf "GOOGLE_CREDS=%s\n" "${{ secrets.GOOGLE_CREDS }}" >> $GITHUB_ENV
+          printf "VISION_OCR_BUCKET=%s\n" "${{ secrets.VISION_OCR_BUCKET }}" >> $GITHUB_ENV
+          printf "GOOGLE_CLIENT_ID=%s\n" "${{ secrets.GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
+          printf "GOOGLE_CLIENT_SECRET=%s\n" "${{ secrets.GOOGLE_CLIENT_SECRET }}" >> $GITHUB_ENV
+          printf "STATE_HMAC_SECRET=%s\n" "${{ secrets.STATE_HMAC_SECRET }}" >> $GITHUB_ENV
+          printf "PUBLIC_GOOGLE_CLIENT_ID=%s\n" "${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
+          printf "GH_AUTOMATION_TOKEN=%s\n" "${{ secrets.GH_AUTOMATION_TOKEN }}" >> $GITHUB_ENV
+          printf "GHCR_USERNAME=%s\n" "${{ secrets.GHCR_USERNAME }}" >> $GITHUB_ENV
           
           echo "✅ Secrets exportados a GITHUB_ENV"
 
@@ -386,18 +386,18 @@ jobs:
       - name: Exportar secrets del environment prod
         run: |
           # Exportar secrets a GITHUB_ENV para que estén disponibles en el siguiente step
-          echo "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" >> $GITHUB_ENV
-          echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> $GITHUB_ENV
-          echo "GCP_SA_CLIENT_EMAIL=${{ secrets.GCP_SA_CLIENT_EMAIL }}" >> $GITHUB_ENV
-          echo "GCP_SA_PROJECT_ID=${{ secrets.GCP_SA_PROJECT_ID }}" >> $GITHUB_ENV
-          echo "GOOGLE_CREDS=${{ secrets.GOOGLE_CREDS }}" >> $GITHUB_ENV
-          echo "VISION_OCR_BUCKET=${{ secrets.VISION_OCR_BUCKET }}" >> $GITHUB_ENV
-          echo "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
-          echo "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" >> $GITHUB_ENV
-          echo "STATE_HMAC_SECRET=${{ secrets.STATE_HMAC_SECRET }}" >> $GITHUB_ENV
-          echo "PUBLIC_GOOGLE_CLIENT_ID=${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
-          echo "GH_AUTOMATION_TOKEN=${{ secrets.GH_AUTOMATION_TOKEN }}" >> $GITHUB_ENV
-          echo "GHCR_USERNAME=${{ secrets.GHCR_USERNAME }}" >> $GITHUB_ENV
+          printf "DJANGO_SECRET_KEY=%s\n" "${{ secrets.DJANGO_SECRET_KEY }}" >> $GITHUB_ENV
+          printf "POSTGRES_PASSWORD=%s\n" "${{ secrets.POSTGRES_PASSWORD }}" >> $GITHUB_ENV
+          printf "GCP_SA_CLIENT_EMAIL=%s\n" "${{ secrets.GCP_SA_CLIENT_EMAIL }}" >> $GITHUB_ENV
+          printf "GCP_SA_PROJECT_ID=%s\n" "${{ secrets.GCP_SA_PROJECT_ID }}" >> $GITHUB_ENV
+          printf "GOOGLE_CREDS=%s\n" "${{ secrets.GOOGLE_CREDS }}" >> $GITHUB_ENV
+          printf "VISION_OCR_BUCKET=%s\n" "${{ secrets.VISION_OCR_BUCKET }}" >> $GITHUB_ENV
+          printf "GOOGLE_CLIENT_ID=%s\n" "${{ secrets.GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
+          printf "GOOGLE_CLIENT_SECRET=%s\n" "${{ secrets.GOOGLE_CLIENT_SECRET }}" >> $GITHUB_ENV
+          printf "STATE_HMAC_SECRET=%s\n" "${{ secrets.STATE_HMAC_SECRET }}" >> $GITHUB_ENV
+          printf "PUBLIC_GOOGLE_CLIENT_ID=%s\n" "${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
+          printf "GH_AUTOMATION_TOKEN=%s\n" "${{ secrets.GH_AUTOMATION_TOKEN }}" >> $GITHUB_ENV
+          printf "GHCR_USERNAME=%s\n" "${{ secrets.GHCR_USERNAME }}" >> $GITHUB_ENV
           
           echo "✅ Secrets exportados a GITHUB_ENV"
 
