@@ -303,7 +303,7 @@ jobs:
             done
 
             echo "[+] Migraciones DEV"
-            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_condor_dev python manage.py migrate --noinput
+            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_dev python manage.py migrate --noinput
 
             echo "[+] Deploy proxy (si no está corriendo)"
             if ! docker ps --format "table {{.Names}}" | grep -q "condor_prod-proxy"; then
@@ -312,7 +312,7 @@ jobs:
             fi
 
             echo "[+] Smoke tests DEV"
-            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_condor_dev sh -lc '
+            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_dev sh -lc '
               command -v curl >/dev/null || apk add --no-cache curl >/dev/null
               echo " - /api/healthz (BE DEV)"
               curl -fsS http://localhost:8000/api/healthz >/dev/null || true
