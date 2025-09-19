@@ -220,7 +220,6 @@ jobs:
 
       - name: Exportar secrets del environment dev
         run: |
-          # Exportar secrets a GITHUB_ENV para que estén disponibles en el siguiente step
           printf "DJANGO_SECRET_KEY=%s\n" "${{ secrets.DJANGO_SECRET_KEY }}" >> $GITHUB_ENV
           printf "POSTGRES_PASSWORD=%s\n" "${{ secrets.POSTGRES_PASSWORD }}" >> $GITHUB_ENV
           printf "GCP_SA_CLIENT_EMAIL=%s\n" "${{ secrets.GCP_SA_CLIENT_EMAIL }}" >> $GITHUB_ENV
@@ -233,7 +232,6 @@ jobs:
           printf "PUBLIC_GOOGLE_CLIENT_ID=%s\n" "${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
           printf "GH_AUTOMATION_TOKEN=%s\n" "${{ secrets.GH_AUTOMATION_TOKEN }}" >> $GITHUB_ENV
           printf "GHCR_USERNAME=%s\n" "${{ secrets.GHCR_USERNAME }}" >> $GITHUB_ENV
-          
           echo "✅ Secrets exportados a GITHUB_ENV"
 
       - name: Deploy a DEV
@@ -296,7 +294,6 @@ jobs:
             # Variables del environment dev (obtenidas via GitHub CLI)
             $(cat vars.txt)
             
-            # Secrets del environment dev
             GH_AUTOMATION_TOKEN=$GH_AUTOMATION_TOKEN
             DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY
             POSTGRES_PASSWORD=$POSTGRES_PASSWORD
@@ -385,7 +382,6 @@ jobs:
 
       - name: Exportar secrets del environment prod
         run: |
-          # Exportar secrets a GITHUB_ENV para que estén disponibles en el siguiente step
           printf "DJANGO_SECRET_KEY=%s\n" "${{ secrets.DJANGO_SECRET_KEY }}" >> $GITHUB_ENV
           printf "POSTGRES_PASSWORD=%s\n" "${{ secrets.POSTGRES_PASSWORD }}" >> $GITHUB_ENV
           printf "GCP_SA_CLIENT_EMAIL=%s\n" "${{ secrets.GCP_SA_CLIENT_EMAIL }}" >> $GITHUB_ENV
@@ -398,7 +394,6 @@ jobs:
           printf "PUBLIC_GOOGLE_CLIENT_ID=%s\n" "${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
           printf "GH_AUTOMATION_TOKEN=%s\n" "${{ secrets.GH_AUTOMATION_TOKEN }}" >> $GITHUB_ENV
           printf "GHCR_USERNAME=%s\n" "${{ secrets.GHCR_USERNAME }}" >> $GITHUB_ENV
-          
           echo "✅ Secrets exportados a GITHUB_ENV"
 
       - name: Deploy a PROD
@@ -461,7 +456,6 @@ jobs:
             # Variables del environment prod (obtenidas via GitHub CLI)
             $(cat vars.txt)
             
-            # Secrets del environment prod
             GH_AUTOMATION_TOKEN=$GH_AUTOMATION_TOKEN
             DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY
             POSTGRES_PASSWORD=$POSTGRES_PASSWORD
