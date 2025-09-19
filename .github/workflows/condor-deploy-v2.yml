@@ -201,38 +201,7 @@ jobs:
           # GitHub CLI viene preinstalado en ubuntu-latest
           gh --version
 
-      - name: Obtener variables del environment dev
-        run: |
-          # Obtener variables del environment dev
-          gh variable list --env dev --json name,value | \
-            jq -r '.[] | "\(.name)=\(.value)"' > vars.txt
-          
-          # Obtener nombres de secrets (no podemos leer valores)
-          gh secret list --env dev --json name | \
-            jq -r '.[].name' > secrets.txt
-          
-          echo "Variables encontradas:"
-          cat vars.txt
-          echo "Secrets encontrados:"
-          cat secrets.txt
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Exportar secrets del environment dev
-        run: |
-          printf "DJANGO_SECRET_KEY=%s\n" "${{ secrets.DJANGO_SECRET_KEY }}" >> $GITHUB_ENV
-          printf "POSTGRES_PASSWORD=%s\n" "${{ secrets.POSTGRES_PASSWORD }}" >> $GITHUB_ENV
-          printf "GCP_SA_CLIENT_EMAIL=%s\n" "${{ secrets.GCP_SA_CLIENT_EMAIL }}" >> $GITHUB_ENV
-          printf "GCP_SA_PROJECT_ID=%s\n" "${{ secrets.GCP_SA_PROJECT_ID }}" >> $GITHUB_ENV
-          printf "GOOGLE_CREDS=%s\n" "${{ secrets.GOOGLE_CREDS }}" >> $GITHUB_ENV
-          printf "VISION_OCR_BUCKET=%s\n" "${{ secrets.VISION_OCR_BUCKET }}" >> $GITHUB_ENV
-          printf "GOOGLE_CLIENT_ID=%s\n" "${{ secrets.GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
-          printf "GOOGLE_CLIENT_SECRET=%s\n" "${{ secrets.GOOGLE_CLIENT_SECRET }}" >> $GITHUB_ENV
-          printf "STATE_HMAC_SECRET=%s\n" "${{ secrets.STATE_HMAC_SECRET }}" >> $GITHUB_ENV
-          printf "PUBLIC_GOOGLE_CLIENT_ID=%s\n" "${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
-          printf "GH_AUTOMATION_TOKEN=%s\n" "${{ secrets.GH_AUTOMATION_TOKEN }}" >> $GITHUB_ENV
-          printf "GHCR_USERNAME=%s\n" "${{ secrets.GHCR_USERNAME }}" >> $GITHUB_ENV
-          echo "✅ Secrets exportados a GITHUB_ENV"
 
       - name: Deploy a DEV
         uses: appleboy/ssh-action@v1.0.3
@@ -245,19 +214,6 @@ jobs:
           command_timeout: 10m
           proxy_port: 22
           proxy_timeout: 30s
-          envs: |
-            DJANGO_SECRET_KEY
-            POSTGRES_PASSWORD
-            GCP_SA_CLIENT_EMAIL
-            GCP_SA_PROJECT_ID
-            GOOGLE_CREDS
-            VISION_OCR_BUCKET
-            GOOGLE_CLIENT_ID
-            GOOGLE_CLIENT_SECRET
-            STATE_HMAC_SECRET
-            PUBLIC_GOOGLE_CLIENT_ID
-            GH_AUTOMATION_TOKEN
-            GHCR_USERNAME
           script: |
             set -euo pipefail
             trap 'echo "❌ Error en línea $LINENO" >&2' ERR
@@ -266,7 +222,7 @@ jobs:
             echo "[+] Deploy DEV - Parámetros"
             echo "    TAG=${{ env.RELEASE_TAG }}"
             echo "    ENVIRONMENT=dev"
-            TOKEN="$GH_AUTOMATION_TOKEN"
+            TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
             REPO="condor-ai-solutions/condor"
 
             echo "[+] Backups si ya existen"
@@ -286,34 +242,50 @@ jobs:
               -o docker-compose-proxy.yml
 
             echo "[+] Docker login GHCR"
-            echo "$GH_AUTOMATION_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+            echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
 
             echo "[+] Generar .env.dev automáticamente"
             # Crear .env.dev con variables del environment + secrets
-            cat > .env.dev << EOF
-            # Variables del environment dev (obtenidas via GitHub CLI)
-            $(cat vars.txt)
-            
-            GH_AUTOMATION_TOKEN=$GH_AUTOMATION_TOKEN
-            DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY
-            POSTGRES_PASSWORD=$POSTGRES_PASSWORD
-            GCP_SA_CLIENT_EMAIL=$GCP_SA_CLIENT_EMAIL
-            GCP_SA_PROJECT_ID=$GCP_SA_PROJECT_ID
-            GOOGLE_CREDS=$GOOGLE_CREDS
-            VISION_OCR_BUCKET=$VISION_OCR_BUCKET
-            GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
-            GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET
-            STATE_HMAC_SECRET=$STATE_HMAC_SECRET
-            PUBLIC_GOOGLE_CLIENT_ID=$PUBLIC_GOOGLE_CLIENT_ID
-            
-            # Variables específicas del deploy
-            OWNER=${{ env.OWNER }}
-            IMAGE_PREFIX=condor
-            BACKEND_TAG_DEV=${{ env.RELEASE_TAG }}
-            FRONTEND_TAG_DEV=${{ env.RELEASE_TAG }}
-            CRON_TAG_DEV=${{ env.RELEASE_TAG }}
-            PROXY_TAG=${{ env.RELEASE_TAG }}
-            EOF
+            printf '%s\n' \
+              "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" \
+              "DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,${{ vars.ALLOWED_HOSTS }}" \
+              "CSRF_TRUSTED_ORIGINS=${{ vars.CSRF_TRUSTED_ORIGINS }}" \
+              "DJANGO_ENV=dev" \
+              "DJANGO_SECURE_SSL_REDIRECT=False" \
+              "DJANGO_HSTS_SECONDS=0" \
+              "REDIS_URL=${{ vars.REDIS_URL }}" \
+              "PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}" \
+              "PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}" \
+              "PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}" \
+              "PUBLIC_COLOR_PRIMARIO=${{ vars.PUBLIC_COLOR_PRIMARIO }}" \
+              "PUBLIC_COLOR_SECUNDARIO=${{ vars.PUBLIC_COLOR_SECUNDARIO }}" \
+              "POSTGRES_DB=${{ vars.POSTGRES_DB }}" \
+              "POSTGRES_USER=${{ vars.POSTGRES_USER }}" \
+              "POSTGRES_HOST=${{ vars.POSTGRES_HOST }}" \
+              "POSTGRES_PORT=${{ vars.POSTGRES_PORT }}" \
+              "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" \
+              "OWNER=${{ env.OWNER }}" \
+              "IMAGE_PREFIX=condor" \
+              "BACKEND_TAG_DEV=${{ env.RELEASE_TAG }}" \
+              "FRONTEND_TAG_DEV=${{ env.RELEASE_TAG }}" \
+              "CRON_TAG_DEV=${{ env.RELEASE_TAG }}" \
+              "PROXY_TAG=${{ env.RELEASE_TAG }}" \
+              "GCP_SA_CLIENT_EMAIL=${{ secrets.GCP_SA_CLIENT_EMAIL }}" \
+              "GCP_SA_PROJECT_ID=${{ secrets.GCP_SA_PROJECT_ID }}" \
+              "GOOGLE_CREDS=${{ secrets.GOOGLE_CREDS }}" \
+              "VISION_OCR_BUCKET=${{ secrets.VISION_OCR_BUCKET }}" \
+              "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" \
+              "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" \
+              "STATE_HMAC_SECRET=${{ secrets.STATE_HMAC_SECRET }}" \
+              "GOOGLE_ISSUER=${{ vars.GOOGLE_ISSUER }}" \
+              "GOOGLE_JWKS_URL=${{ vars.GOOGLE_JWKS_URL }}" \
+              "OAUTH_REDIRECT_URI=${{ vars.OAUTH_REDIRECT_URI }}" \
+              "FEATURE_OAUTH_INVITES=${{ vars.FEATURE_OAUTH_INVITES }}" \
+              "OAUTH_AUTO_PROVISION=${{ vars.OAUTH_AUTO_PROVISION }}" \
+              "OAUTH_ALLOWED_EMAIL_DOMAIN=${{ vars.OAUTH_ALLOWED_EMAIL_DOMAIN }}" \
+              "PUBLIC_GOOGLE_CLIENT_ID=${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}" \
+              "PUBLIC_OAUTH_REDIRECT_URI=${{ vars.PUBLIC_OAUTH_REDIRECT_URI }}" \
+              > .env.dev
 
             echo "[+] Pull de imágenes DEV"
             docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml pull
@@ -363,38 +335,7 @@ jobs:
           # GitHub CLI viene preinstalado en ubuntu-latest
           gh --version
 
-      - name: Obtener variables del environment prod
-        run: |
-          # Obtener variables del environment prod
-          gh variable list --env prod --json name,value | \
-            jq -r '.[] | "\(.name)=\(.value)"' > vars.txt
-          
-          # Obtener nombres de secrets (no podemos leer valores)
-          gh secret list --env prod --json name | \
-            jq -r '.[].name' > secrets.txt
-          
-          echo "Variables encontradas:"
-          cat vars.txt
-          echo "Secrets encontrados:"
-          cat secrets.txt
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Exportar secrets del environment prod
-        run: |
-          printf "DJANGO_SECRET_KEY=%s\n" "${{ secrets.DJANGO_SECRET_KEY }}" >> $GITHUB_ENV
-          printf "POSTGRES_PASSWORD=%s\n" "${{ secrets.POSTGRES_PASSWORD }}" >> $GITHUB_ENV
-          printf "GCP_SA_CLIENT_EMAIL=%s\n" "${{ secrets.GCP_SA_CLIENT_EMAIL }}" >> $GITHUB_ENV
-          printf "GCP_SA_PROJECT_ID=%s\n" "${{ secrets.GCP_SA_PROJECT_ID }}" >> $GITHUB_ENV
-          printf "GOOGLE_CREDS=%s\n" "${{ secrets.GOOGLE_CREDS }}" >> $GITHUB_ENV
-          printf "VISION_OCR_BUCKET=%s\n" "${{ secrets.VISION_OCR_BUCKET }}" >> $GITHUB_ENV
-          printf "GOOGLE_CLIENT_ID=%s\n" "${{ secrets.GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
-          printf "GOOGLE_CLIENT_SECRET=%s\n" "${{ secrets.GOOGLE_CLIENT_SECRET }}" >> $GITHUB_ENV
-          printf "STATE_HMAC_SECRET=%s\n" "${{ secrets.STATE_HMAC_SECRET }}" >> $GITHUB_ENV
-          printf "PUBLIC_GOOGLE_CLIENT_ID=%s\n" "${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
-          printf "GH_AUTOMATION_TOKEN=%s\n" "${{ secrets.GH_AUTOMATION_TOKEN }}" >> $GITHUB_ENV
-          printf "GHCR_USERNAME=%s\n" "${{ secrets.GHCR_USERNAME }}" >> $GITHUB_ENV
-          echo "✅ Secrets exportados a GITHUB_ENV"
 
       - name: Deploy a PROD
         uses: appleboy/ssh-action@v1.0.3
@@ -407,19 +348,6 @@ jobs:
           command_timeout: 10m
           proxy_port: 22
           proxy_timeout: 30s
-          envs: |
-            DJANGO_SECRET_KEY
-            POSTGRES_PASSWORD
-            GCP_SA_CLIENT_EMAIL
-            GCP_SA_PROJECT_ID
-            GOOGLE_CREDS
-            VISION_OCR_BUCKET
-            GOOGLE_CLIENT_ID
-            GOOGLE_CLIENT_SECRET
-            STATE_HMAC_SECRET
-            PUBLIC_GOOGLE_CLIENT_ID
-            GH_AUTOMATION_TOKEN
-            GHCR_USERNAME
           script: |
             set -euo pipefail
             trap 'echo "❌ Error en línea $LINENO" >&2' ERR
@@ -428,7 +356,7 @@ jobs:
             echo "[+] Deploy PROD - Parámetros"
             echo "    TAG=${{ env.RELEASE_TAG }}"
             echo "    ENVIRONMENT=prod"
-            TOKEN="$GH_AUTOMATION_TOKEN"
+            TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
             REPO="condor-ai-solutions/condor"
 
             echo "[+] Backups si ya existen"
@@ -448,34 +376,50 @@ jobs:
               -o docker-compose-proxy.yml
 
             echo "[+] Docker login GHCR"
-            echo "$GH_AUTOMATION_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+            echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
 
             echo "[+] Generar .env.prod automáticamente"
             # Crear .env.prod con variables del environment + secrets
-            cat > .env.prod << EOF
-            # Variables del environment prod (obtenidas via GitHub CLI)
-            $(cat vars.txt)
-            
-            GH_AUTOMATION_TOKEN=$GH_AUTOMATION_TOKEN
-            DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY
-            POSTGRES_PASSWORD=$POSTGRES_PASSWORD
-            GCP_SA_CLIENT_EMAIL=$GCP_SA_CLIENT_EMAIL
-            GCP_SA_PROJECT_ID=$GCP_SA_PROJECT_ID
-            GOOGLE_CREDS=$GOOGLE_CREDS
-            VISION_OCR_BUCKET=$VISION_OCR_BUCKET
-            GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
-            GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET
-            STATE_HMAC_SECRET=$STATE_HMAC_SECRET
-            PUBLIC_GOOGLE_CLIENT_ID=$PUBLIC_GOOGLE_CLIENT_ID
-            
-            # Variables específicas del deploy
-            OWNER=${{ env.OWNER }}
-            IMAGE_PREFIX=condor
-            BACKEND_TAG=${{ env.RELEASE_TAG }}
-            FRONTEND_TAG=${{ env.RELEASE_TAG }}
-            CRON_TAG=${{ env.RELEASE_TAG }}
-            PROXY_TAG=${{ env.RELEASE_TAG }}
-            EOF
+            printf '%s\n' \
+              "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" \
+              "DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,${{ vars.ALLOWED_HOSTS }}" \
+              "CSRF_TRUSTED_ORIGINS=${{ vars.CSRF_TRUSTED_ORIGINS }}" \
+              "DJANGO_ENV=prod" \
+              "DJANGO_SECURE_SSL_REDIRECT=False" \
+              "DJANGO_HSTS_SECONDS=0" \
+              "REDIS_URL=${{ vars.REDIS_URL }}" \
+              "PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}" \
+              "PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}" \
+              "PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}" \
+              "PUBLIC_COLOR_PRIMARIO=${{ vars.PUBLIC_COLOR_PRIMARIO }}" \
+              "PUBLIC_COLOR_SECUNDARIO=${{ vars.PUBLIC_COLOR_SECUNDARIO }}" \
+              "POSTGRES_DB=${{ vars.POSTGRES_DB }}" \
+              "POSTGRES_USER=${{ vars.POSTGRES_USER }}" \
+              "POSTGRES_HOST=${{ vars.POSTGRES_HOST }}" \
+              "POSTGRES_PORT=${{ vars.POSTGRES_PORT }}" \
+              "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" \
+              "OWNER=${{ env.OWNER }}" \
+              "IMAGE_PREFIX=condor" \
+              "BACKEND_TAG=${{ env.RELEASE_TAG }}" \
+              "FRONTEND_TAG=${{ env.RELEASE_TAG }}" \
+              "CRON_TAG=${{ env.RELEASE_TAG }}" \
+              "PROXY_TAG=${{ env.RELEASE_TAG }}" \
+              "GCP_SA_CLIENT_EMAIL=${{ secrets.GCP_SA_CLIENT_EMAIL }}" \
+              "GCP_SA_PROJECT_ID=${{ secrets.GCP_SA_PROJECT_ID }}" \
+              "GOOGLE_CREDS=${{ secrets.GOOGLE_CREDS }}" \
+              "VISION_OCR_BUCKET=${{ secrets.VISION_OCR_BUCKET }}" \
+              "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" \
+              "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" \
+              "STATE_HMAC_SECRET=${{ secrets.STATE_HMAC_SECRET }}" \
+              "GOOGLE_ISSUER=${{ vars.GOOGLE_ISSUER }}" \
+              "GOOGLE_JWKS_URL=${{ vars.GOOGLE_JWKS_URL }}" \
+              "OAUTH_REDIRECT_URI=${{ vars.OAUTH_REDIRECT_URI }}" \
+              "FEATURE_OAUTH_INVITES=${{ vars.FEATURE_OAUTH_INVITES }}" \
+              "OAUTH_AUTO_PROVISION=${{ vars.OAUTH_AUTO_PROVISION }}" \
+              "OAUTH_ALLOWED_EMAIL_DOMAIN=${{ vars.OAUTH_ALLOWED_EMAIL_DOMAIN }}" \
+              "PUBLIC_GOOGLE_CLIENT_ID=${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}" \
+              "PUBLIC_OAUTH_REDIRECT_URI=${{ vars.PUBLIC_OAUTH_REDIRECT_URI }}" \
+              > .env.prod
 
             echo "[+] Pull de imágenes PROD"
             docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml pull
