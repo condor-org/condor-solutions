@@ -201,7 +201,7 @@ jobs:
   deploy-proxy:
     runs-on: ubuntu-latest
     if: inputs.deploy_proxy == 'true'
-    needs: [determine-environment, detect-changes, build-and-push]
+    needs: [determine-environment, detect-changes]
     environment: prod  # Usar environment prod para secrets del proxy
     env:
       RELEASE_TAG: ${{ needs.determine-environment.outputs.release_tag }}
@@ -229,7 +229,11 @@ jobs:
             echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
             
             echo "[+] Pull Proxy Image"
-            docker pull ghcr.io/${{ env.OWNER }}/condor-proxy:${{ env.RELEASE_TAG }}
+            if ! docker pull ghcr.io/${{ env.OWNER }}/condor-proxy:${{ env.RELEASE_TAG }}; then
+              echo "[!] Proxy image not found, need to build it first"
+              echo "[!] Run with force_rebuild=true to build proxy image"
+              exit 1
+            fi
             
             echo "[+] Deploy Proxy"
             docker compose -p condor_proxy --env-file .env.proxy -f docker-compose-proxy.yml up -d
