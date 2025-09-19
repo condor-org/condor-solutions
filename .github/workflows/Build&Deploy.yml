@@ -40,6 +40,8 @@ jobs:
     steps:
       - name: Get latest release
         id: latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           LATEST_TAG=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
           echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
@@ -208,12 +210,14 @@ jobs:
       RELEASE_TAG: ${{ needs.determine-environment.outputs.release_tag }}
     steps:
       - name: Setup GitHub CLI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # GitHub CLI viene preinstalado en ubuntu-latest
           gh --version
           
           # Autenticar (opcional, ya tiene GITHUB_TOKEN por defecto)
-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          echo "$GH_TOKEN" | gh auth login --with-token
 
       - name: Get environment variables
         id: env-vars
@@ -351,12 +355,14 @@ jobs:
       RELEASE_TAG: ${{ needs.determine-environment.outputs.release_tag }}
     steps:
       - name: Setup GitHub CLI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # GitHub CLI viene preinstalado en ubuntu-latest
           gh --version
           
           # Autenticar (opcional, ya tiene GITHUB_TOKEN por defecto)
-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          echo "$GH_TOKEN" | gh auth login --with-token
 
       - name: Get environment variables
         id: env-vars
