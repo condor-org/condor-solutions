@@ -218,6 +218,24 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Exportar secrets del environment dev
+        run: |
+          # Exportar todos los secrets del environment dev
+          export DJANGO_SECRET_KEY="${{ secrets.DJANGO_SECRET_KEY }}"
+          export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
+          export GCP_SA_CLIENT_EMAIL="${{ secrets.GCP_SA_CLIENT_EMAIL }}"
+          export GCP_SA_PROJECT_ID="${{ secrets.GCP_SA_PROJECT_ID }}"
+          export GOOGLE_CREDS="${{ secrets.GOOGLE_CREDS }}"
+          export VISION_OCR_BUCKET="${{ secrets.VISION_OCR_BUCKET }}"
+          export GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}"
+          export GOOGLE_CLIENT_SECRET="${{ secrets.GOOGLE_CLIENT_SECRET }}"
+          export STATE_HMAC_SECRET="${{ secrets.STATE_HMAC_SECRET }}"
+          export PUBLIC_GOOGLE_CLIENT_ID="${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}"
+          export GH_AUTOMATION_TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
+          export GHCR_USERNAME="${{ secrets.GHCR_USERNAME }}"
+          
+          echo "✅ Secrets exportados correctamente"
+
       - name: Deploy a DEV
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -364,6 +382,24 @@ jobs:
           cat secrets.txt
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Exportar secrets del environment prod
+        run: |
+          # Exportar todos los secrets del environment prod
+          export DJANGO_SECRET_KEY="${{ secrets.DJANGO_SECRET_KEY }}"
+          export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
+          export GCP_SA_CLIENT_EMAIL="${{ secrets.GCP_SA_CLIENT_EMAIL }}"
+          export GCP_SA_PROJECT_ID="${{ secrets.GCP_SA_PROJECT_ID }}"
+          export GOOGLE_CREDS="${{ secrets.GOOGLE_CREDS }}"
+          export VISION_OCR_BUCKET="${{ secrets.VISION_OCR_BUCKET }}"
+          export GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}"
+          export GOOGLE_CLIENT_SECRET="${{ secrets.GOOGLE_CLIENT_SECRET }}"
+          export STATE_HMAC_SECRET="${{ secrets.STATE_HMAC_SECRET }}"
+          export PUBLIC_GOOGLE_CLIENT_ID="${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}"
+          export GH_AUTOMATION_TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
+          export GHCR_USERNAME="${{ secrets.GHCR_USERNAME }}"
+          
+          echo "✅ Secrets exportados correctamente"
 
       - name: Deploy a PROD
         uses: appleboy/ssh-action@v1.0.3
