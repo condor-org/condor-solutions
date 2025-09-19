@@ -201,7 +201,7 @@ jobs:
   deploy-proxy:
     runs-on: ubuntu-latest
     if: inputs.deploy_proxy == 'true'
-    needs: [determine-environment, detect-changes]
+    needs: [determine-environment]
     environment: prod  # Usar environment prod para secrets del proxy
     env:
       RELEASE_TAG: ${{ needs.determine-environment.outputs.release_tag }}
@@ -247,7 +247,7 @@ jobs:
   # Deploy a DEV
   deploy-dev:
     runs-on: ubuntu-latest
-    needs: [determine-environment, detect-changes, build-and-push, deploy-proxy]
+    needs: [determine-environment, detect-changes, build-and-push]
     if: needs.determine-environment.outputs.is_dev == 'true'
     environment: dev
     env:
@@ -381,7 +381,7 @@ jobs:
   # Deploy a PROD
   deploy-prod:
     runs-on: ubuntu-latest
-    needs: [determine-environment, detect-changes, build-and-push, deploy-proxy]
+    needs: [determine-environment, detect-changes, build-and-push]
     if: needs.determine-environment.outputs.is_prod == 'true'
     environment: prod
     env:
