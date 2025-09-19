@@ -1,0 +1,36 @@
+version: "3.9"
+
+networks:
+  condor_net:
+    external: true
+    name: condor_net
+  condor_net_dev:
+    external: true
+    name: condor_net_dev
+
+volumes:
+  certbot_etc:
+    external: true
+    name: condor_certbot_etc
+
+services:
+  proxy:
+    # Podés usar tu imagen publicada en GHCR:
+    image: ghcr.io/${OWNER}/${IMAGE_PREFIX}-proxy:${PROXY_TAG}
+    # …o si la buildéas en EC2, algo como: condor-proxy:ec2
+    container_name: proxy_condor
+    environment:
+      PROXY_MODE: ec2
+    ports:
+      - "80:8080"
+      - "443:8443"
+    volumes:
+      - ./reverse-proxy/nginx.ec2.conf:/etc/nginx/nginx.conf:ro
+      - certbot_etc:/etc/letsencrypt:ro
+    restart: always
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    networks:
+      - condor_net       # prod
+      - condor_net_dev   # dev

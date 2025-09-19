@@ -3,7 +3,7 @@ from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.db import transaction
-import logging, random, string
+import logging, random, string, os
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -12,19 +12,16 @@ def _alias_random(n=10): return ''.join(random.choices(string.ascii_uppercase + 
 def _cbu_random(): return ''.join(random.choices('0123456789', k=22))
 
 class Command(BaseCommand):
-    help = "Bootstrap Condor: usuarios base, cliente/sedes/config, tipos, prestador/disponibilidades y generación de turnos via cron real."
+    help = "Bootstrap Condor: usuarios base, cliente/sedes/config, tipos, prestador/disponibilidades, dominios del cliente y cron."
 
     def add_arguments(self, parser):
-        parser.add_argument("--super-email", default="superadmin@sadmin.com")
+        parser.add_argument("--super-email", default="condor.ai.solutions@gmail.com")
         parser.add_argument("--super-pass", default="sadmin123")
         parser.add_argument("--cliente-nombre", default="Lucas Padel")
-        parser.add_argument("--admin-email", default="admin@admin.com")
+        parser.add_argument("--admin-email", default="ignaciojluque@gmail.com")
         parser.add_argument("--admin-pass", default="admin123")
-        parser.add_argument("--prof-email", default="lucas@lucas.com")
-        parser.add_argument("--prof-pass", default="lucas123")
-        parser.add_argument("--user-email", default="nacho@nacho.com")
-        parser.add_argument("--user-pass", default="nacho123")
         parser.add_argument("--skip-migrate", action="store_true", help="No ejecutar 'migrate' antes del bootstrap.")
+        parser.add_argument("--domains", default=None, help="Lista coma-separada de hostnames del cliente (ej: localhost,padel.local.condor)")
 
     def handle(self, *args, **opts):
         # 0) Migraciones (fuera de transacciones)
@@ -33,9 +30,8 @@ class Command(BaseCommand):
             call_command("migrate", interactive=False, verbosity=1)
             self.stdout.write(self.style.SUCCESS("[bootstrap] migrate OK"))
 
-        # 1..7) Datos base
         with transaction.atomic():
-            from apps.clientes_core.models import Cliente
+            from apps.clientes_core.models import Cliente, ClienteDominio
             from apps.turnos_core.models import Lugar, Prestador, Disponibilidad
             from apps.turnos_padel.models import (
                 ConfiguracionSedePadel, TipoClasePadel, TipoAbonoPadel
@@ -58,6 +54,17 @@ class Command(BaseCommand):
                 defaults={"tipo_cliente": "padel", "theme": "classic"},
             )
             logger.info("[bootstrap] Cliente %s (id=%s)", "creado" if created_c else "existente", cliente.id)
+
+            # ========= 2.1) DOMINIOS DEL CLIENTE =========
+            domains_raw = opts.get("domains") or os.getenv("BOOTSTRAP_DOMAINS") or "localhost,127.0.0.1"
+            domains = [h.strip().lower() for h in domains_raw.split(",") if h.strip()]
+            created_doms = 0
+            for host in domains:
+                _, created = ClienteDominio.objects.update_or_create(
+                    cliente=cliente, hostname=host, defaults={"activo": True}
+                )
+                created_doms += int(created)
+            logger.info("[bootstrap] Dominios cliente: %s (nuevos=%s)", ", ".join(domains), created_doms)
 
             # ========= 3) ADMIN DEL CLIENTE =========
             admin_email = opts["admin_email"]; admin_pass = opts["admin_pass"]
@@ -112,8 +119,8 @@ class Command(BaseCommand):
             sede_belgrano = ensure_sede("Belgrano")
             sede_palermo  = ensure_sede("Palermo")
 
-            # ========= 5) PROFESOR + PRESTADOR =========
-            prof_email = opts["prof_email"]; prof_pass = opts["prof_pass"]
+            # ========= 5) PROFESOR + PRESTADOR (valores fijos para dev) =========
+            prof_email = "lucas@lucas.com"; prof_pass = "lucas123"
             prof_user = User.objects.filter(email=prof_email).first()
             if not prof_user:
                 prof_user = User.objects.create_user(
@@ -125,7 +132,6 @@ class Command(BaseCommand):
             else:
                 logger.info("[bootstrap] Usuario profesor existente email=%s", prof_email)
 
-            from apps.turnos_core.models import Prestador
             prestador, created_p = Prestador.objects.get_or_create(
                 user=prof_user, cliente=cliente,
                 defaults={"especialidad": "Padel", "nombre_publico": "Lucas P.", "activo": True}
@@ -138,7 +144,6 @@ class Command(BaseCommand):
             logger.info("[bootstrap] Prestador %s (id=%s)", "creado" if created_p else "existente", prestador.id)
 
             # ========= 6) DISPONIBILIDADES =========
-            from apps.turnos_core.models import Disponibilidad
             bloques = [
                 (sede_belgrano.id, 0, "09:00", "17:00"),
                 (sede_belgrano.id, 2, "09:00", "17:00"),
@@ -155,8 +160,8 @@ class Command(BaseCommand):
                 if created_d: creadas += 1
             logger.info("[bootstrap] Disponibilidades creadas=%s (o ya existentes)", creadas)
 
-            # ========= 7) USUARIO FINAL =========
-            user_email = opts["user_email"]; user_pass  = opts["user_pass"]
+            # ========= 7) USUARIO FINAL (valores fijos para dev) =========
+            user_email = "nacho@nacho.com"; user_pass  = "nacho123"
             nacho = User.objects.filter(email=user_email).first()
             if not nacho:
                 nacho = User.objects.create_user(
@@ -168,7 +173,7 @@ class Command(BaseCommand):
             else:
                 logger.info("[bootstrap] Usuario final existente email=%s", user_email)
 
-        # 8) Generación de turnos via cron real
+        # 8) Cron real
         self.stdout.write(self.style.WARNING("[bootstrap] Ejecutando cron 'generar_turnos_mensuales'..."))
         call_command("generar_turnos_mensuales", verbosity=1)
         self.stdout.write(self.style.SUCCESS("[bootstrap] Cron ejecutado OK"))
@@ -177,5 +182,4 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Bootstrap Condor OK"))
         self.stdout.write(self.style.SUCCESS(f"SuperAdmin: {opts['super_email']} / {opts['super_pass']}"))
         self.stdout.write(self.style.SUCCESS(f"Admin:      {opts['admin_email']} / {opts['admin_pass']}"))
-        self.stdout.write(self.style.SUCCESS(f"Profesor:   {opts['prof_email']} / {opts['prof_pass']}"))
-        self.stdout.write(self.style.SUCCESS(f"Usuario:    {opts['user_email']} / {opts['user_pass']}"))
+        self.stdout.write(self.style.SUCCESS(f"Dominios:   {', '.join(domains)}"))

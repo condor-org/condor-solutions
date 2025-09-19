@@ -16,7 +16,7 @@
 #   make backend-shell     # shell dentro del contenedor backend
 #   make rebuild           # rebuild de imágenes y levanta
 
-DC := docker compose -f docker-compose.yml -f docker-compose-build.yml
+DC := docker compose -p condor_local --env-file .env -f docker-compose-local.yml
 
 .PHONY: up up-backend down reset-db clean-db wait-db makemig plan migrate bootstrap-condor bootstrap-condor-skip-migrate init reset-bootstrap cron logs psql backend-shell rebuild
 
@@ -58,11 +58,7 @@ migrate: up-backend wait-db
 	$(DC) exec backend bash -lc "python manage.py migrate"
 
 bootstrap-condor: up-backend wait-db
-	$(DC) exec backend bash -lc 'python manage.py bootstrap_condor \
-	  --super-email "superadmin@sadmin.com" --super-pass "sadmin123" \
-	  --admin-email "admin@admin.com"   --admin-pass "admin123" \
-	  --prof-email "lucas@lucas.com"    --prof-pass "lucas123" \
-	  --user-email "nacho@nacho.com"    --user-pass "nacho123"'
+	$(DC) exec backend bash -lc 'python manage.py bootstrap_condor'
 
 # Variante que saltea migrate (por si ya está aplicada)
 bootstrap-condor-skip-migrate: up-backend wait-db
