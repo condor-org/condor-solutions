@@ -201,6 +201,7 @@ jobs:
             $(cat vars.txt)
             
             # Secrets del environment dev
+            GH_AUTOMATION_TOKEN=$GH_AUTOMATION_TOKEN
             DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY
             POSTGRES_PASSWORD=$POSTGRES_PASSWORD
             GCP_SA_CLIENT_EMAIL=$GCP_SA_CLIENT_EMAIL
@@ -342,6 +343,7 @@ jobs:
             $(cat vars.txt)
             
             # Secrets del environment prod
+            GH_AUTOMATION_TOKEN=$GH_AUTOMATION_TOKEN
             DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY
             POSTGRES_PASSWORD=$POSTGRES_PASSWORD
             GCP_SA_CLIENT_EMAIL=$GCP_SA_CLIENT_EMAIL
