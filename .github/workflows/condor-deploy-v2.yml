@@ -27,6 +27,11 @@ on:
         required: false
         default: false
         type: boolean
+      run_bootstrap:
+        description: 'Ejecutar bootstrap_condor después del deploy'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -310,6 +315,11 @@ jobs:
             echo "[+] Migraciones DEV"
             docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_dev python manage.py migrate --noinput
 
+            if [ "${{ inputs.run_bootstrap }}" = "true" ]; then
+              echo "[+] Bootstrap Condor DEV"
+              docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_dev python manage.py bootstrap_condor
+            fi
+
             echo "[+] Deploy proxy (si no está corriendo)"
             if ! docker ps --format "table {{.Names}}" | grep -q "condor_prod-proxy"; then
               echo "[+] Levantando proxy"
@@ -443,6 +453,11 @@ jobs:
 
             echo "[+] Migraciones PROD"
             docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
+
+            if [ "${{ inputs.run_bootstrap }}" = "true" ]; then
+              echo "[+] Bootstrap Condor PROD"
+              docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py bootstrap_condor
+            fi
 
             echo "[+] Deploy proxy (si no está corriendo)"
             if ! docker ps --format "table {{.Names}}" | grep -q "condor_prod-proxy"; then
