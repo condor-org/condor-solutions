@@ -219,21 +219,22 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Exportar secrets del environment dev
-        env:
-          DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          GCP_SA_CLIENT_EMAIL: ${{ secrets.GCP_SA_CLIENT_EMAIL }}
-          GCP_SA_PROJECT_ID: ${{ secrets.GCP_SA_PROJECT_ID }}
-          GOOGLE_CREDS: ${{ secrets.GOOGLE_CREDS }}
-          VISION_OCR_BUCKET: ${{ secrets.VISION_OCR_BUCKET }}
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          STATE_HMAC_SECRET: ${{ secrets.STATE_HMAC_SECRET }}
-          PUBLIC_GOOGLE_CLIENT_ID: ${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}
-          GH_AUTOMATION_TOKEN: ${{ secrets.GH_AUTOMATION_TOKEN }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
         run: |
-          echo "✅ Secrets disponibles en el entorno"
+          # Exportar secrets a GITHUB_ENV para que estén disponibles en el siguiente step
+          echo "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" >> $GITHUB_ENV
+          echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> $GITHUB_ENV
+          echo "GCP_SA_CLIENT_EMAIL=${{ secrets.GCP_SA_CLIENT_EMAIL }}" >> $GITHUB_ENV
+          echo "GCP_SA_PROJECT_ID=${{ secrets.GCP_SA_PROJECT_ID }}" >> $GITHUB_ENV
+          echo "GOOGLE_CREDS=${{ secrets.GOOGLE_CREDS }}" >> $GITHUB_ENV
+          echo "VISION_OCR_BUCKET=${{ secrets.VISION_OCR_BUCKET }}" >> $GITHUB_ENV
+          echo "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
+          echo "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" >> $GITHUB_ENV
+          echo "STATE_HMAC_SECRET=${{ secrets.STATE_HMAC_SECRET }}" >> $GITHUB_ENV
+          echo "PUBLIC_GOOGLE_CLIENT_ID=${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
+          echo "GH_AUTOMATION_TOKEN=${{ secrets.GH_AUTOMATION_TOKEN }}" >> $GITHUB_ENV
+          echo "GHCR_USERNAME=${{ secrets.GHCR_USERNAME }}" >> $GITHUB_ENV
+          
+          echo "✅ Secrets exportados a GITHUB_ENV"
 
       - name: Deploy a DEV
         uses: appleboy/ssh-action@v1.0.3
@@ -383,21 +384,22 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Exportar secrets del environment prod
-        env:
-          DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          GCP_SA_CLIENT_EMAIL: ${{ secrets.GCP_SA_CLIENT_EMAIL }}
-          GCP_SA_PROJECT_ID: ${{ secrets.GCP_SA_PROJECT_ID }}
-          GOOGLE_CREDS: ${{ secrets.GOOGLE_CREDS }}
-          VISION_OCR_BUCKET: ${{ secrets.VISION_OCR_BUCKET }}
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          STATE_HMAC_SECRET: ${{ secrets.STATE_HMAC_SECRET }}
-          PUBLIC_GOOGLE_CLIENT_ID: ${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}
-          GH_AUTOMATION_TOKEN: ${{ secrets.GH_AUTOMATION_TOKEN }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
         run: |
-          echo "✅ Secrets disponibles en el entorno"
+          # Exportar secrets a GITHUB_ENV para que estén disponibles en el siguiente step
+          echo "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" >> $GITHUB_ENV
+          echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> $GITHUB_ENV
+          echo "GCP_SA_CLIENT_EMAIL=${{ secrets.GCP_SA_CLIENT_EMAIL }}" >> $GITHUB_ENV
+          echo "GCP_SA_PROJECT_ID=${{ secrets.GCP_SA_PROJECT_ID }}" >> $GITHUB_ENV
+          echo "GOOGLE_CREDS=${{ secrets.GOOGLE_CREDS }}" >> $GITHUB_ENV
+          echo "VISION_OCR_BUCKET=${{ secrets.VISION_OCR_BUCKET }}" >> $GITHUB_ENV
+          echo "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
+          echo "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" >> $GITHUB_ENV
+          echo "STATE_HMAC_SECRET=${{ secrets.STATE_HMAC_SECRET }}" >> $GITHUB_ENV
+          echo "PUBLIC_GOOGLE_CLIENT_ID=${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
+          echo "GH_AUTOMATION_TOKEN=${{ secrets.GH_AUTOMATION_TOKEN }}" >> $GITHUB_ENV
+          echo "GHCR_USERNAME=${{ secrets.GHCR_USERNAME }}" >> $GITHUB_ENV
+          
+          echo "✅ Secrets exportados a GITHUB_ENV"
 
       - name: Deploy a PROD
         uses: appleboy/ssh-action@v1.0.3
