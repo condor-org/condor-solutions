@@ -22,6 +22,11 @@ on:
         required: false
         default: false
         type: boolean
+      deploy_proxy:
+        description: 'Deployar el proxy (maneja DEV y PROD)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -454,3 +459,46 @@ jobs:
             '
 
             echo "[✓] Deploy PROD OK"
+
+  # Deploy Proxy (opcional)
+  deploy-proxy:
+    runs-on: ubuntu-latest
+    if: inputs.deploy_proxy == 'true'
+    needs: [determine-environment, detect-changes]
+    environment: prod  # Usar environment prod para secrets del proxy
+    env:
+      RELEASE_TAG: ${{ needs.determine-environment.outputs.release_tag }}
+    steps:
+      - name: Deploy Proxy
+        uses: appleboy/ssh-action@v0.1.8
+        with:
+          host: ${{ vars.EC2_HOST }}
+          username: ${{ vars.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            echo "[+] Deploy Proxy (DEV + PROD)"
+            
+            cd /opt/condor
+            
+            echo "[+] Crear .env.proxy"
+            cat > .env.proxy << 'EOF'
+            OWNER=${{ env.OWNER }}
+            IMAGE_PREFIX=condor
+            PROXY_TAG=${{ env.RELEASE_TAG }}
+            EOF
+            
+            echo "[+] Login Docker Registry"
+            echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+            
+            echo "[+] Pull Proxy Image"
+            docker pull ghcr.io/${{ env.OWNER }}/condor-proxy:${{ env.RELEASE_TAG }}
+            
+            echo "[+] Deploy Proxy"
+            docker compose -p condor_proxy --env-file .env.proxy -f docker-compose-proxy.yml up -d
+            
+            echo "[+] Verificar Proxy"
+            sleep 5
+            docker compose -p condor_proxy ps
+            
+            echo "[✓] Deploy Proxy OK"
