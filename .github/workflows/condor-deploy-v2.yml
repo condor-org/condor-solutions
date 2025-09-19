@@ -295,15 +295,15 @@ jobs:
 
             echo "[+] Esperando servicios healthy (BE/FE DEV)"
             for i in $(seq 1 40); do
-              B=$(docker inspect -f '{{.State.Health.Status}}' condor_dev-backend_dev 2>/dev/null || echo "starting")
-              F=$(docker inspect -f '{{.State.Health.Status}}' condor_dev-frontend_dev 2>/dev/null || echo "starting")
+              B=$(docker inspect -f '{{.State.Health.Status}}' backend_condor_dev 2>/dev/null || echo "starting")
+              F=$(docker inspect -f '{{.State.Health.Status}}' frontend_condor_dev 2>/dev/null || echo "starting")
               echo "  backend_dev=$B | frontend_dev=$F"
               if [ "$B" = "healthy" ] && [ "$F" = "healthy" ]; then break; fi
               sleep 3
             done
 
             echo "[+] Migraciones DEV"
-            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_dev python manage.py migrate --noinput
+            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_condor_dev python manage.py migrate --noinput
 
             echo "[+] Deploy proxy (si no está corriendo)"
             if ! docker ps --format "table {{.Names}}" | grep -q "condor_prod-proxy"; then
@@ -312,7 +312,7 @@ jobs:
             fi
 
             echo "[+] Smoke tests DEV"
-            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_dev sh -lc '
+            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_condor_dev sh -lc '
               command -v curl >/dev/null || apk add --no-cache curl >/dev/null
               echo " - /api/healthz (BE DEV)"
               curl -fsS http://localhost:8000/api/healthz >/dev/null || true
