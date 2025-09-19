@@ -149,7 +149,12 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     needs: [determine-environment, detect-changes]
-    if: needs.detect-changes.outputs.any_changes == 'true' || inputs.force_rebuild == 'true'
+    if: needs.detect-changes.outputs.any_changes == 'true'
+    steps:
+      - name: Debug any_changes
+        run: |
+          echo "any_changes value: '${{ needs.detect-changes.outputs.any_changes }}'"
+          echo "any_changes type: $(echo '${{ needs.detect-changes.outputs.any_changes }}' | wc -c)"
     env:
       RELEASE_TAG: ${{ needs.determine-environment.outputs.release_tag }}
     strategy:
@@ -206,7 +211,7 @@ jobs:
   deploy-dev:
     runs-on: ubuntu-latest
     needs: [determine-environment, build-and-push]
-    if: needs.determine-environment.outputs.is_dev == 'true' && (needs.detect-changes.outputs.any_changes == 'true' || inputs.force_rebuild == 'true')
+    if: needs.determine-environment.outputs.is_dev == 'true'
     environment: dev
     env:
       RELEASE_TAG: ${{ needs.determine-environment.outputs.release_tag }}
@@ -351,7 +356,7 @@ jobs:
   deploy-prod:
     runs-on: ubuntu-latest
     needs: [determine-environment, build-and-push]
-    if: needs.determine-environment.outputs.is_prod == 'true' && (needs.detect-changes.outputs.any_changes == 'true' || inputs.force_rebuild == 'true')
+    if: needs.determine-environment.outputs.is_prod == 'true'
     environment: prod
     env:
       RELEASE_TAG: ${{ needs.determine-environment.outputs.release_tag }}
