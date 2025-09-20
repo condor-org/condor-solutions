@@ -1,6 +1,7 @@
 name: Condor Proxy - Build & Deploy
 
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       proxy_tag:
