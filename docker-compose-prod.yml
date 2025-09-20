@@ -2,6 +2,7 @@ version: "3.9"
 
 networks:
   condor_net:
+    external: true
     name: condor_net
 
 volumes:
