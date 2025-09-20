@@ -72,8 +72,17 @@ export async function startGoogleLogin({ host, returnTo = "/", invite } = {}) {
   const t0 = performance.now();
   const { API, GOOGLE_CLIENT_ID, OAUTH_REDIRECT_URI, API_BASE_URL } = readRuntimeConfig();
 
+  // Si no me pasan host explícito, uso el del navegador (tenant actual)
+  const resolvedHost =
+    host ||
+    (typeof window !== "undefined" ? window.location.host : undefined);
+  if (!resolvedHost) {
+    console.error(`[OAuth][${traceId}] host missing: no param and no window.location.host`);
+    throw new Error("tenant_host_missing");
+  }
+
   console.log(`[OAuth][${traceId}] ${nowTs()} startGoogleLogin`, {
-    host,
+    host: resolvedHost,
     returnTo,
     invitePresent: !!invite,
     API,
@@ -103,7 +112,7 @@ export async function startGoogleLogin({ host, returnTo = "/", invite } = {}) {
   try {
     stateResp = await axios.post(
       stateUrl,
-      { host, return_to: returnTo, provider: PROVIDER, invite },
+      { host: resolvedHost, return_to: returnTo, provider: PROVIDER, invite },
       { timeout: 10000 }
     );
   } catch (err) {
