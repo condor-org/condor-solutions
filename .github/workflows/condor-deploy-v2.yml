@@ -200,7 +200,7 @@ jobs:
   # Deploy Proxy (debe ir ANTES que DEV/PROD porque es compartido)
   deploy-proxy:
     runs-on: ubuntu-latest
-    if: inputs.deploy_proxy == 'true'
+    if: ${{ fromJSON(github.event.inputs.deploy_proxy || 'false') }}
     needs: [determine-environment]
     environment: prod  # Usar environment prod para secrets del proxy
     env:
