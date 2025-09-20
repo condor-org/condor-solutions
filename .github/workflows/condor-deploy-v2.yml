@@ -2,7 +2,7 @@ name: Condor Deploy v2 (DEV/PROD)
 
 on:
   release:
-    types: [published]  # Solo cuando se publica un release
+    types: [published]
   workflow_dispatch:
     inputs:
       environment:
@@ -10,20 +10,13 @@ on:
         required: true
         default: 'dev'
         type: choice
-        options:
-          - dev
-          - prod
+        options: [dev, prod]
       release_tag:
         description: 'Tag específico a usar (opcional)'
         required: false
         type: string
       force_rebuild:
         description: 'Forzar rebuild de todas las imágenes'
-        required: false
-        default: false
-        type: boolean
-      deploy_proxy:
-        description: 'Deployar el proxy (maneja DEV y PROD)'
         required: false
         default: false
         type: boolean
@@ -40,10 +33,8 @@ permissions:
 env:
   REGISTRY: ghcr.io
   OWNER: ${{ github.repository_owner }}
-  # Se determinará dinámicamente en el job determine-environment
 
 jobs:
-  # Obtener último release
   get-latest-release:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && !inputs.release_tag
@@ -56,11 +47,9 @@ jobs:
         run: |
           LATEST_TAG=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
           echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
-          echo "✅ Último release: $LATEST_TAG"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Determinar ambiente basado en release o input manual
   determine-environment:
     runs-on: ubuntu-latest
     needs: [get-latest-release]
@@ -75,34 +64,20 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             ENV="${{ inputs.environment }}"
-            # Determinar el tag a usar
             if [ -n "${{ inputs.release_tag }}" ]; then
               TAG="${{ inputs.release_tag }}"
             else
               TAG="${{ needs.get-latest-release.outputs.latest_tag }}"
             fi
-          elif [ "${{ github.event_name }}" = "release" ]; then
-            # Para releases, determinar ambiente basado en el tag
-            # Si el tag contiene 'dev' o 'beta' -> dev, sino prod
-            TAG="${{ github.event.release.tag_name }}"
-            if [[ "$TAG" == *"dev"* ]] || [[ "$TAG" == *"beta"* ]] || [[ "$TAG" == *"alpha"* ]]; then
-              ENV="dev"
-            else
-              ENV="prod"
-            fi
           else
-            echo "❌ Evento no soportado para deploy automático"
-            exit 1
+            TAG="${{ github.event.release.tag_name }}"
+            if [[ "$TAG" == *"dev"* || "$TAG" == *"beta"* || "$TAG" == *"alpha"* ]]; then ENV="dev"; else ENV="prod"; fi
           fi
-          
           echo "environment=$ENV" >> $GITHUB_OUTPUT
-          echo "is_dev=$([ "$ENV" = "dev" ] && echo "true" || echo "false")" >> $GITHUB_OUTPUT
-          echo "is_prod=$([ "$ENV" = "prod" ] && echo "true" || echo "false")" >> $GITHUB_OUTPUT
+          echo "is_dev=$([ "$ENV" = "dev" ] && echo true || echo false)" >> $GITHUB_OUTPUT
+          echo "is_prod=$([ "$ENV" = "prod" ] && echo true || echo false)" >> $GITHUB_OUTPUT
           echo "release_tag=$TAG" >> $GITHUB_OUTPUT
-          echo "✅ Ambiente determinado: $ENV"
-          echo "✅ Tag a usar: $TAG"
 
-  # Detectar cambios en archivos
   detect-changes:
     runs-on: ubuntu-latest
     needs: determine-environment
@@ -111,12 +86,10 @@ jobs:
       frontend: ${{ steps.changes.outputs.frontend }}
       cron: ${{ steps.changes.outputs.cron }}
       proxy: ${{ steps.changes.outputs.proxy }}
-      any_changes: ${{ steps.changes.outputs.any_changes }}
+      any_changes: ${{ steps.any.outputs.any_changes }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      
+        with: { fetch-depth: 0 }
       - uses: dorny/paths-filter@v2
         id: changes
         with:
@@ -130,19 +103,17 @@ jobs:
               - 'backend/apps/**'
             proxy:
               - 'reverse-proxy/**'
-      
-      - name: Verificar cambios
+      - id: any
         run: |
           if [ "${{ inputs.force_rebuild }}" = "true" ]; then
             echo "any_changes=true" >> $GITHUB_OUTPUT
-            echo "✅ Force rebuild activado"
           else
-            ANY_CHANGES="${{ steps.changes.outputs.backend == 'true' || steps.changes.outputs.frontend == 'true' || steps.changes.outputs.cron == 'true' || steps.changes.outputs.proxy == 'true' }}"
-            echo "any_changes=$ANY_CHANGES" >> $GITHUB_OUTPUT
-            echo "✅ Cambios detectados: $ANY_CHANGES"
+            ANY=$([ "${{ steps.changes.outputs.backend }}" = "true" ] || \
+                  [ "${{ steps.changes.outputs.frontend }}" = "true" ] || \
+                  [ "${{ steps.changes.outputs.cron }}" = "true" ] && echo true || echo false)
+            echo "any_changes=$ANY" >> $GITHUB_OUTPUT
           fi
 
-  # Build y push de imágenes
   build-and-push:
     runs-on: ubuntu-latest
     needs: [determine-environment, detect-changes]
@@ -153,38 +124,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: backend
-            context: ./backend
-            file: ./backend/docker/Dockerfile
-            condition: ${{ needs.detect-changes.outputs.backend == 'true' || inputs.force_rebuild == 'true' }}
-          - name: cron
-            context: ./backend
-            file: ./backend/docker/Dockerfile.cron
-            condition: ${{ needs.detect-changes.outputs.cron == 'true' || inputs.force_rebuild == 'true' }}
-          - name: frontend
-            context: ./frontend-padel
-            file: ./frontend-padel/docker/Dockerfile
-            condition: ${{ needs.detect-changes.outputs.frontend == 'true' || inputs.force_rebuild == 'true' }}
-          - name: proxy
-            context: ./reverse-proxy
-            file: ./reverse-proxy/Dockerfile
-            condition: ${{ needs.detect-changes.outputs.proxy == 'true' || inputs.force_rebuild == 'true' }}
-
+          - { name: backend,  context: ./backend,        file: ./backend/docker/Dockerfile,       cond: backend }
+          - { name: cron,     context: ./backend,        file: ./backend/docker/Dockerfile.cron,  cond: cron }
+          - { name: frontend, context: ./frontend-padel, file: ./frontend-padel/docker/Dockerfile, cond: frontend }
     steps:
       - uses: actions/checkout@v4
-
       - id: lower
         run: echo "OWNER_LC=${OWNER,,}" >> $GITHUB_OUTPUT
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ steps.lower.outputs.OWNER_LC }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push ${{ matrix.name }}
-        if: matrix.condition
+      - name: Build & push ${{ matrix.name }}
+        if: needs.detect-changes.outputs[matrix.cond] == 'true' || inputs.force_rebuild == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -193,66 +146,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
-            ${{ env.REGISTRY }}/${{ steps.lower.outputs.OWNER_LC }}/condor-${{ matrix.name }}:${{ env.RELEASE_TAG }}
-            ${{ env.REGISTRY }}/${{ steps.lower.outputs.OWNER_LC }}/condor-${{ matrix.name }}:${{ needs.determine-environment.outputs.environment }}-latest
+            ghcr.io/${{ steps.lower.outputs.OWNER_LC }}/condor-${{ matrix.name }}:${{ env.RELEASE_TAG }}
+            ghcr.io/${{ steps.lower.outputs.OWNER_LC }}/condor-${{ matrix.name }}:${{ needs.determine-environment.outputs.environment }}-latest
           push: true
 
-  # Deploy Proxy (debe ir ANTES que DEV/PROD porque es compartido)
-  deploy-proxy:
-    runs-on: ubuntu-latest
-    if: ${{ fromJSON(github.event.inputs.deploy_proxy || 'false') }}
-    needs: [determine-environment]
-    environment: prod  # Usar environment prod para secrets del proxy
-    env:
-      RELEASE_TAG: ${{ needs.determine-environment.outputs.release_tag }}
-    steps:
-      - name: Debug Deploy Proxy
-        run: |
-          echo "inputs.deploy_proxy: ${{ inputs.deploy_proxy }}"
-          echo "needs.detect-changes.outputs.any_changes: ${{ needs.detect-changes.outputs.any_changes }}"
-          echo "inputs.force_rebuild: ${{ inputs.force_rebuild }}"
-          echo "needs.build-and-push.result: ${{ needs.build-and-push.result }}"
-          echo "needs.determine-environment.outputs.release_tag: ${{ needs.determine-environment.outputs.release_tag }}"
-      
-      - name: Deploy Proxy
-        uses: appleboy/ssh-action@v0.1.8
-        with:
-          host: ${{ vars.EC2_HOST }}
-          username: ${{ vars.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            set -euo pipefail
-            echo "[+] Deploy Proxy (DEV + PROD)"
-            
-            cd /opt/condor
-            
-            echo "[+] Crear .env.proxy"
-            cat > .env.proxy << 'EOF'
-            OWNER=${{ env.OWNER }}
-            IMAGE_PREFIX=condor
-            PROXY_TAG=${{ env.RELEASE_TAG }}
-            EOF
-            
-            echo "[+] Login Docker Registry"
-            echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
-            
-            echo "[+] Pull Proxy Image"
-            if ! docker pull ghcr.io/${{ env.OWNER }}/condor-proxy:${{ env.RELEASE_TAG }}; then
-              echo "[!] Proxy image not found, need to build it first"
-              echo "[!] Run with force_rebuild=true to build proxy image"
-              exit 1
-            fi
-            
-            echo "[+] Deploy Proxy"
-            docker compose -p condor_proxy --env-file .env.proxy -f docker-compose-proxy.yml up -d
-            
-            echo "[+] Verificar Proxy"
-            sleep 5
-            docker compose -p condor_proxy ps
-            
-            echo "[✓] Deploy Proxy OK"
-
-  # Deploy a DEV
   deploy-dev:
     runs-on: ubuntu-latest
     needs: [determine-environment]
@@ -261,64 +158,30 @@ jobs:
     env:
       RELEASE_TAG: ${{ needs.determine-environment.outputs.release_tag }}
     steps:
-      - name: Debug Deploy DEV
-        run: |
-          echo "needs.determine-environment.outputs.is_dev: ${{ needs.determine-environment.outputs.is_dev }}"
-          echo "needs.detect-changes.outputs.any_changes: ${{ needs.detect-changes.outputs.any_changes }}"
-          echo "inputs.force_rebuild: ${{ inputs.force_rebuild }}"
-          echo "needs.build-and-push.result: ${{ needs.build-and-push.result }}"
-          echo "needs.determine-environment.outputs.release_tag: ${{ needs.determine-environment.outputs.release_tag }}"
-      
-      - name: Setup GitHub CLI
-        run: |
-          # GitHub CLI viene preinstalado en ubuntu-latest
-          gh --version
-
-
-
       - name: Deploy a DEV
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ vars.EC2_HOST }}
           username: ${{ vars.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          timeout: 30s
-          command_timeout: 10m
-          proxy_port: 22
-          proxy_timeout: 30s
           script: |
             set -euo pipefail
-            trap 'echo "❌ Error en línea $LINENO" >&2' ERR
             cd /opt/condor
-
-            echo "[+] Deploy DEV - Parámetros"
-            echo "    TAG=${{ env.RELEASE_TAG }}"
-            echo "    ENVIRONMENT=dev"
             TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
             REPO="condor-ai-solutions/condor"
 
-            echo "[+] Backups si ya existen"
-            [ -f docker-compose-dev.yml ] && cp -a docker-compose-dev.yml docker-compose-dev.yml.bak.$(date +%F_%H%M) || true
-            [ -f docker-compose-proxy.yml ] && cp -a docker-compose-proxy.yml docker-compose-proxy.yml.bak.$(date +%F_%H%M) || true
+            [ -f docker-compose-dev.yml ] && cp docker-compose-dev.yml docker-compose-dev.yml.bak.$(date +%F_%H%M) || true
+            [ -f docker-compose-proxy.yml ] && cp docker-compose-proxy.yml docker-compose-proxy.yml.bak.$(date +%F_%H%M) || true
 
-            echo "[+] Descargar archivos de configuración"
-            curl -fsSL \
-              -H "Authorization: token ${TOKEN}" \
-              -H "Accept: application/vnd.github.raw" \
+            curl -fsSL -H "Authorization: token ${TOKEN}" -H "Accept: application/vnd.github.raw" \
               "https://api.github.com/repos/${REPO}/contents/docker-compose-dev.yml?ref=${{ github.sha }}" \
               -o docker-compose-dev.yml
-            curl -fsSL \
-              -H "Authorization: token ${TOKEN}" \
-              -H "Accept: application/vnd.github.raw" \
+            curl -fsSL -H "Authorization: token ${TOKEN}" -H "Accept: application/vnd.github.raw" \
               "https://api.github.com/repos/${REPO}/contents/docker-compose-proxy.yml?ref=${{ github.sha }}" \
               -o docker-compose-proxy.yml
 
-            echo "[+] Docker login GHCR"
             echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
 
-            echo "[+] Generar .env.dev automáticamente"
-            # Crear .env.dev con variables del environment + secrets
             cat > .env.dev << 'EOF'
             DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
             DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,${{ vars.ALLOWED_HOSTS }}
@@ -360,41 +223,15 @@ jobs:
             PUBLIC_OAUTH_REDIRECT_URI=${{ vars.PUBLIC_OAUTH_REDIRECT_URI }}
             EOF
 
-            echo "[+] Pull de imágenes DEV"
             docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml pull
-
-            echo "[+] Levantando stack DEV"
             docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml up -d --force-recreate
 
-            echo "[+] Esperando servicios healthy (BE/FE DEV)"
-            for i in $(seq 1 40); do
-              B=$(docker inspect -f '{{.State.Health.Status}}' backend_condor_dev 2>/dev/null || echo "starting")
-              F=$(docker inspect -f '{{.State.Health.Status}}' frontend_condor_dev 2>/dev/null || echo "starting")
-              echo "  backend_dev=$B | frontend_dev=$F"
-              if [ "$B" = "healthy" ] && [ "$F" = "healthy" ]; then break; fi
-              sleep 3
-            done
-
-            echo "[+] Migraciones DEV"
             docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_dev python manage.py migrate --noinput
 
             if [ "${{ inputs.run_bootstrap }}" = "true" ]; then
-              echo "[+] Bootstrap Condor DEV"
               docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_dev python manage.py bootstrap_condor
             fi
 
-
-            echo "[+] Smoke tests DEV"
-            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_dev sh -lc '
-              command -v curl >/dev/null || apk add --no-cache curl >/dev/null
-              echo " - /api/healthz (BE DEV)"
-              curl -fsS http://localhost:8000/api/healthz >/dev/null || true
-              echo "OK smoke DEV"
-            '
-
-            echo "[✓] Deploy DEV OK"
-
-  # Deploy a PROD
   deploy-prod:
     runs-on: ubuntu-latest
     needs: [determine-environment]
@@ -403,56 +240,30 @@ jobs:
     env:
       RELEASE_TAG: ${{ needs.determine-environment.outputs.release_tag }}
     steps:
-      - name: Setup GitHub CLI
-        run: |
-          # GitHub CLI viene preinstalado en ubuntu-latest
-          gh --version
-
-
-
       - name: Deploy a PROD
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ vars.EC2_HOST }}
           username: ${{ vars.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          timeout: 30s
-          command_timeout: 10m
-          proxy_port: 22
-          proxy_timeout: 30s
           script: |
             set -euo pipefail
-            trap 'echo "❌ Error en línea $LINENO" >&2' ERR
             cd /opt/condor
-
-            echo "[+] Deploy PROD - Parámetros"
-            echo "    TAG=${{ env.RELEASE_TAG }}"
-            echo "    ENVIRONMENT=prod"
             TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
             REPO="condor-ai-solutions/condor"
 
-            echo "[+] Backups si ya existen"
-            [ -f docker-compose-prod.yml ] && cp -a docker-compose-prod.yml docker-compose-prod.yml.bak.$(date +%F_%H%M) || true
-            [ -f docker-compose-proxy.yml ] && cp -a docker-compose-proxy.yml docker-compose-proxy.yml.bak.$(date +%F_%H%M) || true
+            [ -f docker-compose-prod.yml ] && cp docker-compose-prod.yml docker-compose-prod.yml.bak.$(date +%F_%H%M) || true
+            [ -f docker-compose-proxy.yml ] && cp docker-compose-proxy.yml docker-compose-proxy.yml.bak.$(date +%F_%H%M) || true
 
-            echo "[+] Descargar archivos de configuración"
-            curl -fsSL \
-              -H "Authorization: token ${TOKEN}" \
-              -H "Accept: application/vnd.github.raw" \
+            curl -fsSL -H "Authorization: token ${TOKEN}" -H "Accept: application/vnd.github.raw" \
               "https://api.github.com/repos/${REPO}/contents/docker-compose-prod.yml?ref=${{ github.sha }}" \
               -o docker-compose-prod.yml
-            curl -fsSL \
-              -H "Authorization: token ${TOKEN}" \
-              -H "Accept: application/vnd.github.raw" \
+            curl -fsSL -H "Authorization: token ${TOKEN}" -H "Accept: application/vnd.github.raw" \
               "https://api.github.com/repos/${REPO}/contents/docker-compose-proxy.yml?ref=${{ github.sha }}" \
               -o docker-compose-proxy.yml
 
-            echo "[+] Docker login GHCR"
             echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
 
-            echo "[+] Generar .env.prod automáticamente"
-            # Crear .env.prod con variables del environment + secrets
             cat > .env.prod << 'EOF'
             DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
             DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,${{ vars.ALLOWED_HOSTS }}
@@ -494,36 +305,11 @@ jobs:
             PUBLIC_OAUTH_REDIRECT_URI=${{ vars.PUBLIC_OAUTH_REDIRECT_URI }}
             EOF
 
-            echo "[+] Pull de imágenes PROD"
             docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml pull
-
-            echo "[+] Levantando stack PROD"
             docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml up -d --force-recreate
 
-            echo "[+] Esperando servicios healthy (BE/FE PROD)"
-            for i in $(seq 1 40); do
-              B=$(docker inspect -f '{{.State.Health.Status}}' condor_prod-backend 2>/dev/null || echo "starting")
-              F=$(docker inspect -f '{{.State.Health.Status}}' condor_prod-frontend 2>/dev/null || echo "starting")
-              echo "  backend=$B | frontend=$F"
-              if [ "$B" = "healthy" ] && [ "$F" = "healthy" ]; then break; fi
-              sleep 3
-            done
-
-            echo "[+] Migraciones PROD"
             docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
 
             if [ "${{ inputs.run_bootstrap }}" = "true" ]; then
-              echo "[+] Bootstrap Condor PROD"
               docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py bootstrap_condor
             fi
-
-
-            echo "[+] Smoke tests PROD"
-            docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml exec -T backend sh -lc '
-              command -v curl >/dev/null || apk add --no-cache curl >/dev/null
-              echo " - /api/healthz (BE PROD)"
-              curl -fsS http://localhost:8000/api/healthz >/dev/null || true
-              echo "OK smoke PROD"
-            '
-
-            echo "[✓] Deploy PROD OK"
