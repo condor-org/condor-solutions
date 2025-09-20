@@ -25,7 +25,6 @@ services:
       - "80:8080"
       - "443:8443"
     volumes:
-      - ./reverse-proxy/nginx.ec2.conf:/etc/nginx/nginx.conf:ro
       - certbot_etc:/etc/letsencrypt:ro
     restart: always
     logging:
