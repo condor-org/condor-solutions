@@ -178,10 +178,10 @@ jobs:
             docker network inspect condor_net_dev >/dev/null 2>&1 || docker network create condor_net_dev >/dev/null
 
             echo "[+] Pull de imágenes DEV"
-            docker-compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml pull
+            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml pull
 
             echo "[+] Levantando stack DEV"
-            docker-compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml up -d --force-recreate
+            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml up -d --force-recreate
 
             echo "[+] Esperando servicios healthy (BE/FE DEV)"
             for i in $(seq 1 40); do
@@ -193,7 +193,7 @@ jobs:
             done
 
             echo "[+] Migraciones DEV"
-            docker-compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_dev python manage.py migrate --noinput
+            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_dev python manage.py migrate --noinput
 
             echo "[+] Limpieza de imágenes no usadas (DEV)"
             CURRENT_IMAGES=$(docker ps --format '{{.Image}}' | sort -u)
@@ -300,10 +300,10 @@ jobs:
             docker network inspect condor_net_dev >/dev/null 2>&1 || docker network create condor_net_dev >/dev/null
 
             echo "[+] Pull de imágenes PROD"
-            docker-compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml pull
+            docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml pull
 
             echo "[+] Levantando stack PROD"
-            docker-compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml up -d --force-recreate
+            docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml up -d --force-recreate
 
             echo "[+] Esperando servicios healthy (BE/FE PROD)"
             for i in $(seq 1 40); do
@@ -315,7 +315,7 @@ jobs:
             done
 
             echo "[+] Migraciones PROD"
-            docker-compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
+            docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
 
             echo "[+] Limpieza de imágenes no usadas (PROD)"
             CURRENT_IMAGES=$(docker ps --format '{{.Image}}' | sort -u)
