@@ -21,6 +21,7 @@ services:
     container_name: proxy_condor
     environment:
       PROXY_MODE: ec2
+      ENVIRONMENT: ${ENVIRONMENT:-prod}
     ports:
       - "80:8080"
       - "443:8443"
