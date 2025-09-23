@@ -44,7 +44,7 @@ jobs:
         run: |
           LATEST_TAG=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
           echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
-          echo "✅ Último release: $LATEST_TAG"
+          echo "Ultimo release: $LATEST_TAG"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -75,7 +75,7 @@ jobs:
               ENV="prod"
             fi
           else
-            echo "❌ Evento no soportado para deploy automático"
+            echo "Evento no soportado para deploy automático"
             exit 1
           fi
           
@@ -83,8 +83,8 @@ jobs:
           echo "is_dev=$([ "$ENV" = "dev" ] && echo "true" || echo "false")" >> $GITHUB_OUTPUT
           echo "is_prod=$([ "$ENV" = "prod" ] && echo "true" || echo "false")" >> $GITHUB_OUTPUT
           echo "release_tag=$TAG" >> $GITHUB_OUTPUT
-          echo "✅ Ambiente determinado: $ENV"
-          echo "✅ Tag a usar: $TAG"
+          echo "Ambiente determinado: $ENV"
+          echo "Tag a usar: $TAG"
 
   deploy-dev:
     runs-on: ubuntu-latest
@@ -105,7 +105,7 @@ jobs:
           command_timeout: 10m
           script: |
             set -euo pipefail
-            trap 'echo "❌ Error en línea $LINENO" >&2' ERR
+            trap 'echo "Error en linea $LINENO" >&2' ERR
             cd /opt/condor
 
             echo "[+] Deploy DEV - Parámetros"
@@ -113,7 +113,7 @@ jobs:
             echo "    ENVIRONMENT=dev"
             TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
             REPO="condor-ai-solutions/condor"
-            OWNER_LC="${{ env.OWNER,, }}"
+            OWNER_LC=$(echo "${{ env.OWNER }}" | tr '[:upper:]' '[:lower:]')
             RETAIN=5
 
             echo "[+] Backup compose DEV (rotación: $RETAIN)"
@@ -227,7 +227,7 @@ jobs:
           command_timeout: 10m
           script: |
             set -euo pipefail
-            trap 'echo "❌ Error en línea $LINENO" >&2' ERR
+            trap 'echo "Error en linea $LINENO" >&2' ERR
             cd /opt/condor
 
             echo "[+] Deploy PROD - Parámetros"
@@ -235,7 +235,7 @@ jobs:
             echo "    ENVIRONMENT=prod"
             TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
             REPO="condor-ai-solutions/condor"
-            OWNER_LC="${{ env.OWNER,, }}"
+            OWNER_LC=$(echo "${{ env.OWNER }}" | tr '[:upper:]' '[:lower:]')
             RETAIN=5
 
             echo "[+] Backup compose PROD (rotación: $RETAIN)"
