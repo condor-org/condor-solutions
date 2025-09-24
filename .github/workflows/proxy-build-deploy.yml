@@ -48,8 +48,8 @@ jobs:
             SHORT_SHA="${GITHUB_SHA::7}"
             TAG="proxy-${SHORT_SHA}"
           fi
-            echo "PROXY_TAG=$TAG" >> $GITHUB_ENV
-            echo "Using PROXY_TAG=$TAG"
+            echo "PROXY_TAG=$TAG" >> $GITHUB_OUTPUT
+          echo "Using PROXY_TAG=$TAG"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -129,13 +129,13 @@ jobs:
             cat > .env.proxy <<EOF
             OWNER=${{ github.repository_owner }}
             IMAGE_PREFIX=condor
-            PROXY_TAG=${{ env.PROXY_TAG }}
+            PROXY_TAG=${{ needs.build-and-push-proxy.outputs.proxy_tag }}
             ENVIRONMENT=${{ inputs.environment }}
             PROXY_NETWORK=$PROXY_NETWORK
             EOF
 
             echo "[+] Pull proxy image"
-            docker pull ghcr.io/${{ github.repository_owner }}/condor-proxy:${{ env.PROXY_TAG }}
+            docker pull ghcr.io/${{ github.repository_owner }}/condor-proxy:${{ needs.build-and-push-proxy.outputs.proxy_tag }}
 
             echo "[+] Up proxy"
             docker compose -p condor_proxy --env-file .env.proxy -f docker-compose-proxy.yml up -d --force-recreate
