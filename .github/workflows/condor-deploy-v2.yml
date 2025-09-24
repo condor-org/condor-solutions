@@ -30,6 +30,7 @@ permissions:
 env:
   REGISTRY: ghcr.io
   OWNER: ${{ github.repository_owner }}
+  LETSENCRYPT_EMAIL: ${{ vars.LETSENCRYPT_EMAIL || 'admin@cnd-ia.com' }}
 
 jobs:
   get-latest-release:
@@ -173,6 +174,28 @@ jobs:
             PUBLIC_OAUTH_REDIRECT_URI=${{ vars.PUBLIC_OAUTH_REDIRECT_URI }}
             EOF
 
+
+            echo "[+] Preparar credencial Cloudflare para certbot (DNS-01)"
+            mkdir -p letsencrypt
+            cat > letsencrypt/cloudflare.ini <<'EOF'
+            dns_cloudflare_api_token=${{ secrets.CF_DNS_API_TOKEN }}
+            EOF
+            chmod 600 letsencrypt/cloudflare.ini
+
+            echo "[+] Asegurar volumen de certificados (docker)"
+            docker volume inspect condor_certbot_etc >/dev/null 2>&1 || docker volume create --name condor_certbot_etc >/dev/null
+
+            echo "[+] Emitir/renovar wildcard (*.cnd-ia.com) con Certbot (DNS-01 Cloudflare)"
+            docker run --rm \
+              -v condor_certbot_etc:/etc/letsencrypt \
+              -v "$PWD/letsencrypt:/secrets:ro" \
+              certbot/dns-cloudflare:latest certonly \
+                --dns-cloudflare \
+                --dns-cloudflare-credentials /secrets/cloudflare.ini \
+                -d cnd-ia.com -d '*.cnd-ia.com' \
+                --agree-tos --non-interactive \
+                -m '${{ env.LETSENCRYPT_EMAIL }}' || true
+
             echo "[+] Asegurar networks externas (prod/dev) si no existen"
             docker network inspect condor_net >/dev/null 2>&1 || docker network create condor_net >/dev/null
             docker network inspect condor_net_dev >/dev/null 2>&1 || docker network create condor_net_dev >/dev/null
@@ -295,6 +318,28 @@ jobs:
             PUBLIC_OAUTH_REDIRECT_URI=${{ vars.PUBLIC_OAUTH_REDIRECT_URI }}
             EOF
 
+            echo "[+] Preparar credencial Cloudflare para certbot (DNS-01)"
+            mkdir -p letsencrypt
+            cat > letsencrypt/cloudflare.ini <<'EOF'
+            dns_cloudflare_api_token=${{ secrets.CF_DNS_API_TOKEN }}
+            EOF
+            chmod 600 letsencrypt/cloudflare.ini
+
+            echo "[+] Asegurar volumen de certificados (docker)"
+            docker volume inspect condor_certbot_etc >/dev/null 2>&1 || docker volume create --name condor_certbot_etc >/dev/null
+
+            echo "[+] Emitir/renovar wildcard (*.cnd-ia.com) con Certbot (DNS-01 Cloudflare)"
+            docker run --rm \
+              -v condor_certbot_etc:/etc/letsencrypt \
+              -v "$PWD/letsencrypt:/secrets:ro" \
+              certbot/dns-cloudflare:latest certonly \
+                --dns-cloudflare \
+                --dns-cloudflare-credentials /secrets/cloudflare.ini \
+                -d cnd-ia.com -d '*.cnd-ia.com' \
+                --agree-tos --non-interactive \
+                -m '${{ env.LETSENCRYPT_EMAIL }}' || true
+
+
             echo "[+] Asegurar networks externas (prod/dev) si no existen"
             docker network inspect condor_net >/dev/null 2>&1 || docker network create condor_net >/dev/null
             docker network inspect condor_net_dev >/dev/null 2>&1 || docker network create condor_net_dev >/dev/null
@@ -320,7 +365,7 @@ jobs:
             echo "[+] Limpieza de imágenes no usadas (PROD)"
             CURRENT_IMAGES=$(docker ps --format '{{.Image}}' | sort -u)
             ALL_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' "ghcr.io/${OWNER_LC}/condor-*")
-            for IMG in $ALL_IMAGES; do
+            for IMG in $ALL_IMAGES; dogit 
               if echo "$IMG" | grep -q ":${{ env.RELEASE_TAG }}$"; then continue; fi
               if echo "$CURRENT_IMAGES" | grep -qx "$IMG"; then continue; fi
               echo " - borrando $IMG"
