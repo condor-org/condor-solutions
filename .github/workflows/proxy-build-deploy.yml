@@ -126,12 +126,12 @@ jobs:
             fi
 
             cat > .env.proxy <<EOF
-OWNER=${{ github.repository_owner }}
-IMAGE_PREFIX=condor
-PROXY_TAG=${{ needs.build-and-push-proxy.outputs.proxy_tag }}
-ENVIRONMENT=${{ inputs.environment }}
-PROXY_NETWORK=$PROXY_NETWORK
-EOF
+            OWNER=${{ github.repository_owner }}
+            IMAGE_PREFIX=condor
+            PROXY_TAG=${{ needs.build-and-push-proxy.outputs.proxy_tag }}
+            ENVIRONMENT=${{ inputs.environment }}
+            PROXY_NETWORK=$PROXY_NETWORK
+            EOF
 
             echo "[+] Pull proxy image"
             docker pull ghcr.io/${{ github.repository_owner }}/condor-proxy:${{ needs.build-and-push-proxy.outputs.proxy_tag }}
