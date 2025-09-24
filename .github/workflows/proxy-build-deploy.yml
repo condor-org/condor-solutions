@@ -113,26 +113,25 @@ jobs:
             echo "[+] Docker login GHCR"
             echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
 
-            echo "[+] Asegurar volumen de certificados"
-            docker volume inspect condor_certbot_etc >/dev/null 2>&1 || docker volume create --name condor_certbot_etc >/dev/null
-
             echo "[+] Asegurar networks externas (prod/dev) si no existen"
             docker network inspect condor_net >/dev/null 2>&1 || docker network create condor_net >/dev/null
             docker network inspect condor_net_dev >/dev/null 2>&1 || docker network create condor_net_dev >/dev/null
 
-            echo "[+] Render .env.proxy"
+      - name: Render .env.proxy
+        run: |
             if [ "${{ inputs.environment }}" = "dev" ]; then
               PROXY_NETWORK="condor_net_dev"
             else
               PROXY_NETWORK="condor_net"
             fi
+
             cat > .env.proxy <<EOF
-            OWNER=${{ github.repository_owner }}
-            IMAGE_PREFIX=condor
-            PROXY_TAG=${{ needs.build-and-push-proxy.outputs.proxy_tag }}
-            ENVIRONMENT=${{ inputs.environment }}
-            PROXY_NETWORK=$PROXY_NETWORK
-            EOF
+OWNER=${{ github.repository_owner }}
+IMAGE_PREFIX=condor
+PROXY_TAG=${{ needs.build-and-push-proxy.outputs.proxy_tag }}
+ENVIRONMENT=${{ inputs.environment }}
+PROXY_NETWORK=$PROXY_NETWORK
+EOF
 
             echo "[+] Pull proxy image"
             docker pull ghcr.io/${{ github.repository_owner }}/condor-proxy:${{ needs.build-and-push-proxy.outputs.proxy_tag }}
