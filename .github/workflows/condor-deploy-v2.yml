@@ -218,6 +218,13 @@ jobs:
             echo "[+] Migraciones DEV"
             docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_dev python manage.py migrate --noinput
 
+            if [ "${{ inputs.run_bootstrap }}" = "true" ]; then
+              echo "[+] Bootstrap Condor DEV"
+              docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml exec -T backend_dev python manage.py bootstrap_condor
+            else
+              echo "[+] Bootstrap Condor DEV - SKIPPED (run_bootstrap=false)"
+            fi
+
             echo "[+] Limpieza de imágenes no usadas (DEV)"
             CURRENT_IMAGES=$(docker ps --format '{{.Image}}' | sort -u)
             ALL_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' "ghcr.io/${OWNER_LC}/condor-*")
@@ -316,6 +323,7 @@ jobs:
             OAUTH_ALLOWED_EMAIL_DOMAIN=${{ vars.OAUTH_ALLOWED_EMAIL_DOMAIN }}
             PUBLIC_GOOGLE_CLIENT_ID=${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}
             PUBLIC_OAUTH_REDIRECT_URI=${{ vars.PUBLIC_OAUTH_REDIRECT_URI }}
+            BOOTSTRAP_DOMAINS=lob-padel.cnd-ia.com
             EOF
 
             echo "[+] Preparar credencial Cloudflare para certbot (DNS-01)"
@@ -361,6 +369,13 @@ jobs:
 
             echo "[+] Migraciones PROD"
             docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py migrate --noinput
+
+            if [ "${{ inputs.run_bootstrap }}" = "true" ]; then
+              echo "[+] Bootstrap Condor PROD"
+              docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml exec -T backend python manage.py bootstrap_condor
+            else
+              echo "[+] Bootstrap Condor PROD - SKIPPED (run_bootstrap=false)"
+            fi
 
             echo "[+] Limpieza de imágenes no usadas (PROD)"
             CURRENT_IMAGES=$(docker ps --format '{{.Image}}' | sort -u)
