@@ -48,8 +48,8 @@ jobs:
             SHORT_SHA="${GITHUB_SHA::7}"
             TAG="proxy-${SHORT_SHA}"
           fi
-          echo "PROXY_TAG=$TAG" >> $GITHUB_OUTPUT
-          echo "Using PROXY_TAG=$TAG"
+            echo "PROXY_TAG=$TAG" >> $GITHUB_ENV
+            echo "Using PROXY_TAG=$TAG"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -121,16 +121,21 @@ jobs:
             docker network inspect condor_net_dev >/dev/null 2>&1 || docker network create condor_net_dev >/dev/null
 
             echo "[+] Render .env.proxy"
+            if [ "${{ inputs.environment }}" = "dev" ]; then
+              PROXY_NETWORK="condor_net_dev"
+            else
+              PROXY_NETWORK="condor_net"
+            fi
             cat > .env.proxy <<EOF
-OWNER=${{ github.repository_owner }}
-IMAGE_PREFIX=condor
-PROXY_TAG=${{ needs.build-and-push-proxy.outputs.proxy_tag }}
-ENVIRONMENT=${{ inputs.environment }}
-PROXY_NETWORK=${{ inputs.environment == 'dev' && 'condor_net_dev' || 'condor_net' }}
-EOF
+            OWNER=${{ github.repository_owner }}
+            IMAGE_PREFIX=condor
+            PROXY_TAG=${{ env.PROXY_TAG }}
+            ENVIRONMENT=${{ inputs.environment }}
+            PROXY_NETWORK=$PROXY_NETWORK
+            EOF
 
             echo "[+] Pull proxy image"
-            docker pull ghcr.io/${{ github.repository_owner }}/condor-proxy:${PROXY_TAG}
+            docker pull ghcr.io/${{ github.repository_owner }}/condor-proxy:${{ env.PROXY_TAG }}
 
             echo "[+] Up proxy"
             docker compose -p condor_proxy --env-file .env.proxy -f docker-compose-proxy.yml up -d --force-recreate
