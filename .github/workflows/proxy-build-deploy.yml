@@ -120,13 +120,19 @@ jobs:
             docker network inspect condor_net >/dev/null 2>&1 || docker network create condor_net >/dev/null
             docker network inspect condor_net_dev >/dev/null 2>&1 || docker network create condor_net_dev >/dev/null
 
-            echo "[+] Render .env.proxy"
-            cat > .env.proxy <<EOF
-            OWNER=${{ github.repository_owner }}
-            IMAGE_PREFIX=condor
-            PROXY_TAG=${PROXY_TAG}
-            ENVIRONMENT=${{ inputs.environment }}
-            EOF
+                   echo "[+] Render .env.proxy"
+                   if [ "${{ inputs.environment }}" = "dev" ]; then
+                     PROXY_NETWORK="condor_net_dev"
+                   else
+                     PROXY_NETWORK="condor_net"
+                   fi
+                   cat > .env.proxy <<EOF
+                   OWNER=${{ github.repository_owner }}
+                   IMAGE_PREFIX=condor
+                   PROXY_TAG=${PROXY_TAG}
+                   ENVIRONMENT=${{ inputs.environment }}
+                   PROXY_NETWORK=${PROXY_NETWORK}
+                   EOF
 
             echo "[+] Pull proxy image"
             docker pull ghcr.io/${{ github.repository_owner }}/condor-proxy:${PROXY_TAG}

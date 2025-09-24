@@ -32,5 +32,4 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
     networks:
-      - condor_net       # prod
-      - condor_net_dev   # dev
+      - ${PROXY_NETWORK:-condor_net}
