@@ -56,7 +56,21 @@ class Command(BaseCommand):
             logger.info("[bootstrap] Cliente %s (id=%s)", "creado" if created_c else "existente", cliente.id)
 
             # ========= 2.1) DOMINIOS DEL CLIENTE =========
-            domains_raw = opts.get("domains") or os.getenv("BOOTSTRAP_DOMAINS") or "localhost,127.0.0.1"
+            # Prioridad: parámetro --domains > variable BOOTSTRAP_DOMAINS > default según ambiente
+            if opts.get("domains"):
+                domains_raw = opts["domains"]
+            elif os.getenv("BOOTSTRAP_DOMAINS"):
+                domains_raw = os.getenv("BOOTSTRAP_DOMAINS")
+            else:
+                # Default según ambiente
+                django_env = os.getenv("DJANGO_ENV", "local")
+                if django_env == "dev":
+                    domains_raw = "padel-dev.cnd-ia.com"
+                elif django_env == "prod":
+                    domains_raw = "padel.cnd-ia.com"
+                else:
+                    domains_raw = "localhost,127.0.0.1"
+            
             domains = [h.strip().lower() for h in domains_raw.split(",") if h.strip()]
             created_doms = 0
             for host in domains:

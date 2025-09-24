@@ -172,6 +172,7 @@ jobs:
             OAUTH_ALLOWED_EMAIL_DOMAIN=${{ vars.OAUTH_ALLOWED_EMAIL_DOMAIN }}
             PUBLIC_GOOGLE_CLIENT_ID=${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}
             PUBLIC_OAUTH_REDIRECT_URI=${{ vars.PUBLIC_OAUTH_REDIRECT_URI }}
+            BOOTSTRAP_DOMAINS=padel-dev.cnd-ia.com
             EOF
 
 
