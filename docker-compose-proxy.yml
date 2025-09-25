@@ -21,6 +21,7 @@ services:
     container_name: proxy_condor
     environment:
       PROXY_MODE: ec2
+      ENVIRONMENT: ${ENVIRONMENT:-prod}
     ports:
       - "80:8080"
       - "443:8443"
@@ -31,5 +32,4 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
     networks:
-      - condor_net       # prod
-      - condor_net_dev   # dev
+      - ${PROXY_NETWORK:-condor_net}
