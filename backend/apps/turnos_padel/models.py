@@ -37,7 +37,9 @@ class AbonoMes(models.Model):
     tipo_clase = models.ForeignKey(
         "turnos_padel.TipoClasePadel",
         on_delete=models.PROTECT,
-        related_name="abonos"
+        related_name="abonos",
+        null=True, blank=True,  # ← nullable para abonos personalizados
+        help_text="Tipo de clase fijo (para abonos simples). Null si es personalizado."
     )
 
     tipo_abono = models.ForeignKey(
@@ -56,6 +58,13 @@ class AbonoMes(models.Model):
     hora = models.TimeField()
 
     monto = models.DecimalField(max_digits=10, decimal_places=2)
+    
+    configuracion_personalizada = models.JSONField(
+        null=True, 
+        blank=True,
+        help_text="Configuración personalizada: [{'tipo_clase_id': 1, 'cantidad': 2, 'codigo': 'x1'}, ...]"
+    )
+    
     estado = models.CharField(max_length=20, choices=ESTADOS, default="pagado")
     
     renovado = models.BooleanField(
@@ -95,6 +104,46 @@ class AbonoMes(models.Model):
 
     def __str__(self):
         return f"AbonoMes {self.usuario_id} {self.anio}-{self.mes:02d} {self.get_dia_semana_display()} {self.hora}"
+    
+    @property
+    def es_personalizado(self):
+        """Retorna True si el abono tiene configuración personalizada."""
+        return bool(self.configuracion_personalizada)
+    
+    def get_tipos_clase_configuracion(self):
+        """
+        Retorna la configuración de tipos de clase.
+        Para abonos simples: retorna el tipo_clase único.
+        Para abonos personalizados: retorna la configuración JSON.
+        """
+        if self.es_personalizado:
+            return self.configuracion_personalizada
+        elif self.tipo_clase:
+            return [{
+                'tipo_clase_id': self.tipo_clase.id,
+                'cantidad': 1,
+                'codigo': self.tipo_clase.codigo
+            }]
+        return []
+    
+    def calcular_monto_total(self):
+        """
+        Calcula el monto total basado en la configuración.
+        Para abonos simples: usa el precio del tipo_clase.
+        Para abonos personalizados: suma precios de cada tipo * cantidad.
+        """
+        if self.es_personalizado:
+            total = 0
+            for config in self.configuracion_personalizada:
+                try:
+                    tipo_clase = TipoClasePadel.objects.get(id=config['tipo_clase_id'])
+                    total += float(tipo_clase.precio) * config['cantidad']
+                except (TipoClasePadel.DoesNotExist, KeyError, ValueError):
+                    continue
+            return total
+        elif self.tipo_clase:
+            return float(self.tipo_clase.precio)
+        return 0.0
 
 class ConfiguracionSedePadel(models.Model):
     sede = models.OneToOneField(

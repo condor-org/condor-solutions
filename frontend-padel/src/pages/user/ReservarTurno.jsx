@@ -99,6 +99,7 @@ const ReservarTurno = ({ onClose }) => {
   const [sedeId, setSedeId] = useState("");
   const [profesorId, setProfesorId] = useState("");
   const [tipoClaseId, setTipoClaseId] = useState("");
+  const [diasDisponibles, setDiasDisponibles] = useState([]);
 
   // Disponibilidad para el calendario / lista mobile
   const [turnos, setTurnos] = useState([]);
@@ -205,6 +206,32 @@ const ReservarTurno = ({ onClose }) => {
       .catch(() => setProfesores([]))
       .finally(() => setProfesoresLoading(false));
   }, [sedeId, accessToken]);
+
+  // Filtrar días disponibles basado en disponibilidades del profesor
+  useEffect(() => {
+    if (!profesorId || !sedeId) {
+      setDiasDisponibles([]);
+      setSelectedDay(isoHoy); // Limpiar selección de día
+      return;
+    }
+
+    const profesor = profesores.find(p => String(p.id) === String(profesorId));
+    if (!profesor?.disponibilidades) {
+      setDiasDisponibles([]);
+      setSelectedDay(isoHoy);
+      return;
+    }
+
+    // Filtrar disponibilidades para la sede actual
+    const disponibilidadesSede = profesor.disponibilidades.filter(
+      disp => String(disp.sede_id) === String(sedeId)
+    );
+
+    // Extraer días de la semana únicos
+    const diasUnicos = [...new Set(disponibilidadesSede.map(disp => disp.dia_semana))];
+    setDiasDisponibles(diasUnicos);
+    setSelectedDay(isoHoy); // Limpiar selección de día
+  }, [profesorId, sedeId, profesores]);
 
   // Turnos disponibles
   useEffect(() => {
@@ -482,6 +509,7 @@ const ReservarTurno = ({ onClose }) => {
         onDayChange={setSelectedDay}
         minDay={isoHoy}
         maxDay={availableDays.length ? availableDays[availableDays.length - 1] : undefined}
+        diasDisponibles={diasDisponibles}
       />
 
       {isMobile ? (
@@ -550,6 +578,8 @@ const ReservarTurno = ({ onClose }) => {
           slotMinTime="07:00:00"
           slotMaxTime="23:00:00"
           renderEventContent={renderEventContent}
+          diasDisponibles={diasDisponibles}
+          profesorId={profesorId}
         />
       )}
 

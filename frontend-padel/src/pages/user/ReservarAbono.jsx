@@ -4,7 +4,8 @@ import { AuthContext } from "../../auth/AuthContext";
 import { axiosAuth } from "../../utils/axiosAuth";
 import {
   Box, Text, HStack, VStack, Select, useToast, Badge, Divider, useDisclosure,
-  FormControl, FormLabel, Stack, Skeleton, Alert, AlertIcon,
+  FormControl, FormLabel, Stack, Skeleton, Alert, AlertIcon, Input as ChakraInput,
+  Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody, ModalFooter
 } from "@chakra-ui/react";
 
 import Button from "../../components/ui/Button";
@@ -22,11 +23,27 @@ const DIAS = [
 ];
 const LABELS = { x1: "Individual", x2: "2 Personas", x3: "3 Personas", x4: "4 Personas" };
 
+// Función para mostrar configuración personalizada de manera legible
+const mostrarConfiguracionPersonalizada = (configuracion, tiposClase) => {
+  if (!configuracion || !Array.isArray(configuracion)) return "Personalizado";
+  
+  const configs = configuracion
+    .filter(config => config.tipo_clase_id)
+    .map(config => {
+      const tipoClase = tiposClase.find(tc => tc.id === config.tipo_clase_id);
+      const nombre = tipoClase?.nombre || LABELS[tipoClase?.codigo] || "Tipo";
+      return `${config.cantidad}x ${nombre}`;
+    });
+  
+  return configs.length > 0 ? configs.join(", ") : "Personalizado";
+};
+
 const ABONO_OPCIONES = [
   { codigo: "x1", nombre: "Individual" },
   { codigo: "x2", nombre: "2 Personas" },
   { codigo: "x3", nombre: "3 Personas" },
   { codigo: "x4", nombre: "4 Personas" },
+  { codigo: "personalizado", nombre: "Personalizado" },
 ];
 
 const ReservarAbono = ({ onClose }) => {
@@ -39,44 +56,52 @@ const ReservarAbono = ({ onClose }) => {
   const muted = useMutedText();
 
   const pagoDisc = useDisclosure();
+  const configDisc = useDisclosure();
+  const [abonoParaConfigurar, setAbonoParaConfigurar] = useState(null);
 
-  // Mis abonos
+  // ===== ESTADOS DEL COMPONENTE =====
+  // Estados para "Mis abonos" (abonos del usuario actual)
   const [loadingAbonos, setLoadingAbonos] = useState(true);
   const [misAbonos, setMisAbonos] = useState([]);
-  const [abonosPorVencer, setAbonosPorVencer] = useState([]); // 👈 nuevos
+  const [abonosPorVencer, setAbonosPorVencer] = useState([]);
   const [showRenewBanner, setShowRenewBanner] = useState(false);
   const [renovandoAbonoId, setRenovandoAbonoId] = useState(null);
 
-  // Reserva NUEVA (filtros)
+  // Estados para filtros de nueva reserva (sede, profesor, día, tipo)
   const [sedes, setSedes] = useState([]);
   const [profesores, setProfesores] = useState([]);
+  const [diasDisponibles, setDiasDisponibles] = useState([]);
   const [sedeId, setSedeId] = useState("");
   const [profesorId, setProfesorId] = useState("");
   const [diaSemana, setDiaSemana] = useState("");
   const [horaFiltro, setHoraFiltro] = useState("");
   const [tiposAbono, setTiposAbono] = useState([]);
+  const [tiposClase, setTiposClase] = useState([]);
   const [tipoAbono, setTipoAbono] = useState("");
   const [abonosLibres, setAbonosLibres] = useState([]);
   const [loadingDisponibles, setLoadingDisponibles] = useState(false);
   const [selectedBonos, setSelectedBonos] = useState([]);
 
-  // Selección activa (nuevo o renovación)
+  // Estados para configuración de abonos personalizados
+  const [configuracionPersonalizada, setConfiguracionPersonalizada] = useState([]);
+
+  // Estados para selección y pago (diferente al admin, aquí SÍ hay pago)
   const [seleccion, setSeleccion] = useState(null);
   const [archivo, setArchivo] = useState(null);
   const [bonificaciones, setBonificaciones] = useState([]);
-  const [usarBonificado, setUsarBonificado] = useState(false); // compat
+  const [usarBonificado, setUsarBonificado] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [modoRenovacion, setModoRenovacion] = useState(false);
 
-  // Alias/CBU (para modal)
-  const [alias, setAlias] = useState("");
-  const [cbuCvu, setCbuCvu] = useState("");
+  // Estados para información de pago
   const configPago = { tiempo_maximo_minutos: 15 };
 
   const now = new Date();
   const anioActual = now.getFullYear();
   const mesActual = now.getMonth() + 1;
 
+  // ===== USEMEMO Y HELPERS =====
+  // useMemo: Evita recálculos cuando sedes/profesores no cambian
   const sedeSel = useMemo(
   () => sedes.find(s => String(s.id) === String(sedeId)) || null,
   [sedes, sedeId]
@@ -86,11 +111,13 @@ const ReservarAbono = ({ onClose }) => {
     [profesores, profesorId]
   );
 
-    // Helpers
+  // Helpers: Funciones utilitarias
   const fmtHora = (h) => (h || "").slice(0, 5);
   const proximoMes = (anio, mes) => (mes === 12 ? { anio: anio + 1, mes: 1 } : { anio, mes: mes + 1 });
 
-  // 1) Cargar “Mis abonos”
+  // ===== USEEFFECT - LLAMADAS AL BACKEND =====
+  // 1) Cargar "Mis abonos" del usuario
+  // GET /api/padel/abonos/mios/ → Filtra abonos por vencer para banner
   useEffect(() => {
     if (!api) return;
     setLoadingAbonos(true);
@@ -113,7 +140,8 @@ const ReservarAbono = ({ onClose }) => {
       .finally(() => setLoadingAbonos(false));
   }, [api]);
 
-  // 2) sedes
+  // 2) Cargar sedes disponibles
+  // GET /api/turnos/sedes/ → Sedes con alias y CBU para pagos
   useEffect(() => {
     if (!api) return;
     api.get("turnos/sedes/")
@@ -124,45 +152,84 @@ const ReservarAbono = ({ onClose }) => {
       .catch(() => setSedes([]));
   }, [api]);
 
-  // 3) profesores por sede
+  // 3) profesores - cargar todos los profesores de la sede
   useEffect(() => {
-    if (!api || !sedeId) { setProfesores([]); return; }
+    if (!api || !sedeId) { 
+      setProfesores([]); 
+      setProfesorId(""); // Limpiar selección de profesor
+      return; 
+    }
+    
     api.get(`turnos/prestadores/?lugar_id=${sedeId}`)
       .then(res => {
         const data = res?.data?.results ?? res?.data ?? [];
         setProfesores(Array.isArray(data) ? data : []);
       })
-      .catch(() => setProfesores([]));
+      .catch(e => { 
+        console.error("[AbonoUser] profesores error:", e); 
+        setProfesores([]); 
+      });
   }, [api, sedeId]);
 
-  // 4) alias / CBU
+  // 3.1) Filtrar días disponibles del profesor seleccionado
+  // - Extrae días de la semana de las disponibilidades del profesor
+  // - Solo muestra días donde el profesor tiene disponibilidad activa
   useEffect(() => {
-    if (!sedeId) { setAlias(""); setCbuCvu(""); return; }
-    const sede = sedes.find(s => String(s.id) === String(sedeId));
-    setAlias(sede?.alias || "");
-    setCbuCvu(sede?.cbu_cvu || "");
-  }, [sedeId, sedes]);
+    if (!profesorId || !profesores.length) {
+      setDiasDisponibles([]);
+      return;
+    }
+    
+    const profesor = profesores.find(p => String(p.id) === String(profesorId));
+    if (profesor?.disponibilidades) {
+      const diasDisponibles = profesor.disponibilidades
+        .filter(d => d.activo && d.lugar === Number(sedeId)) // Solo de la sede actual
+        .map(d => d.dia_semana);
+      
+      setDiasDisponibles(diasDisponibles);
+    } else {
+      setDiasDisponibles([]);
+    }
+  }, [profesorId, profesores, sedeId]);
 
-  // 5) abonos disponibles (nueva reserva)
+  // 4) Cargar abonos disponibles
+  // GET /api/padel/abonos/disponibles/ → Abonos libres para reservar
+  // - Ya no usa tipo_codigo: el backend calculará precios dinámicamente
+  // - Para personalizados: procesa datos para mostrar solo horas disponibles
+  // - Para normales: usa los datos tal como vienen del backend
   useEffect(() => {
     const ready = api && sedeId && profesorId && (diaSemana !== "") && tipoAbono;
     if (!ready) { setAbonosLibres([]); return; }
-
     const params = new URLSearchParams({
       sede_id: String(sedeId),
       prestador_id: String(profesorId),
       dia_semana: String(diaSemana),
       anio: String(anioActual),
       mes: String(mesActual),
-      tipo_codigo: String(tipoAbono),
     });
+    
+    // Ya no necesitamos tipo_codigo para obtener disponibilidad
+    // El backend calculará precios dinámicamente
+    
     if (horaFiltro) params.append("hora", horaFiltro);
 
     setLoadingDisponibles(true);
     api.get(`padel/abonos/disponibles/?${params.toString()}`)
       .then(res => {
         let data = res?.data?.results ?? res?.data ?? [];
-        data = Array.isArray(data) ? data.filter(d => d?.tipo_clase?.codigo === tipoAbono) : [];
+        
+        if (tipoAbono === "personalizado") {
+          // Para abonos personalizados, mostrar todas las horas disponibles
+          // pero marcar cada una como "Personalizado" sin tipo_clase específico
+          data = data.map(item => ({
+            hora: item.hora,
+            tipo_clase: null // No hay tipo específico, se configurará en el modal
+          }));
+        } else {
+          // Para abonos normales, usar los datos tal como vienen del backend
+          data = Array.isArray(data) ? data : [];
+        }
+        
         setAbonosLibres(data);
       })
       .catch(() => {
@@ -183,6 +250,17 @@ const ReservarAbono = ({ onClose }) => {
       .catch(() => setTiposAbono([]));
   }, [api, sedeId]);
 
+  // Tipos de clase para configuración personalizada
+  useEffect(() => {
+    if (!api || !sedeId) { setTiposClase([]); return; }
+    api.get(`padel/tipos-clase/?sede_id=${sedeId}`)
+      .then(res => {
+        const data = res?.data?.results ?? res?.data ?? [];
+        setTiposClase(Array.isArray(data) ? data : []);
+      })
+      .catch(() => setTiposClase([]));
+  }, [api, sedeId]);
+
   const precioAbonoPorCodigo = useMemo(() => {
     const map = {};
     (tiposAbono || []).forEach(a => { map[a.codigo] = Number(a.precio); });
@@ -195,30 +273,165 @@ const ReservarAbono = ({ onClose }) => {
     return 0;
   };
 
-  // --- Abrir modal (nueva reserva) ---
+  // Función para calcular turnos del mes para un día de la semana específico
+  const calcularTurnosDelMes = (anio, mes, diaSemana, soloFuturos = true) => {
+    const hoy = new Date();
+    
+    // Contar días del mes que caen en el día de la semana
+    const diasEnMes = new Date(anio, mes, 0).getDate(); // Último día del mes (corregido)
+    let diasContados = 0;
+    
+    // Para comparaciones de fecha, usar solo la fecha sin hora
+    const hoySinHora = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+    
+    for (let dia = 1; dia <= diasEnMes; dia++) {
+      const fecha = new Date(anio, mes - 1, dia);
+      
+      if (fecha.getDay() === diaSemana) {
+        if (soloFuturos) {
+          // Para el mes actual: solo contar fechas futuras
+          const fechaSinHora = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
+          if (fechaSinHora >= hoySinHora) {
+            diasContados++;
+          }
+        } else {
+          // Para el mes siguiente: contar todos los días
+          diasContados++;
+        }
+      }
+    }
+    
+    return diasContados;
+  };
+
+  // ======= CONFIGURACIÓN PERSONALIZADA =======
+  // 10) Gestión de configuración personalizada
+  // Funciones para agregar, remover y actualizar tipos de clase en abonos personalizados
+  const agregarTipoClase = () => {
+    if (tiposClase.length === 0) return;
+    const nuevoTipo = {
+      tipo_clase_id: tiposClase[0].id,
+      cantidad: 1,
+      codigo: tiposClase[0].codigo
+    };
+    setConfiguracionPersonalizada([...configuracionPersonalizada, nuevoTipo]);
+  };
+
+  const removerTipoClase = (index) => {
+    const nuevaConfig = configuracionPersonalizada.filter((_, i) => i !== index);
+    setConfiguracionPersonalizada(nuevaConfig);
+  };
+
+  const actualizarTipoClase = (index, campo, valor) => {
+    const nuevaConfig = [...configuracionPersonalizada];
+    nuevaConfig[index] = { ...nuevaConfig[index], [campo]: valor };
+    setConfiguracionPersonalizada(nuevaConfig);
+  };
+
+  // 11) Cálculo de monto personalizado
+  // Suma (cantidad × precio) para cada tipo de clase configurado
+  const calcularMontoPersonalizado = () => {
+    return configuracionPersonalizada.reduce((total, config) => {
+      const tipoClase = tiposClase.find(tc => tc.id === config.tipo_clase_id);
+      if (tipoClase) {
+        return total + (Number(tipoClase.precio) * config.cantidad);
+      }
+      return total;
+    }, 0);
+  };
+
+  // 12) Cálculo de turnos disponibles
+  // Cuenta turnos reales disponibles para el día y hora específicos del mes
+  const calcularMaximoTurnos = () => {
+    if (!abonosLibres.length) return 0;
+    
+    // Para ambos tipos de abono, contar solo turnos FUTUROS del mes
+    const hoy = new Date();
+    const anio = hoy.getFullYear();
+    const mes = hoy.getMonth() + 1;
+    const diaSemanaSeleccionado = Number(diaSemana) || 0; // 0 = lunes
+    
+    // Usar la función centralizada con soloFuturos = true para el mes actual
+    const turnos = calcularTurnosDelMes(anio, mes, diaSemanaSeleccionado, true);
+    
+    console.log('DEBUG calcularMaximoTurnos:', {
+      abonosLibres: abonosLibres.length,
+      hoy: hoy.toISOString(),
+      anio,
+      mes,
+      diaSemanaSeleccionado,
+      turnos
+    });
+    
+    return turnos;
+  };
+
+  // 13) Validación de turnos
+  // Funciones para verificar que no se exceda el límite de turnos disponibles
+  const calcularTurnosAsignados = () => {
+    return configuracionPersonalizada.reduce((total, config) => total + config.cantidad, 0);
+  };
+
+  const calcularTurnosRestantes = () => {
+    return calcularMaximoTurnos() - calcularTurnosAsignados();
+  };
+
+  // 14) Abrir modal de pago (nueva reserva)
+  // Para abonos normales va directo al pago, para personalizados abre configuración
   const abrirPagoReservaNueva = async (item) => {
-    const codigo = item?.tipo_clase?.codigo;
-    const precioAbono = Number(precioAbonoPorCodigo[codigo] ?? 0);
-    const precioUnit = Number(item?.tipo_clase?.precio ?? 0);
+    if (tipoAbono === "personalizado") {
+      // Para abonos personalizados, abrir modal de configuración
+      setAbonoParaConfigurar(item);
+      
+      // Inicializar configuración personalizada para abonos nuevos (solo turnos futuros)
+      const turnosDelMes = calcularMaximoTurnos();
+      const nuevaConfiguracion = Array.from({ length: turnosDelMes }, (_, index) => ({
+        tipo_clase_id: null,
+        cantidad: 1
+      }));
+      setConfiguracionPersonalizada(nuevaConfiguracion);
+      
+      configDisc.onOpen();
+      return;
+    }
+
+    // Para abonos normales, ir directo al modal de pago
+    let precioAbono, precioUnit, tipoClase;
+
+    // Calcular precio dinámico basado en turnos del mes
+    const tipoClaseSeleccionada = tiposClase.find(tc => tc.codigo === tipoAbono);
+    if (tipoClaseSeleccionada) {
+      const turnosDelMes = calcularMaximoTurnos();
+      precioAbono = Number(tipoClaseSeleccionada.precio) * turnosDelMes;
+      precioUnit = Number(tipoClaseSeleccionada.precio);
+      tipoClase = tipoClaseSeleccionada;
+    } else {
+      precioAbono = 0;
+      precioUnit = 0;
+      tipoClase = null;
+    }
 
     setSeleccion({
       sede: Number(sedeId),
       prestador: Number(profesorId),
       dia_semana: Number(diaSemana),
       hora: item?.hora,
-      tipo_clase: item?.tipo_clase,
+      tipo_clase: tipoClase,
       precio_abono: precioAbono,
       precio_unitario: precioUnit,
       anio: anioActual,
       mes: mesActual,
+      alias: sedeSel?.alias || "",
+      cbu_cvu: sedeSel?.cbu_cvu || "",
+      configuracion_personalizada: null,
     });
     setModoRenovacion(false);
     setArchivo(null);
     setUsarBonificado(false);
 
     try {
-      if (api && item?.tipo_clase?.id) {
-        const res = await api.get(`turnos/bonificados/mios/?tipo_clase_id=${item.tipo_clase.id}`);
+      if (api) {
+        const res = await api.get(`turnos/bonificados/mios/`);
         const bonos = res?.data?.results ?? res?.data ?? [];
         setBonificaciones(Array.isArray(bonos) ? bonos : []);
       } else {
@@ -230,50 +443,215 @@ const ReservarAbono = ({ onClose }) => {
     pagoDisc.onOpen();
   };
 
-  // --- Abrir modal (renovación) ---
+  // 15) Proceder al pago desde configuración
+  // Transición del modal de configuración al modal de pago para abonos personalizados
+  const procederAlPago = async () => {
+    if (modoRenovacion) {
+      // Para renovaciones: actualizar el precio en la selección existente
+      const nuevoPrecioAbono = configuracionPersonalizada.reduce((total, config) => {
+        const tipoClase = tiposClase.find(tc => tc.id === config.tipo_clase_id);
+        return total + (Number(tipoClase?.precio || 0) * config.cantidad);
+      }, 0);
+      
+      console.log('DEBUG procederAlPago renovación:', {
+        configuracionPersonalizada,
+        nuevoPrecioAbono,
+        tiposClase: tiposClase.length
+      });
+      
+      // Actualizar la selección con el nuevo precio
+      setSeleccion(prev => ({
+        ...prev,
+        precio_abono: nuevoPrecioAbono,
+        configuracion_personalizada: configuracionPersonalizada,
+      }));
+      
+      configDisc.onClose();
+      pagoDisc.onOpen();
+    } else {
+      // Para abonos nuevos: lógica original
+      if (!abonoParaConfigurar) return;
+
+      let precioAbono = calcularMontoPersonalizado();
+      let precioUnit = 0;
+      let tipoClase = null;
+
+      setSeleccion({
+        sede: Number(sedeId),
+        prestador: Number(profesorId),
+        dia_semana: Number(diaSemana),
+        hora: abonoParaConfigurar?.hora,
+        tipo_clase: tipoClase,
+        precio_abono: precioAbono,
+        precio_unitario: precioUnit,
+        anio: anioActual,
+        mes: mesActual,
+        alias: sedeSel?.alias || "",
+        cbu_cvu: sedeSel?.cbu_cvu || "",
+        configuracion_personalizada: configuracionPersonalizada,
+      });
+      setModoRenovacion(false);
+      setArchivo(null);
+      setUsarBonificado(false);
+      // Cargar bonificaciones por monto (no por tipo de clase)
+      try {
+        if (api) {
+          const res = await api.get(`turnos/bonificados/mios/`);
+          const bonos = res?.data?.results ?? res?.data ?? [];
+          setBonificaciones(Array.isArray(bonos) ? bonos : []);
+        } else {
+          setBonificaciones([]);
+        }
+      } catch {
+        setBonificaciones([]);
+      }
+      configDisc.onClose();
+      pagoDisc.onOpen();
+    }
+  };
+
+  // 16) Abrir modal de renovación
+  // Carga datos del abono existente y calcula precios para el próximo mes
   const abrirRenovarAbono = async (abono) => {
     setRenovandoAbonoId(abono.id);
 
-    const sede = sedes.find(s => String(s.id) === String(abono.sede_id));
-    setAlias(sede?.alias || ""); setCbuCvu(sede?.cbu_cvu || "");
-
     const { anio, mes } = proximoMes(Number(abono.anio), Number(abono.mes));
 
+    // Calcular precio dinámico para el mes siguiente
     let precioAbono = 0;
     let precioUnit = 0;
+    let tipoClase = null;
+    let configuracionPersonalizada = null;
+
     try {
-      const [r1, r2] = await Promise.all([
-        api.get(`padel/tipos-abono/?sede_id=${abono.sede_id}`),
-        api.get(`padel/tipos-clase/?sede_id=${abono.sede_id}`),
-      ]);
-      const tiposAb = (r1?.data?.results ?? r1?.data ?? []);
-      const tiposCl = (r2?.data?.results ?? r2?.data ?? []);
-      const ta = tiposAb.find(x => x.codigo === abono.tipo_clase_codigo);
-      const tc = tiposCl.find(x => x.codigo === abono.tipo_clase_codigo);
-      precioAbono = Number(ta?.precio ?? 0);
-      precioUnit = Number(tc?.precio ?? 0);
-    } catch {
-      precioAbono = 0; precioUnit = 0;
+      const tiposCl = await api.get(`padel/tipos-clase/?sede_id=${abono.sede_id}`);
+      const tiposClase = tiposCl?.data?.results ?? tiposCl?.data ?? [];
+
+      console.log('DEBUG abono completo:', { 
+        abono, 
+        tiene_configuracion_personalizada: !!abono.configuracion_personalizada,
+        tiene_tipo_clase_codigo: !!abono.tipo_clase_codigo
+      });
+
+      // CASO ESPECIAL: Abono asignado por admin sin tipo_clase ni configuracion_personalizada
+      if (!abono.configuracion_personalizada && !abono.tipo_clase_codigo) {
+        console.log('DEBUG ABONO LEGACY: Sin tipo_clase ni configuracion_personalizada, usando fallback');
+        
+        if (tiposClase.length > 0) {
+          const tipoClaseDefault = tiposClase[0]; // Usar el primer tipo como fallback
+          console.log('DEBUG LEGACY FALLBACK: Usando tipo por defecto:', tipoClaseDefault);
+          
+          tipoClase = { 
+            id: tipoClaseDefault.id, 
+            codigo: tipoClaseDefault.codigo, 
+            precio: Number(tipoClaseDefault.precio) 
+          };
+          
+          // Calcular turnos del mes siguiente para el día de la semana
+          const turnosDelMesSiguiente = calcularTurnosDelMes(anio, mes, abono.dia_semana, false);
+          console.log('DEBUG LEGACY renovación:', { anio, mes, diaSemana: abono.dia_semana, turnosDelMesSiguiente, precioUnit: Number(tipoClaseDefault.precio) });
+          precioUnit = Number(tipoClaseDefault.precio);
+          precioAbono = precioUnit * turnosDelMesSiguiente;
+        } else {
+          console.log('DEBUG ERROR CRÍTICO: No hay tipos de clase disponibles para abono legacy');
+        }
+      } else if (abono.configuracion_personalizada) {
+        // Abono personalizado: calcular precio basado en configuración
+        configuracionPersonalizada = abono.configuracion_personalizada;
+        
+        // Calcular turnos del mes siguiente para el día de la semana
+        const turnosDelMesSiguiente = calcularTurnosDelMes(anio, mes, abono.dia_semana, false);
+        console.log('DEBUG renovación personalizada:', { anio, mes, diaSemana: abono.dia_semana, turnosDelMesSiguiente });
+        
+        // Calcular precio total basado en configuración
+        precioAbono = 0;
+        for (const config of configuracionPersonalizada) {
+          const tipoClaseConfig = tiposClase.find(tc => tc.id === config.tipo_clase_id);
+          if (tipoClaseConfig) {
+            // Para personalizados, usar la cantidad máxima de turnos del mes
+            const cantidadMaxima = Math.min(config.cantidad, turnosDelMesSiguiente);
+            precioAbono += Number(tipoClaseConfig.precio) * cantidadMaxima;
+            console.log('DEBUG config item:', { config, tipoClaseConfig, cantidadMaxima, precio: Number(tipoClaseConfig.precio) });
+          }
+        }
+        precioUnit = 0; // Para personalizados no hay precio unitario
+      } else {
+        // Abono normal: calcular precio dinámico
+        console.log('DEBUG abono normal:', { 
+          abono_tipo_clase_codigo: abono.tipo_clase_codigo, 
+          tiposClase_disponibles: tiposClase.map(tc => ({ codigo: tc.codigo, id: tc.id, precio: tc.precio }))
+        });
+        
+        const tipoClaseSeleccionada = tiposClase.find(tc => tc.codigo === abono.tipo_clase_codigo);
+        console.log('DEBUG tipoClaseSeleccionada:', tipoClaseSeleccionada);
+        
+        if (tipoClaseSeleccionada) {
+          tipoClase = { 
+            id: tipoClaseSeleccionada.id, 
+            codigo: tipoClaseSeleccionada.codigo, 
+            precio: Number(tipoClaseSeleccionada.precio) 
+          };
+          
+          // Calcular turnos del mes siguiente para el día de la semana
+          const turnosDelMesSiguiente = calcularTurnosDelMes(anio, mes, abono.dia_semana, false);
+          console.log('DEBUG renovación normal:', { anio, mes, diaSemana: abono.dia_semana, turnosDelMesSiguiente, precioUnit: Number(tipoClaseSeleccionada.precio) });
+          precioUnit = Number(tipoClaseSeleccionada.precio);
+          precioAbono = precioUnit * turnosDelMesSiguiente;
+        } else {
+          console.log('DEBUG ERROR: No se encontró tipoClaseSeleccionada para código:', abono.tipo_clase_codigo);
+          
+          // FALLBACK: Si no hay tipo_clase_codigo, usar el primer tipo disponible como default
+          if (tiposClase.length > 0) {
+            const tipoClaseDefault = tiposClase[0]; // Usar el primer tipo como fallback
+            console.log('DEBUG FALLBACK: Usando tipo por defecto:', tipoClaseDefault);
+            
+            tipoClase = { 
+              id: tipoClaseDefault.id, 
+              codigo: tipoClaseDefault.codigo, 
+              precio: Number(tipoClaseDefault.precio) 
+            };
+            
+            // Calcular turnos del mes siguiente para el día de la semana
+            const turnosDelMesSiguiente = calcularTurnosDelMes(anio, mes, abono.dia_semana, false);
+            console.log('DEBUG FALLBACK renovación:', { anio, mes, diaSemana: abono.dia_semana, turnosDelMesSiguiente, precioUnit: Number(tipoClaseDefault.precio) });
+            precioUnit = Number(tipoClaseDefault.precio);
+            precioAbono = precioUnit * turnosDelMesSiguiente;
+          } else {
+            console.log('DEBUG ERROR CRÍTICO: No hay tipos de clase disponibles');
+          }
+        }
+      }
+      
+      console.log('DEBUG precio final:', { precioAbono, precioUnit, tipoClase, configuracionPersonalizada });
+    } catch (error) {
+      console.error('ERROR en abrirRenovarAbono:', error);
+      precioAbono = 0; 
+      precioUnit = 0;
     }
+
+    const sedeAbono = sedes.find(s => String(s.id) === String(abono.sede_id));
 
     setSeleccion({
       sede: abono.sede_id,
       prestador: abono.prestador_id,
       dia_semana: abono.dia_semana,
       hora: abono.hora,
-      tipo_clase: { id: abono.tipo_clase_id, codigo: abono.tipo_clase_codigo, precio: precioUnit },
+      tipo_clase: tipoClase,
       precio_abono: precioAbono,
       precio_unitario: precioUnit,
       anio, mes,
+      alias: sedeAbono?.alias || "",
+      cbu_cvu: sedeAbono?.cbu_cvu || "",
       abono_id: abono.id, // 👈 clave para renovación
+      configuracion_personalizada: configuracionPersonalizada, // 👈 para abonos personalizados
     });
     setModoRenovacion(true);
     setArchivo(null);
     setUsarBonificado(false);
 
     try {
-      if (api && abono?.tipo_clase_id) {
-        const res = await api.get(`turnos/bonificados/mios/?tipo_clase_id=${abono.tipo_clase_id}`);
+      if (api) {
+        const res = await api.get(`turnos/bonificados/mios/`);
         const bonos = res?.data?.results ?? res?.data ?? [];
         setBonificaciones(Array.isArray(bonos) ? bonos : []);
       } else {
@@ -285,7 +663,8 @@ const ReservarAbono = ({ onClose }) => {
     pagoDisc.onOpen();
   };
 
-  // --- Confirmar (nueva o renovación) ---
+  // 19) Confirmación de pago
+  // Procesa reserva o renovación con validación de comprobante y aplicación de bonificaciones
   const onConfirmarPago = async (bonosIds = []) => {
     if (!seleccion) return;
 
@@ -310,11 +689,19 @@ const ReservarAbono = ({ onClose }) => {
       fd.append("prestador", seleccion.prestador);
       fd.append("dia_semana", seleccion.dia_semana);
       fd.append("hora", seleccion.hora);
-      fd.append("tipo_clase", seleccion.tipo_clase?.id);
       fd.append("anio", seleccion.anio);
       fd.append("mes", seleccion.mes);
       fd.append("monto", abonoPrice);
       fd.append("monto_esperado", totalEstimado);
+      
+      if (seleccion?.configuracion_personalizada) {
+        // Para abonos personalizados
+        fd.append("configuracion_personalizada", JSON.stringify(seleccion.configuracion_personalizada));
+      } else {
+        // Para abonos normales
+        fd.append("tipo_clase", seleccion.tipo_clase?.id);
+      }
+      
       if (seleccion?.abono_id) {
         fd.append("abono_id", seleccion.abono_id); // 👈 indica RENOVACIÓN al backend
       }
@@ -334,6 +721,7 @@ const ReservarAbono = ({ onClose }) => {
       setArchivo(null);
       setUsarBonificado(false);
       setSeleccion(null);
+      setConfiguracionPersonalizada([]); // Limpiar configuración personalizada
 
       if (modoRenovacion) {
         setMisAbonos(prev =>
@@ -467,10 +855,7 @@ const ReservarAbono = ({ onClose }) => {
               placeholder="Seleccioná"
               onChange={(e) => {
                 setSedeId(e.target.value);
-                setProfesorId("");
-                setDiaSemana("");
-                setTipoAbono("");
-                setHoraFiltro("");
+                setProfesorId(""); setDiaSemana(""); setTipoAbono(""); setHoraFiltro("");
               }}
               bg={input.bg}
               borderColor={input.border}
@@ -492,7 +877,10 @@ const ReservarAbono = ({ onClose }) => {
             <Select
               value={profesorId}
               placeholder="Seleccioná"
-              onChange={(e) => setProfesorId(e.target.value)}
+              onChange={(e) => {
+                setProfesorId(e.target.value);
+                setDiaSemana(""); // Limpiar día al cambiar profesor
+              }}
               bg={input.bg}
               borderColor={input.border}
               size={{ base: "md", md: "sm" }}
@@ -509,7 +897,14 @@ const ReservarAbono = ({ onClose }) => {
 
           {/* Día de la semana */}
           <FormControl flex={1} minW={0} isDisabled={!profesorId}>
-            <FormLabel color={muted}>Día de la semana</FormLabel>
+            <FormLabel color={muted}>
+              Día de la semana
+              {profesorId && (
+                <Text as="span" fontSize="xs" color="gray.500" ml={1}>
+                  (solo días disponibles)
+                </Text>
+              )}
+            </FormLabel>
             <Select
               value={diaSemana}
               placeholder="Seleccioná"
@@ -520,7 +915,7 @@ const ReservarAbono = ({ onClose }) => {
               w="100%"
               rounded="md"
             >
-              {DIAS.map((d) => (
+              {DIAS.filter(d => diasDisponibles.includes(d.value)).map((d) => (
                 <option key={d.value} value={d.value}>
                   {d.label}
                 </option>
@@ -551,7 +946,9 @@ const ReservarAbono = ({ onClose }) => {
 
           {/* Hora (opcional) */}
           <FormControl flex={1} minW={0} isDisabled={diaSemana === ""}>
-            <FormLabel color={muted}>Hora (opcional)</FormLabel>
+            <FormLabel color={muted}>
+              Hora (opcional)
+            </FormLabel>
             <Select
               value={horaFiltro}
               onChange={(e) => setHoraFiltro(e.target.value)}
@@ -576,6 +973,7 @@ const ReservarAbono = ({ onClose }) => {
 
         <Divider my={2} />
 
+
         <Box>
           <Text fontWeight="semibold" mb={2}>
             Abonos libres {loadingDisponibles ? "— cargando..." : ""}
@@ -583,15 +981,55 @@ const ReservarAbono = ({ onClose }) => {
           {(sedeId && profesorId && diaSemana !== "" && !tipoAbono) && (
             <Text color={muted} mb={2}>Elegí un tipo de abono para ver disponibilidad.</Text>
           )}
-
           {!loadingDisponibles && abonosLibres.length === 0 && (sedeId && profesorId && diaSemana !== "") ? (
             <Text color={muted}>No hay abonos libres para los filtros seleccionados.</Text>
           ) : null}
 
           <VStack align="stretch" spacing={3}>
+            {/* Para ambos tipos de abono, mostrar todos los disponibles */}
             {abonosLibres.map((item, idx) => {
               const codigo = item?.tipo_clase?.codigo;
               const pAbono = precioAbonoPorCodigo[codigo];
+              
+              // Calcular precio dinámico basado en turnos del mes
+              const calcularPrecioDinamico = () => {
+                if (tipoAbono === "personalizado") {
+                  return calcularMontoPersonalizado();
+                }
+                
+                // Para abonos normales, buscar el tipo de clase correspondiente
+                const tipoClase = tiposClase.find(tc => tc.codigo === tipoAbono);
+                if (tipoClase) {
+                  // Calcular turnos del mes para el día seleccionado
+                  const turnosDelMes = calcularMaximoTurnos();
+                  const precio = Number(tipoClase.precio) * turnosDelMes;
+                  
+                  console.log('DEBUG calcularPrecioDinamico:', {
+                    tipoAbono,
+                    tipoClase: tipoClase.codigo,
+                    precioTipoClase: tipoClase.precio,
+                    turnosDelMes,
+                    precioFinal: precio,
+                    diaSemana,
+                    profesorId
+                  });
+                  
+                  return precio;
+                }
+                
+                console.log('DEBUG calcularPrecioDinamico: No se encontró tipoClase para', tipoAbono);
+                return 0;
+              };
+              
+              const montoMostrar = calcularPrecioDinamico();
+              
+              console.log('DEBUG Badge precio:', {
+                tipoAbono,
+                montoMostrar,
+                item_hora: item?.hora,
+                diaSemana,
+                profesorId
+              });
 
               return (
                 <Box
@@ -620,16 +1058,28 @@ const ReservarAbono = ({ onClose }) => {
                       </Text>
 
                       <HStack mt={2} spacing={2}>
+                        {tipoAbono === "personalizado" ? (
+                          <Badge colorScheme="purple">
+                            {mostrarConfiguracionPersonalizada(item?.configuracion_personalizada, tiposClase)}
+                          </Badge>
+                        ) : (
+                          <>
                         <Badge variant="outline">
-                          {item?.tipo_clase?.nombre || LABELS[item?.tipo_clase?.codigo] || "Tipo"}
+                          {LABELS[tipoAbono] || "Tipo"}
                         </Badge>
                         <Badge colorScheme="green">
-                          ${Number(pAbono ?? item?.tipo_clase?.precio ?? 0).toLocaleString("es-AR")}
+                              ${montoMostrar.toLocaleString("es-AR")}
                         </Badge>
+                          </>
+                        )}
                       </HStack>
                     </Box>
 
-                    <Button variant="primary">Seleccionar</Button>
+                    <Button 
+                      variant="primary"
+                    >
+                      Seleccionar
+                    </Button>
                   </HStack>
 
                 </Box>
@@ -639,13 +1089,237 @@ const ReservarAbono = ({ onClose }) => {
         </Box>
       </VStack>
 
-      {/* Modal */}
+      {/* Modal de configuración personalizada */}
+      <Modal
+        isOpen={configDisc.isOpen}
+        onClose={configDisc.onClose}
+        isCentered
+        size="lg"
+      >
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Configurar Abono Personalizado</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack align="stretch" spacing={4}>
+              <Box p={4} bg="blue.50" rounded="md">
+                <Text fontWeight="semibold" mb={2}>Resumen del Abono</Text>
+                {modoRenovacion ? (
+                  // Para renovaciones, mostrar información del abono existente
+                  <>
+                    <Text fontSize="sm" color="gray.600">
+                      <strong>Día:</strong> {DIAS.find(d => d.value === Number(seleccion?.dia_semana))?.label}
+                    </Text>
+                    <Text fontSize="sm" color="gray.600">
+                      <strong>Hora:</strong> {seleccion?.hora ? fmtHora(seleccion.hora) : "Todas las horas"}
+                    </Text>
+                    <Text fontSize="sm" color="gray.600">
+                      <strong>Profesor:</strong> {(() => {
+                        console.log('DEBUG profesor:', { 
+                          seleccion_prestador: seleccion?.prestador, 
+                          profesores: profesores.length,
+                          profesor_encontrado: profesores.find(p => String(p.id) === String(seleccion?.prestador))
+                        });
+                        return profesores.find(p => String(p.id) === String(seleccion?.prestador))?.nombre || "Cargando...";
+                      })()}
+                    </Text>
+                    <Text fontSize="sm" color="gray.600">
+                      <strong>Mes siguiente:</strong> {seleccion?.mes && seleccion?.anio ? `${String(seleccion.mes).padStart(2, "0")}/${seleccion.anio}` : "N/A"}
+                    </Text>
+                  </>
+                ) : (
+                  // Para abonos nuevos, mostrar información del filtro actual
+                  <>
+                    <Text fontSize="sm" color="gray.600">
+                      <strong>Día:</strong> {DIAS.find(d => d.value === Number(diaSemana))?.label}
+                    </Text>
+                    <Text fontSize="sm" color="gray.600">
+                      <strong>Hora:</strong> {abonoParaConfigurar?.hora ? fmtHora(abonoParaConfigurar.hora) : (horaFiltro ? horaFiltro.slice(0, 5) : "Todas las horas")}
+                    </Text>
+                    <Text fontSize="sm" color="gray.600">
+                      <strong>Profesor:</strong> {profesores.find(p => String(p.id) === String(profesorId))?.nombre}
+                    </Text>
+                    <Text fontSize="sm" color="gray.600">
+                      <strong>Turnos disponibles:</strong> {calcularMaximoTurnos()}
+                    </Text>
+                  </>
+                )}
+              </Box>
+
+              <Box>
+                <Text fontWeight="semibold" mb={3}>Configuración de Clases</Text>
+                {modoRenovacion ? (
+                  // Para renovaciones, mostrar turnos del mes siguiente
+                  <VStack align="stretch" spacing={3}>
+                    <Text fontSize="sm" color="gray.600" mb={3}>
+                      El mes siguiente tiene {calcularTurnosDelMes(seleccion?.anio, seleccion?.mes, seleccion?.dia_semana, false)} {DIAS.find(d => d.value === Number(seleccion?.dia_semana))?.label.toLowerCase()}. 
+                      Seleccioná qué tipo de clase querés tener para cada turno:
+                    </Text>
+                    {Array.from({ length: calcularTurnosDelMes(seleccion?.anio, seleccion?.mes, seleccion?.dia_semana, false) }, (_, index) => (
+                      <HStack key={index} spacing={3} align="end">
+                        <FormControl flex={2}>
+                          <FormLabel fontSize="sm">Turno {index + 1}</FormLabel>
+                          <Select
+                            value={configuracionPersonalizada[index]?.tipo_clase_id || ""}
+                            onChange={(e) => {
+                              const newConfig = [...configuracionPersonalizada];
+                              if (!newConfig[index]) {
+                                newConfig[index] = { tipo_clase_id: Number(e.target.value), cantidad: 1 };
+                              } else {
+                                newConfig[index].tipo_clase_id = Number(e.target.value);
+                              }
+                              setConfiguracionPersonalizada(newConfig);
+                            }}
+                          >
+                            <option value="">Seleccionar tipo</option>
+                            {(() => {
+                              console.log('DEBUG tiposClase en dropdown:', { 
+                                tiposClase: tiposClase.length,
+                                tiposClase_data: tiposClase 
+                              });
+                              return tiposClase.map(tc => (
+                                <option key={tc.id} value={tc.id}>
+                                  {LABELS[tc.codigo]} - ${Number(tc.precio).toLocaleString("es-AR")}
+                                </option>
+                              ));
+                            })()}
+                          </Select>
+                        </FormControl>
+                      </HStack>
+                    ))}
+                  </VStack>
+                ) : configuracionPersonalizada.length === 0 ? (
+                  <Text color="gray.500" textAlign="center" py={4}>
+                    No hay tipos de clase configurados. Agregá al menos uno para continuar.
+                  </Text>
+                ) : (
+                  <VStack align="stretch" spacing={3}>
+                    {configuracionPersonalizada.map((config, index) => {
+                      const tipoClase = tiposClase.find(tc => tc.id === config.tipo_clase_id);
+                      return (
+                        <HStack key={index} spacing={3} align="end">
+                          <FormControl flex={2}>
+                            <FormLabel fontSize="sm">Tipo de Clase</FormLabel>
+                            <Select
+                              value={config.tipo_clase_id}
+                              onChange={(e) => actualizarTipoClase(index, 'tipo_clase_id', Number(e.target.value))}
+                              bg={input.bg}
+                              borderColor={input.border}
+                              size="sm"
+                            >
+                              {tiposClase.map(tc => (
+                                <option key={tc.id} value={tc.id}>
+                                  {tc.nombre || LABELS[tc.codigo]} - ${Number(tc.precio).toLocaleString("es-AR")}
+                                </option>
+                              ))}
+                            </Select>
+                          </FormControl>
+                          
+                          <FormControl flex={1}>
+                            <FormLabel fontSize="sm">Cantidad</FormLabel>
+                            <Select
+                              value={config.cantidad}
+                              onChange={(e) => actualizarTipoClase(index, 'cantidad', Number(e.target.value))}
+                              bg={input.bg}
+                              borderColor={input.border}
+                              size="sm"
+                            >
+                              {Array.from({ length: Math.min(config.cantidad + calcularTurnosRestantes(), calcularMaximoTurnos()) }, (_, i) => i + 1).map(num => (
+                                <option key={num} value={num}>
+                                  {num} {num === 1 ? 'clase' : 'clases'}
+                                </option>
+                              ))}
+                            </Select>
+                          </FormControl>
+                          
+                          <Box flex={1}>
+                            <Text fontSize="sm" color="gray.600">Subtotal</Text>
+                            <Text fontWeight="semibold">
+                              ${(Number(tipoClase?.precio || 0) * config.cantidad).toLocaleString("es-AR")}
+                            </Text>
+                          </Box>
+                          
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            colorScheme="red"
+                            onClick={() => removerTipoClase(index)}
+                          >
+                            ✕
+                          </Button>
+                        </HStack>
+                      );
+                    })}
+                    
+                    <Divider />
+                    
+                    <HStack justify="space-between" align="center">
+                      <VStack align="start" spacing={1}>
+                        <Text fontWeight="bold" fontSize="lg">Total del Abono:</Text>
+                        {calcularTurnosAsignados() > calcularMaximoTurnos() && (
+                          <Text fontSize="sm" color="red.500">
+                            ⚠️ Excede el límite de turnos disponibles
+                          </Text>
+                        )}
+                      </VStack>
+                      <VStack align="end" spacing={1}>
+                        <Text fontWeight="bold" fontSize="lg" color={calcularTurnosAsignados() > calcularMaximoTurnos() ? "red.500" : "green.500"}>
+                          ${calcularMontoPersonalizado().toLocaleString("es-AR")}
+                        </Text>
+                        <Text fontSize="sm" color="gray.600">
+                          {configuracionPersonalizada.reduce((total, config) => total + config.cantidad, 0)} de {calcularMaximoTurnos()} turnos
+                        </Text>
+                      </VStack>
+                    </HStack>
+                  </VStack>
+                )}
+              </Box>
+
+              {/* Mostrar monto total para renovaciones */}
+              {modoRenovacion && (
+                <Box p={3} bg="green.50" rounded="md" border="1px solid" borderColor="green.200">
+                  <HStack justify="space-between" align="center">
+                    <Text fontWeight="semibold" color="green.700">
+                      Total del Abono:
+                    </Text>
+                    <Text fontWeight="bold" fontSize="lg" color="green.600">
+                      ${configuracionPersonalizada.reduce((total, config) => {
+                        const tipoClase = tiposClase.find(tc => tc.id === config.tipo_clase_id);
+                        return total + (Number(tipoClase?.precio || 0) * config.cantidad);
+                      }, 0).toLocaleString("es-AR")}
+                    </Text>
+                  </HStack>
+                </Box>
+              )}
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" onClick={configDisc.onClose} mr={3}>
+              Cancelar
+            </Button>
+            <Button
+              colorScheme="blue"
+              onClick={procederAlPago}
+              isDisabled={
+                modoRenovacion 
+                  ? configuracionPersonalizada.some(config => !config.tipo_clase_id)
+                  : configuracionPersonalizada.length === 0 ||
+                    calcularTurnosAsignados() > calcularMaximoTurnos()
+              }
+            >
+              Proceder al Pago
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Modal de pago */}
       {modalIsRenderable ? (
         <ReservaPagoModalAbono
           isOpen={pagoDisc.isOpen}
           onClose={pagoDisc.onClose}
-          alias={alias}
-          cbuCvu={cbuCvu}
+          alias={seleccion?.alias}
+          cbuCvu={seleccion?.cbu_cvu}
           turno={
             seleccion
               ? { fecha: `Mes ${String(seleccion.mes).padStart(2,"0")}/${seleccion.anio}`, hora: seleccion.hora }
@@ -654,6 +1328,64 @@ const ReservarAbono = ({ onClose }) => {
           tipoClase={seleccion?.tipo_clase || null}
           precioAbono={seleccion?.precio_abono ?? 0}
           precioUnitario={seleccion?.precio_unitario ?? 0}
+          configuracionPersonalizada={seleccion?.configuracion_personalizada}
+          tiposClase={tiposClase}
+          modoRenovacion={modoRenovacion}
+          onPersonalizar={() => {
+            console.log('DEBUG: onPersonalizar llamado');
+            console.log('DEBUG: modoRenovacion:', modoRenovacion);
+            console.log('DEBUG: configDisc:', configDisc);
+            
+            // Para renovaciones, abrir modal de configuración personalizada
+            if (modoRenovacion) {
+              console.log('DEBUG: Abriendo modal de configuración');
+              
+              // Inicializar configuración personalizada para renovaciones
+              const turnosDelMes = calcularTurnosDelMes(seleccion?.anio, seleccion?.mes, seleccion?.dia_semana, false);
+              const nuevaConfiguracion = Array.from({ length: turnosDelMes }, (_, index) => ({
+                tipo_clase_id: null,
+                cantidad: 1
+              }));
+              setConfiguracionPersonalizada(nuevaConfiguracion);
+              
+              console.log('DEBUG antes de abrir modal:', {
+                turnosDelMes,
+                nuevaConfiguracion,
+                profesores: profesores.length,
+                tiposClase: tiposClase.length,
+                seleccion
+              });
+              
+              // Cargar datos necesarios para el modal de configuración
+              if (api && seleccion?.sede) {
+                // Cargar profesores para la sede del abono
+                api.get(`turnos/prestadores/?lugar_id=${seleccion.sede}`)
+                  .then(res => {
+                    const data = res?.data?.results ?? res?.data ?? [];
+                    setProfesores(Array.isArray(data) ? data : []);
+                  })
+                  .catch(e => {
+                    console.error("Error cargando profesores:", e);
+                    setProfesores([]);
+                  });
+                
+                // Cargar tipos de clase para la sede del abono
+                api.get(`padel/tipos-clase/?sede_id=${seleccion.sede}`)
+                  .then(res => {
+                    const data = res?.data?.results ?? res?.data ?? [];
+                    setTiposClase(Array.isArray(data) ? data : []);
+                  })
+                  .catch(e => {
+                    console.error("Error cargando tipos de clase:", e);
+                    setTiposClase([]);
+                  });
+              }
+              
+              configDisc.onOpen();
+            } else {
+              console.log('DEBUG: No es modo renovación, no se abre modal');
+            }
+          }}
           archivo={archivo}
           onArchivoChange={setArchivo}
           onRemoveArchivo={() => setArchivo(null)}

@@ -389,7 +389,6 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Parámetros inválidos"}, status=status.HTTP_400_BAD_REQUEST)
 
         hora_filtro = request.query_params.get("hora")        # opcional
-        tipo_codigo = request.query_params.get("tipo_codigo") # opcional
 
         # 🔐 Autorización por cliente/sede (multi-tenant).
         sede = Lugar.objects.select_related("cliente").filter(id=sede_id).first()
@@ -403,13 +402,11 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             if getattr(user, "cliente_id", None) != sede.cliente_id:
                 return Response({"detail": "No autorizado"}, status=403)
 
-        # 1) Catálogo de tipos de clase activos (filtrable por código).
+        # 1) Catálogo de tipos de clase activos (ya no se filtra por código).
         tipos_qs = TipoClasePadel.objects.filter(
             configuracion_sede__sede_id=sede_id,
             activo=True
         ).only("id", "codigo", "precio")
-        if tipo_codigo:
-            tipos_qs = tipos_qs.filter(codigo=tipo_codigo)
 
         tipos_map = [{
             "id": t.id,
@@ -486,11 +483,11 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
                 horas_libres.append(h)
 
         horas_libres.sort()
-        result = [{"hora": h, "tipo_clase": tipo} for h in horas_libres for tipo in tipos_map]
+        result = [{"hora": h} for h in horas_libres]
 
         logger.info(
-            "[abonos.disponibles] sede=%s prestador=%s dsem=%s anio=%s mes=%s -> horas=%s, tipos=%s",
-            sede_id, prestador_id, dia_semana, anio, mes, horas_libres, [t["codigo"] for t in tipos_map]
+            "[abonos.disponibles] sede=%s prestador=%s dsem=%s anio=%s mes=%s -> horas=%s",
+            sede_id, prestador_id, dia_semana, anio, mes, horas_libres
         )
         return Response(result, status=200)
 

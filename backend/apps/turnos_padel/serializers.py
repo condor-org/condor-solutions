@@ -223,7 +223,7 @@ class AbonoMesDetailSerializer(serializers.ModelSerializer):
         fields = [
             "id", "usuario", "sede", "prestador",
             "anio", "mes", "dia_semana", "hora", "tipo_clase",
-            "monto", "estado", "fecha_limite_renovacion",
+            "monto", "configuracion_personalizada", "estado", "fecha_limite_renovacion",
             "turnos_reservados", "turnos_prioridad",
             "creado_en", "actualizado_en"
         ]
@@ -235,7 +235,7 @@ class AbonoMesSerializer(serializers.ModelSerializer):
         model = AbonoMes
         fields = [
             "id", "usuario", "sede", "prestador", "anio", "mes", "dia_semana", "hora",
-            "tipo_clase", "tipo_abono", "monto", "estado", "creado_en", "actualizado_en", "fecha_limite_renovacion"
+            "tipo_clase", "tipo_abono", "monto", "configuracion_personalizada", "estado", "creado_en", "actualizado_en", "fecha_limite_renovacion"
         ]
         read_only_fields = ["estado", "creado_en", "actualizado_en", "fecha_limite_renovacion"]
         # Evitamos UniqueTogetherValidator implícito; se valida manualmente por estado="pagado"
@@ -251,6 +251,7 @@ class AbonoMesSerializer(serializers.ModelSerializer):
         - Unicidad condicional de franja si ya existe un 'pagado'.
         - Todo debe pertenecer al mismo cliente (multi-tenant).
         - tipo_clase y (si viene) tipo_abono deben corresponder a la sede.
+        - Validación de configuración personalizada vs tipo_clase.
         - Debe haber turnos generados y libres en todas las fechas requeridas:
           * Mes actual: solo fechas >= hoy.
           * Mes siguiente: todas las fechas del patrón.
@@ -258,9 +259,25 @@ class AbonoMesSerializer(serializers.ModelSerializer):
         usuario = attrs["usuario"]
         sede = attrs["sede"]
         prestador = attrs["prestador"]
-        tipo_clase = attrs["tipo_clase"]
+        tipo_clase = attrs.get("tipo_clase")
+        configuracion_personalizada = attrs.get("configuracion_personalizada")
         anio, mes = attrs["anio"], attrs["mes"]
         dia_semana, hora = attrs["dia_semana"], attrs["hora"]
+
+        # Validación mutuamente excluyente
+        if configuracion_personalizada and tipo_clase:
+            raise serializers.ValidationError(
+                "No se puede especificar tanto tipo_clase como configuracion_personalizada"
+            )
+        
+        if not configuracion_personalizada and not tipo_clase:
+            raise serializers.ValidationError(
+                "Debe especificar tipo_clase o configuracion_personalizada"
+            )
+
+        # Validar configuración personalizada
+        if configuracion_personalizada:
+            self._validar_configuracion_personalizada(configuracion_personalizada, sede, prestador, anio, mes, dia_semana, hora)
 
         # 0) Unicidad condicional por franja (solo choca con 'pagado')
         existe_pagado = AbonoMes.objects.filter(
@@ -281,21 +298,18 @@ class AbonoMesSerializer(serializers.ModelSerializer):
         cliente_id = sede.cliente_id
         if not (
             getattr(usuario, "cliente_id", None) == cliente_id and
-            prestador.cliente_id == cliente_id and
-            tipo_clase.configuracion_sede.sede.cliente_id == cliente_id
+            prestador.cliente_id == cliente_id
         ):
             logger.warning(
-                "[abonos.validate][cliente_mismatch] usuario=%s(%s) sede=%s(%s) prestador=%s(%s) tipo_clase.sede=%s(%s)",
+                "[abonos.validate][cliente_mismatch] usuario=%s(%s) sede=%s(%s) prestador=%s(%s)",
                 getattr(usuario, "id", None), getattr(usuario, "cliente_id", None),
                 sede.id, sede.cliente_id,
-                prestador.id, prestador.cliente_id,
-                tipo_clase.configuracion_sede.sede_id,
-                tipo_clase.configuracion_sede.sede.cliente_id
+                prestador.id, prestador.cliente_id
             )
             raise serializers.ValidationError("Todos los elementos del abono deben pertenecer al mismo cliente.")
 
-        # 2) tipo_clase debe pertenecer a la sede seleccionada
-        if tipo_clase.configuracion_sede.sede_id != sede.id:
+        # 2) tipo_clase debe pertenecer a la sede seleccionada (solo si se especifica)
+        if tipo_clase and tipo_clase.configuracion_sede.sede_id != sede.id:
             raise serializers.ValidationError({
                 "tipo_clase": "El tipo de clase no pertenece a la sede seleccionada."
             })
@@ -364,6 +378,57 @@ class AbonoMesSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    def _validar_configuracion_personalizada(self, config, sede, prestador, anio, mes, dia_semana, hora):
+        """Valida la estructura y contenido de configuracion_personalizada"""
+        if not isinstance(config, list):
+            raise serializers.ValidationError("configuracion_personalizada debe ser una lista")
+        
+        if not config:
+            raise serializers.ValidationError("configuracion_personalizada no puede estar vacía")
+        
+        for i, item in enumerate(config):
+            if not isinstance(item, dict):
+                raise serializers.ValidationError(f"Elemento {i} debe ser un diccionario")
+            
+            required_fields = ['tipo_clase_id', 'cantidad', 'codigo']
+            for field in required_fields:
+                if field not in item:
+                    raise serializers.ValidationError(f"Falta campo '{field}' en elemento {i}")
+            
+            if not isinstance(item['cantidad'], int) or item['cantidad'] <= 0:
+                raise serializers.ValidationError(f"Cantidad en elemento {i} debe ser un entero positivo")
+        
+        # Validar que los tipos de clase existan y pertenezcan a la sede
+        tipo_clase_ids = [item['tipo_clase_id'] for item in config]
+        tipos_clase = TipoClasePadel.objects.filter(
+            id__in=tipo_clase_ids,
+            configuracion_sede__sede=sede,
+            activo=True
+        )
+        
+        if len(tipos_clase) != len(tipo_clase_ids):
+            raise serializers.ValidationError("Algunos tipos de clase no existen o no pertenecen a la sede")
+        
+        # Validar que la suma de cantidades no exceda turnos disponibles
+        total_cantidad = sum(item['cantidad'] for item in config)
+        turnos_disponibles = self._contar_turnos_disponibles(sede, prestador, anio, mes, dia_semana, hora)
+        
+        if total_cantidad > turnos_disponibles:
+            raise serializers.ValidationError(
+                f"La suma de cantidades ({total_cantidad}) excede los turnos disponibles ({turnos_disponibles})"
+            )
+
+    def _contar_turnos_disponibles(self, sede, prestador, anio, mes, dia_semana, hora):
+        """Cuenta los turnos disponibles para el día/hora específicos del mes"""
+        from datetime import date
+        hoy = date.today()
+        
+        # Contar días del mes que caen en el día de la semana
+        fechas = self._fechas_del_mes_por_dia_semana(anio, mes, dia_semana)
+        fechas_futuras = [f for f in fechas if f >= hoy]
+        
+        return len(fechas_futuras)
+
     @staticmethod
     def _fechas_del_mes_por_dia_semana(anio: int, mes: int, dia_semana: int):
         """Devuelve todas las fechas del mes que caen en 'dia_semana' (0=lunes..6=domingo)."""
@@ -411,4 +476,31 @@ class AbonoMesSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         tipo_ref = getattr(instance, "tipo_abono", None) or getattr(instance, "tipo_clase", None)
         data["monto_sugerido"] = getattr(tipo_ref, "precio", None) if tipo_ref else None
+        
+        # Enriquecer configuración personalizada con información de tipos de clase
+        if instance.configuracion_personalizada:
+            data['tipos_clase_detalle'] = self._enriquecer_tipos_clase(instance.configuracion_personalizada)
+        
         return data
+
+    def _enriquecer_tipos_clase(self, configuracion):
+        """Enriquece la configuración personalizada con información detallada de tipos de clase"""
+        tipo_clase_ids = [item['tipo_clase_id'] for item in configuracion]
+        tipos_clase = TipoClasePadel.objects.filter(id__in=tipo_clase_ids).select_related('configuracion_sede')
+        
+        tipos_map = {tc.id: tc for tc in tipos_clase}
+        
+        enriquecida = []
+        for item in configuracion:
+            tipo_clase = tipos_map.get(item['tipo_clase_id'])
+            if tipo_clase:
+                enriquecida.append({
+                    'tipo_clase_id': item['tipo_clase_id'],
+                    'cantidad': item['cantidad'],
+                    'codigo': item['codigo'],
+                    'nombre': tipo_clase.get_codigo_display(),
+                    'precio': float(tipo_clase.precio),
+                    'precio_total': float(tipo_clase.precio) * item['cantidad']
+                })
+        
+        return enriquecida

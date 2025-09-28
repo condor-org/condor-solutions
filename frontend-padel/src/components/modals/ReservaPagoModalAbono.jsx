@@ -19,6 +19,9 @@ import {
   Checkbox,
   Stack,
   HStack,
+  VStack,
+  Alert,
+  AlertIcon,
 } from "@chakra-ui/react";
 import { FaCalendarAlt, FaClock, FaTrash } from "react-icons/fa";
 import CountdownClock from "../ui/CountdownClock";
@@ -36,6 +39,10 @@ const ReservaPagoModalAbono = ({
   tipoClase,             // {id, codigo, nombre?, precio}
   precioAbono = 0,       // 💰 precio mensual del abono
   // precioUnitario (ya no se usa para el cálculo)
+  configuracionPersonalizada, // Para abonos personalizados
+  tiposClase = [],       // Lista de tipos de clase para mostrar configuración personalizada
+  modoRenovacion = false,    // Para distinguir renovación de nueva reserva
+  onPersonalizar,        // AGREGADO: función para abrir modal de personalización
   archivo,
   onArchivoChange,
   onRemoveArchivo,
@@ -55,10 +62,31 @@ const ReservaPagoModalAbono = ({
   const dropzoneBg = useColorModeValue("gray.100", "#232b34");
   const dropzoneHover = useColorModeValue("gray.200", "#243039");
   const dropzoneBorder = useColorModeValue("green.500", "#27ae60");
+  const muted = useColorModeValue("gray.600", "gray.400");
+  const valueRestanteBg = useColorModeValue("blackAlpha.50", "whiteAlpha.100");
 
   // 🧮 cálculos
   const segundos = Number(tiempoRestante ?? 900);
-  const nombreTipo = (tipoClase?.nombre) || LABELS[tipoClase?.codigo] || "—";
+  
+  // Función para mostrar configuración personalizada
+  const mostrarConfiguracionPersonalizada = (configuracion) => {
+    if (!configuracion || !Array.isArray(configuracion)) return "Personalizado";
+    
+    const configs = configuracion
+      .filter(config => config.tipo_clase_id)
+      .map(config => {
+        // Buscar el tipo de clase por ID (necesitamos acceso a la lista de tipos)
+        const tipoClase = tiposClase?.find(tc => tc.id === config.tipo_clase_id);
+        const nombre = tipoClase?.nombre || LABELS[tipoClase?.codigo] || "Tipo";
+        return `${config.cantidad}x ${nombre}`;
+      });
+    
+    return configs.length > 0 ? configs.join(", ") : "Personalizado";
+  };
+  
+  const nombreTipo = configuracionPersonalizada 
+    ? "Personalizado"
+    : (tipoClase?.nombre) || LABELS[tipoClase?.codigo] || "—";
 
   const bonosOrdenados = useMemo(() => {
     const clone = Array.isArray(bonificaciones) ? [...bonificaciones] : [];
@@ -85,7 +113,8 @@ const ReservaPagoModalAbono = ({
     return total > 0 ? total : 0;
   }, [precioAbono, totalDescuento]);
 
-  const hideComprobante = totalEstimado <= 0;
+  const needsComprobante = totalEstimado > 0;
+  const confirmDisabled = loading || (needsComprobante && !archivo);
 
   const toggleAll = (checkAll) => {
     if (checkAll) setSelectedBonos((bonosOrdenados || []).map((b) => b.id));
@@ -172,14 +201,14 @@ const ReservaPagoModalAbono = ({
             </Box>
           )}
 
-          {tipoClase && (
-            <Box mb={{ base: 3, md: 4 }} wordBreak="break-word">
-              <Text fontSize={{ base: "sm", md: "md" }}>
-                <b>Tipo de clase:</b> {nombreTipo}
-              </Text>
-              <Text fontSize={{ base: "sm", md: "md" }}>
-                <b>Precio del abono:</b> ${Number(precioAbono).toLocaleString("es-AR")}
-              </Text>
+          <Box mb={{ base: 3, md: 4 }} wordBreak="break-word">
+            <Text fontSize={{ base: "sm", md: "md" }}>
+              <b>Tipo de abono:</b> {nombreTipo}
+            </Text>
+            <Text fontSize={{ base: "sm", md: "md" }}>
+              <b>Precio del abono:</b> ${Number(precioAbono).toLocaleString("es-AR")}
+            </Text>
+              
 
               {alias && (
                 <Flex align="center" gap={2} wrap="wrap" mt={1}>
@@ -215,6 +244,31 @@ const ReservaPagoModalAbono = ({
                 </Flex>
               )}
             </Box>
+
+          {/* Configuración personalizada */}
+          {configuracionPersonalizada && (
+            <Box mb={{ base: 3, md: 4 }} p={3} bg="purple.50" rounded="md" border="1px solid" borderColor="purple.200">
+              <Text fontSize={{ base: "sm", md: "md" }} fontWeight="semibold" color="purple.700" mb={2}>
+                Configuración Personalizada
+              </Text>
+              <VStack align="stretch" spacing={2}>
+                {configuracionPersonalizada.map((config, index) => {
+                  const tipoClase = tiposClase?.find(tc => tc.id === config.tipo_clase_id);
+                  const nombre = tipoClase?.nombre || LABELS[tipoClase?.codigo] || "Tipo";
+                  const precio = Number(tipoClase?.precio || 0);
+                  return (
+                    <HStack key={index} justify="space-between" p={2} bg="white" rounded="sm">
+                      <Text fontSize="sm">
+                        {nombre} x {config.cantidad}
+                      </Text>
+                      <Text fontSize="sm" fontWeight="semibold" color="green.600">
+                        ${(precio * config.cantidad).toLocaleString("es-AR")}
+                      </Text>
+                    </HStack>
+                  );
+                })}
+              </VStack>
+            </Box>
           )}
 
           {/* Countdown */}
@@ -245,24 +299,66 @@ const ReservaPagoModalAbono = ({
             </Box>
           )}
 
-          {/* Resumen del cálculo (si hay bonos seleccionados) */}
-          {selectedBonos.length > 0 && (
+          {/* Valor restante (elegante, arriba del footer) */}
+          <Box
+            mt={{ base: 3, md: 4 }}
+            mb={{ base: 2, md: 3 }}
+            p={{ base: 3, md: 4 }}
+            borderRadius="xl"
+            bg={valueRestanteBg}
+            border="2px solid"
+            borderColor={resumenBorder}
+            textAlign="center"
+          >
+            <Text fontSize={{ base: "sm", md: "md" }} color={muted}>Valor restante</Text>
+            <Text fontSize={{ base: "3xl", md: "4xl" }} fontWeight="extrabold" lineHeight="1.1">
+              ${Number(totalEstimado).toLocaleString("es-AR")}
+            </Text>
+            {selectedBonos.length > 0 && (
+              <Text fontSize={{ base: "xs", md: "sm" }} mt={1} color={muted}>
+                {`$${Number(precioAbono).toLocaleString("es-AR")} − $${Number(totalDescuento).toLocaleString("es-AR")} = $${Number(totalEstimado).toLocaleString("es-AR")}`}
+              </Text>
+            )}
+          </Box>
+
+          {/* Opción de personalizar para renovaciones de abonos normales */}
+          {modoRenovacion && !configuracionPersonalizada && (
             <Box
               mt={{ base: 3, md: 4 }}
-              mb={{ base: 2, md: 3 }}
-              p={3}
+              mb={{ base: 3, md: 4 }}
+              p={{ base: 3, md: 4 }}
               borderRadius="md"
+              bg="gray.50"
               border="1px solid"
-              borderColor={resumenBorder}
-              bg={`${resumenBg}66`}
-              wordBreak="break-word"
+              borderColor="gray.200"
             >
-              <Text fontSize={{ base: "sm", md: "sm" }}>
-                Total estimado:{" "}
-                <b>${Number(totalEstimado).toLocaleString("es-AR")}</b>{" "}
-                = ${Number(precioAbono).toLocaleString("es-AR")} − $
-                {Number(totalDescuento).toLocaleString("es-AR")}
+              <Text fontWeight="semibold" mb={3} fontSize={{ base: "sm", md: "md" }}>
+                ¿Querés modificar tu abono?
               </Text>
+              <Text fontSize="sm" color="gray.600" mb={3}>
+                Podés configurar diferentes tipos de clases para cada turno del mes.
+              </Text>
+              <Button 
+                size="sm" 
+                colorScheme="blue" 
+                variant="outline"
+                onClick={() => {
+                  console.log('DEBUG: Botón Personalizar Abono clickeado');
+                  console.log('DEBUG: onPersonalizar existe?', !!onPersonalizar);
+                  console.log('DEBUG: modoRenovacion:', modoRenovacion);
+                  console.log('DEBUG: configuracionPersonalizada:', configuracionPersonalizada);
+                  
+                  onClose();
+                  if (onPersonalizar) {
+                    console.log('DEBUG: Llamando onPersonalizar()');
+                    onPersonalizar();
+                  } else {
+                    console.log('DEBUG: onPersonalizar no está definido');
+                  }
+                }}
+              >
+                Modificar Abono
+              </Button>
             </Box>
           )}
 
@@ -344,8 +440,8 @@ const ReservaPagoModalAbono = ({
             </Box>
           )}
 
-          {/* Dropzone de comprobante (se oculta si el total es 0) */}
-          {!hideComprobante && (
+          {/* Dropzone de comprobante (solo si resta > 0) */}
+          {needsComprobante && (
             <Box
               as="label"
               htmlFor="archivo"
@@ -378,7 +474,7 @@ const ReservaPagoModalAbono = ({
             </Box>
           )}
 
-          {archivo && !hideComprobante && (
+          {archivo && needsComprobante && (
             <Button
               size={{ base: "sm", md: "sm" }}
               leftIcon={<FaTrash />}
@@ -391,7 +487,15 @@ const ReservaPagoModalAbono = ({
             </Button>
           )}
 
-          {hideComprobante && (
+          {/* Aviso contextual — solo cuando hace falta y falta el archivo */}
+          {needsComprobante && !archivo && (
+            <Alert status="warning" borderRadius="lg" mt={1}>
+              <AlertIcon />
+              Falta comprobante. Subí el comprobante para confirmar.
+            </Alert>
+          )}
+
+          {!needsComprobante && (
             <Box
               mt={{ base: 2, md: 2 }}
               mb={{ base: 2, md: 3 }}
@@ -422,6 +526,7 @@ const ReservaPagoModalAbono = ({
             onClick={() => onConfirmar(selectedBonos)}
             size={{ base: "sm", md: "md" }}
             flexShrink={0}
+            isDisabled={confirmDisabled}
           >
             Confirmar pago de abono
           </Button>
