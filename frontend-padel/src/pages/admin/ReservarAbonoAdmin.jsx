@@ -150,10 +150,24 @@ const ReservarAbonoAdmin = () => {
   }, [api, sedeId]);
 
   useEffect(() => {
-    if (!api || !sedeId) { setTiposClase([]); return; }
+    if (!api || !sedeId) { 
+      console.log('🔍 DEBUG tiposClase - No hay api o sedeId:', { api: !!api, sedeId });
+      setTiposClase([]); 
+      return; 
+    }
+    
+    console.log('🔍 DEBUG tiposClase - Cargando tipos de clase para sede:', sedeId);
+    
     api.get(`padel/tipos-clase/?sede_id=${sedeId}`)
-      .then(res => setTiposClase(res?.data?.results ?? res?.data ?? []))
-      .catch(e => { console.error("[AbonoAdmin] tiposClase error:", e); setTiposClase([]); });
+      .then(res => {
+        const data = res?.data?.results ?? res?.data ?? [];
+        console.log('🔍 DEBUG tiposClase - Respuesta del backend:', data);
+        setTiposClase(data);
+      })
+      .catch(e => { 
+        console.error("🚨 DEBUG tiposClase - Error:", e); 
+        setTiposClase([]); 
+      });
   }, [api, sedeId]);
 
   // 4) Cargar abonos disponibles
@@ -234,12 +248,23 @@ const ReservarAbonoAdmin = () => {
 
   // ======= CONFIGURACIÓN PERSONALIZADA =======
   const agregarTipoClase = () => {
-    if (tiposClase.length === 0) return;
+    console.log('🔍 DEBUG agregarTipoClase - tiposClase.length:', tiposClase.length);
+    console.log('🔍 DEBUG agregarTipoClase - tiposClase:', tiposClase);
+    
+    if (tiposClase.length === 0) {
+      console.log('🚨 DEBUG agregarTipoClase - No hay tipos de clase disponibles');
+      return;
+    }
+    
     const nuevoTipo = {
       tipo_clase_id: tiposClase[0].id,
       cantidad: 1,
       codigo: tiposClase[0].codigo
     };
+    
+    console.log('🔍 DEBUG agregarTipoClase - nuevoTipo:', nuevoTipo);
+    console.log('🔍 DEBUG agregarTipoClase - configuracionPersonalizada actual:', configuracionPersonalizada);
+    
     setConfiguracionPersonalizada([...configuracionPersonalizada, nuevoTipo]);
   };
 
@@ -251,6 +276,15 @@ const ReservarAbonoAdmin = () => {
   const actualizarTipoClase = (index, campo, valor) => {
     const nuevaConfig = [...configuracionPersonalizada];
     nuevaConfig[index] = { ...nuevaConfig[index], [campo]: valor };
+    
+    // Si se cambia el tipo_clase_id, actualizar también el codigo
+    if (campo === 'tipo_clase_id') {
+      const tipoClase = tiposClase.find(tc => tc.id === valor);
+      if (tipoClase) {
+        nuevaConfig[index].codigo = tipoClase.codigo;
+      }
+    }
+    
     setConfiguracionPersonalizada(nuevaConfig);
   };
 
@@ -264,35 +298,39 @@ const ReservarAbonoAdmin = () => {
     }, 0);
   };
 
+  // Función para mapear tipo de abono a tipo de clase
+  const mapearTipoAbonoATipoClase = (tipoAbono) => {
+    console.log('🔍 DEBUG mapearTipoAbonoATipoClase:', { tipoAbono, tiposClase: tiposClase.length });
+    
+    // El tipoAbono ya viene como código (x1, x2, x3, x4) desde el dropdown
+    // Solo necesitamos encontrar el tipo de clase que coincida con ese código
+    const tipoClase = tiposClase.find(tc => tc.codigo === tipoAbono);
+    console.log('🔍 DEBUG tipoClase encontrado:', { tipoAbono, tipoClase });
+    
+    return tipoClase?.id;
+  };
+
   // 12) Cálculo de turnos disponibles
   // Cuenta turnos reales disponibles para el día y hora específicos del mes
   const calcularMaximoTurnos = () => {
-    if (!abonosLibres.length) return 0;
+    // Calcular turnos del mes independientemente de abonosLibres
+    const hoy = new Date();
+    const anio = hoy.getFullYear();
+    const mes = hoy.getMonth() + 1;
+    const diaSemanaSeleccionado = Number(diaSemana) || 0; // 0 = lunes
     
-    if (tipoAbono === "personalizado") {
-      // Para abonos personalizados, contamos los turnos disponibles para el día y hora específicos
-      // Esto se calcula basado en los datos reales del backend
-      const hoy = new Date();
-      const anio = hoy.getFullYear();
-      const mes = hoy.getMonth() + 1;
-      
-      // Contar cuántos turnos quedan en el mes para el día de la semana seleccionado
-      const diasEnMes = new Date(anio, mes, 0).getDate();
-      const diaSemanaSeleccionado = Number(diaSemana) || 0; // 0 = lunes
-      
-      let diasRestantes = 0;
-      for (let dia = 1; dia <= diasEnMes; dia++) {
-        const fecha = new Date(anio, mes - 1, dia);
-        if (fecha.getDay() === diaSemanaSeleccionado && fecha >= hoy) {
-          diasRestantes++;
-        }
+    // Contar cuántos turnos quedan en el mes para el día de la semana seleccionado
+    const diasEnMes = new Date(anio, mes, 0).getDate();
+    let diasRestantes = 0;
+    
+    for (let dia = 1; dia <= diasEnMes; dia++) {
+      const fecha = new Date(anio, mes - 1, dia);
+      if (fecha.getDay() === diaSemanaSeleccionado && fecha >= hoy) {
+        diasRestantes++;
       }
-      
-      return diasRestantes;
     }
     
-    // Para abonos normales, contamos los elementos disponibles
-    return abonosLibres.length;
+    return diasRestantes;
   };
 
   // Calcular turnos ya asignados en la configuración personalizada
@@ -336,15 +374,31 @@ const ReservarAbonoAdmin = () => {
 
       if (tipoAbono === "personalizado") {
         // Para abonos personalizados
+        console.log('🔍 DEBUG abono personalizado - configuracionPersonalizada:', configuracionPersonalizada);
+        console.log('🔍 DEBUG abono personalizado - tiposClase:', tiposClase);
+        console.log('🔍 DEBUG abono personalizado - calcularMaximoTurnos:', calcularMaximoTurnos());
+        
         const monto = calcularMontoPersonalizado();
+        console.log('🔍 DEBUG abono personalizado - monto calculado:', monto);
+        
         fd.append("monto", String(monto));
         fd.append("monto_esperado", String(monto));
         fd.append("configuracion_personalizada", JSON.stringify(configuracionPersonalizada));
       } else {
         // Para abonos normales
-        const codigo = abonoSeleccionado?.tipo_clase?.codigo;
-        const monto = precioAbonoActual(codigo, abonoSeleccionado?.tipo_clase);
-        fd.append("tipo_clase", abonoSeleccionado?.tipo_clase?.id);
+        const tipoClaseId = mapearTipoAbonoATipoClase(tipoAbono);
+        console.log('🔍 DEBUG abono normal - tipoAbono:', tipoAbono, 'tipoClaseId:', tipoClaseId);
+        
+        if (!tipoClaseId) {
+          throw new Error(`No se encontró tipo de clase para: ${tipoAbono}`);
+        }
+        
+        const tipoClase = tiposClase.find(tc => tc.id === tipoClaseId);
+        const monto = tipoClase ? Number(tipoClase.precio) * calcularMaximoTurnos() : 0;
+        
+        console.log('🔍 DEBUG abono normal - monto calculado:', monto);
+        
+        fd.append("tipo_clase", tipoClaseId);
         fd.append("monto", String(monto));
         fd.append("monto_esperado", String(monto));
       }
@@ -671,14 +725,6 @@ const ReservarAbonoAdmin = () => {
                         </Text>
                       </Box>
                         
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          colorScheme="red"
-                          onClick={() => removerTipoClase(index)}
-                        >
-                          ✕
-                        </Button>
                       </HStack>
                     );
                   })}

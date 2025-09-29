@@ -275,7 +275,18 @@ const ReservarAbono = ({ onClose }) => {
 
   // Función para calcular turnos del mes para un día de la semana específico
   const calcularTurnosDelMes = (anio, mes, diaSemana, soloFuturos = true) => {
+    // Configuración de anticipación mínima (en horas)
+    const HORAS_ANTICIPACION_MINIMA = 1;
+    
     const hoy = new Date();
+    
+    console.log('🔍 DEBUG calcularTurnosDelMes - INICIO:', {
+      anio,
+      mes,
+      diaSemana,
+      soloFuturos,
+      hoy: hoy.toISOString()
+    });
     
     // Contar días del mes que caen en el día de la semana
     const diasEnMes = new Date(anio, mes, 0).getDate(); // Último día del mes (corregido)
@@ -284,22 +295,79 @@ const ReservarAbono = ({ onClose }) => {
     // Para comparaciones de fecha, usar solo la fecha sin hora
     const hoySinHora = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
     
+    console.log('🔍 DEBUG calcularTurnosDelMes - CONFIG:', {
+      diasEnMes,
+      hoySinHora: hoySinHora.toISOString(),
+      HORAS_ANTICIPACION_MINIMA
+    });
+    
     for (let dia = 1; dia <= diasEnMes; dia++) {
       const fecha = new Date(anio, mes - 1, dia);
       
       if (fecha.getDay() === diaSemana) {
+        console.log(`🔍 DEBUG calcularTurnosDelMes - DÍA ${dia}:`, {
+          fecha: fecha.toDateString(),
+          diaSemana: fecha.getDay(),
+          targetDiaSemana: diaSemana,
+          esDiaCorrecto: fecha.getDay() === diaSemana
+        });
+        
         if (soloFuturos) {
-          // Para el mes actual: solo contar fechas futuras
+          // Para el mes actual: solo contar fechas futuras con anticipación
           const fechaSinHora = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
+          
+          console.log(`🔍 DEBUG calcularTurnosDelMes - COMPARACIÓN:`, {
+            fechaSinHora: fechaSinHora.toISOString(),
+            hoySinHora: hoySinHora.toISOString(),
+            esFuturo: fechaSinHora > hoySinHora,
+            esHoy: fechaSinHora.getTime() === hoySinHora.getTime()
+          });
+          
           if (fechaSinHora >= hoySinHora) {
-            diasContados++;
+            // Fechas futuras O HOY: incluir todas
+            if (fechaSinHora.getTime() === hoySinHora.getTime()) {
+              // Es hoy: verificar anticipación mínima
+              const horaActual = hoy.getHours();
+              const horaMaxima = 24 - HORAS_ANTICIPACION_MINIMA;
+              const incluirHoy = horaActual < horaMaxima;
+              
+              console.log(`🔍 DEBUG calcularTurnosDelMes - DÍA ACTUAL:`, {
+                horaActual,
+                horaMaxima,
+                incluirHoy,
+                HORAS_ANTICIPACION_MINIMA
+              });
+              
+              if (incluirHoy) {
+                diasContados++;
+                console.log(`✅ DEBUG: Incluyendo día actual ${fecha.toDateString()} (hora actual: ${horaActual})`);
+              } else {
+                console.log(`❌ DEBUG: Excluyendo día actual ${fecha.toDateString()} (hora actual: ${horaActual} >= ${horaMaxima})`);
+              }
+            } else {
+              // Es futuro: incluir siempre
+              diasContados++;
+              console.log(`✅ DEBUG: Incluyendo día futuro ${fecha.toDateString()}`);
+            }
+          } else {
+            console.log(`❌ DEBUG: Excluyendo día pasado ${fecha.toDateString()}`);
           }
         } else {
           // Para el mes siguiente: contar todos los días
           diasContados++;
+          console.log(`✅ DEBUG: Incluyendo día del mes siguiente ${fecha.toDateString()}`);
         }
       }
     }
+    
+    console.log(`🔍 DEBUG calcularTurnosDelMes - RESULTADO:`, {
+      anio,
+      mes,
+      diaSemana,
+      soloFuturos,
+      diasContados,
+      diasEnMes
+    });
     
     return diasContados;
   };
@@ -325,6 +393,15 @@ const ReservarAbono = ({ onClose }) => {
   const actualizarTipoClase = (index, campo, valor) => {
     const nuevaConfig = [...configuracionPersonalizada];
     nuevaConfig[index] = { ...nuevaConfig[index], [campo]: valor };
+    
+    // Si se cambia el tipo_clase_id, actualizar también el codigo
+    if (campo === 'tipo_clase_id') {
+      const tipoClase = tiposClase.find(tc => tc.id === valor);
+      if (tipoClase) {
+        nuevaConfig[index].codigo = tipoClase.codigo;
+      }
+    }
+    
     setConfiguracionPersonalizada(nuevaConfig);
   };
 
@@ -343,9 +420,7 @@ const ReservarAbono = ({ onClose }) => {
   // 12) Cálculo de turnos disponibles
   // Cuenta turnos reales disponibles para el día y hora específicos del mes
   const calcularMaximoTurnos = () => {
-    if (!abonosLibres.length) return 0;
-    
-    // Para ambos tipos de abono, contar solo turnos FUTUROS del mes
+    // Calcular turnos del mes independientemente de abonosLibres
     const hoy = new Date();
     const anio = hoy.getFullYear();
     const mes = hoy.getMonth() + 1;
@@ -354,14 +429,22 @@ const ReservarAbono = ({ onClose }) => {
     // Usar la función centralizada con soloFuturos = true para el mes actual
     const turnos = calcularTurnosDelMes(anio, mes, diaSemanaSeleccionado, true);
     
-    console.log('DEBUG calcularMaximoTurnos:', {
-      abonosLibres: abonosLibres.length,
+    console.log('🔍 DEBUG calcularMaximoTurnos:', {
       hoy: hoy.toISOString(),
       anio,
       mes,
       diaSemanaSeleccionado,
-      turnos
+      turnos,
+      tipoAbono,
+      sedeId,
+      profesorId
     });
+    
+    // 🚨 TEMPORAL: Si devuelve 0, forzar 1 para debug
+    if (turnos === 0) {
+      console.log('🚨 DEBUG: calcularMaximoTurnos devolvió 0, forzando 1 para debug');
+      return 1;
+    }
     
     return turnos;
   };
@@ -383,13 +466,44 @@ const ReservarAbono = ({ onClose }) => {
       // Para abonos personalizados, abrir modal de configuración
       setAbonoParaConfigurar(item);
       
-      // Inicializar configuración personalizada para abonos nuevos (solo turnos futuros)
-      const turnosDelMes = calcularMaximoTurnos();
-      const nuevaConfiguracion = Array.from({ length: turnosDelMes }, (_, index) => ({
-        tipo_clase_id: null,
-        cantidad: 1
-      }));
-      setConfiguracionPersonalizada(nuevaConfiguracion);
+      // Asegurar que los tipos de clase estén cargados ANTES de inicializar
+      if (tiposClase.length === 0 && api && sedeId) {
+        api.get(`padel/tipos-clase/?sede_id=${sedeId}`)
+          .then(res => {
+            const data = res?.data?.results ?? res?.data ?? [];
+            const tiposCargados = Array.isArray(data) ? data : [];
+            setTiposClase(tiposCargados);
+            
+            // Inicializar configuración personalizada con TODOS los turnos del mes (obligatorio configurar cada uno)
+            const turnosDelMes = calcularMaximoTurnos();
+            const configuracionInicial = Array.from({ length: turnosDelMes }, (_, index) => ({
+              tipo_clase_id: tiposCargados.length > 0 ? tiposCargados[0].id : null,
+              cantidad: 1,
+              codigo: tiposCargados.length > 0 ? tiposCargados[0].codigo : null
+            }));
+            setConfiguracionPersonalizada(configuracionInicial);
+          })
+          .catch(() => {
+            setTiposClase([]);
+            // Inicializar con array vacío si no se pueden cargar los tipos
+            const turnosDelMes = calcularMaximoTurnos();
+            const configuracionInicial = Array.from({ length: turnosDelMes }, (_, index) => ({
+              tipo_clase_id: null,
+              cantidad: 1,
+              codigo: null
+            }));
+            setConfiguracionPersonalizada(configuracionInicial);
+          });
+      } else {
+        // Si ya están cargados, inicializar directamente
+        const turnosDelMes = calcularMaximoTurnos();
+        const configuracionInicial = Array.from({ length: turnosDelMes }, (_, index) => ({
+          tipo_clase_id: tiposClase.length > 0 ? tiposClase[0].id : null,
+          cantidad: 1,
+          codigo: tiposClase.length > 0 ? tiposClase[0].codigo : null
+        }));
+        setConfiguracionPersonalizada(configuracionInicial);
+      }
       
       configDisc.onOpen();
       return;
@@ -668,9 +782,14 @@ const ReservarAbono = ({ onClose }) => {
   const onConfirmarPago = async (bonosIds = []) => {
     if (!seleccion) return;
 
-    const unit = Number(seleccion?.precio_unitario ?? 0);
+    // Usar la misma lógica que el modal para calcular totalEstimado
     const abonoPrice = Number(seleccion?.precio_abono ?? 0);
-    const totalEstimado = Math.max(0, abonoPrice - (bonosIds.length * unit));
+    const totalDescuento = (bonosIds || []).reduce((sum, id) => {
+      const bono = bonificaciones?.find(b => b.id === id);
+      return sum + (Number(bono?.valor) || 0);
+    }, 0);
+    const totalEstimado = Math.max(0, abonoPrice - totalDescuento);
+
 
     if (!archivo && totalEstimado > 0) {
       toast({
@@ -691,22 +810,49 @@ const ReservarAbono = ({ onClose }) => {
       fd.append("hora", seleccion.hora);
       fd.append("anio", seleccion.anio);
       fd.append("mes", seleccion.mes);
-      fd.append("monto", abonoPrice);
-      fd.append("monto_esperado", totalEstimado);
+      fd.append("precio_abono", abonoPrice);
+      fd.append("precio_unitario", seleccion.precio_unitario || 0);
+      fd.append("forzar_admin", false);
+      fd.append("usar_bonificado", (bonosIds || []).length > 0);
+      // Enviar bonificaciones_ids como múltiples campos individuales
+      if (bonosIds && bonosIds.length > 0) {
+        bonosIds.forEach(id => fd.append("bonificaciones_ids", id));
+      }
+      fd.append("restante", totalEstimado);
       
       if (seleccion?.configuracion_personalizada) {
         // Para abonos personalizados
         fd.append("configuracion_personalizada", JSON.stringify(seleccion.configuracion_personalizada));
+        fd.append("tipo_clase", ""); // Vacío para personalizados
       } else {
         // Para abonos normales
-        fd.append("tipo_clase", seleccion.tipo_clase?.id);
+        fd.append("tipo_clase", seleccion.tipo_clase?.id || "");
+        fd.append("configuracion_personalizada", "[]"); // Vacío para normales
       }
       
       if (seleccion?.abono_id) {
         fd.append("abono_id", seleccion.abono_id); // 👈 indica RENOVACIÓN al backend
       }
       if (archivo) fd.append("archivo", archivo);
-      (bonosIds || []).forEach((id) => fd.append("bonificaciones_ids", String(id)));
+
+      console.log('🔍 DEBUG onConfirmarPago - DATOS ENVIADOS:', {
+        sede_id: seleccion.sede,
+        prestador_id: seleccion.prestador,
+        dia_semana: seleccion.dia_semana,
+        hora: seleccion.hora,
+        anio: seleccion.anio,
+        mes: seleccion.mes,
+        precio_abono: abonoPrice,
+        precio_unitario: seleccion.precio_unitario,
+        forzar_admin: false,
+        usar_bonificado: (bonosIds || []).length > 0,
+        bonificaciones_ids: bonosIds,
+        restante: totalEstimado,
+        configuracion_personalizada: seleccion.configuracion_personalizada,
+        tipo_clase: seleccion.tipo_clase?.id,
+        abono_id: seleccion.abono_id,
+        tiene_archivo: !!archivo
+      });
 
       await api.post("padel/abonos/reservar/", fd, { headers: { "Content-Type": "multipart/form-data" } });
 
@@ -981,8 +1127,17 @@ const ReservarAbono = ({ onClose }) => {
           {(sedeId && profesorId && diaSemana !== "" && !tipoAbono) && (
             <Text color={muted} mb={2}>Elegí un tipo de abono para ver disponibilidad.</Text>
           )}
-          {!loadingDisponibles && abonosLibres.length === 0 && (sedeId && profesorId && diaSemana !== "") ? (
-            <Text color={muted}>No hay abonos libres para los filtros seleccionados.</Text>
+          {!loadingDisponibles && abonosLibres.length === 0 && (sedeId && profesorId && diaSemana !== "" && tipoAbono && tipoAbono !== "") ? (
+            <Alert status="info" borderRadius="md">
+              <AlertIcon />
+              <Box>
+                <Text fontWeight="semibold">No hay abonos disponibles</Text>
+                <Text fontSize="sm">
+                  No hay turnos disponibles para {DIAS.find(d => d.value === Number(diaSemana))?.label} en el mes actual. 
+                  Probá con otro día de la semana o esperá al próximo mes.
+                </Text>
+              </Box>
+            </Alert>
           ) : null}
 
           <VStack align="stretch" spacing={3}>
@@ -993,18 +1148,33 @@ const ReservarAbono = ({ onClose }) => {
               
               // Calcular precio dinámico basado en turnos del mes
               const calcularPrecioDinamico = () => {
+                console.log('🔍 DEBUG calcularPrecioDinamico - INICIO:', {
+                  tipoAbono,
+                  item_hora: item?.hora,
+                  diaSemana,
+                  profesorId,
+                  sedeId
+                });
+                
                 if (tipoAbono === "personalizado") {
+                  console.log('🔍 DEBUG calcularPrecioDinamico - PERSONALIZADO');
                   return calcularMontoPersonalizado();
                 }
                 
                 // Para abonos normales, buscar el tipo de clase correspondiente
                 const tipoClase = tiposClase.find(tc => tc.codigo === tipoAbono);
+                console.log('🔍 DEBUG calcularPrecioDinamico - TIPO CLASE:', {
+                  tipoAbono,
+                  tiposClaseDisponibles: tiposClase.map(tc => ({ codigo: tc.codigo, precio: tc.precio })),
+                  tipoClaseEncontrada: tipoClase ? { codigo: tipoClase.codigo, precio: tipoClase.precio } : null
+                });
+                
                 if (tipoClase) {
                   // Calcular turnos del mes para el día seleccionado
                   const turnosDelMes = calcularMaximoTurnos();
                   const precio = Number(tipoClase.precio) * turnosDelMes;
                   
-                  console.log('DEBUG calcularPrecioDinamico:', {
+                  console.log('🔍 DEBUG calcularPrecioDinamico - CALCULADO:', {
                     tipoAbono,
                     tipoClase: tipoClase.codigo,
                     precioTipoClase: tipoClase.precio,
@@ -1017,18 +1187,24 @@ const ReservarAbono = ({ onClose }) => {
                   return precio;
                 }
                 
-                console.log('DEBUG calcularPrecioDinamico: No se encontró tipoClase para', tipoAbono);
+                console.log('🔍 DEBUG calcularPrecioDinamico - NO TIPO CLASE:', {
+                  tipoAbono,
+                  tiposClase: tiposClase.length
+                });
                 return 0;
               };
               
               const montoMostrar = calcularPrecioDinamico();
               
-              console.log('DEBUG Badge precio:', {
+              console.log('🚨 DEBUG Badge precio CRÍTICO:', {
                 tipoAbono,
                 montoMostrar,
                 item_hora: item?.hora,
-                diaSemana,
-                profesorId
+                tiposClase: tiposClase.length,
+                calcularMaximoTurnos: calcularMaximoTurnos(),
+                sedeId,
+                profesorId,
+                diaSemana
               });
 
               return (
@@ -1239,14 +1415,6 @@ const ReservarAbono = ({ onClose }) => {
                             </Text>
                           </Box>
                           
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            colorScheme="red"
-                            onClick={() => removerTipoClase(index)}
-                          >
-                            ✕
-                          </Button>
                         </HStack>
                       );
                     })}
@@ -1340,17 +1508,7 @@ const ReservarAbono = ({ onClose }) => {
             if (modoRenovacion) {
               console.log('DEBUG: Abriendo modal de configuración');
               
-              // Inicializar configuración personalizada para renovaciones
-              const turnosDelMes = calcularTurnosDelMes(seleccion?.anio, seleccion?.mes, seleccion?.dia_semana, false);
-              const nuevaConfiguracion = Array.from({ length: turnosDelMes }, (_, index) => ({
-                tipo_clase_id: null,
-                cantidad: 1
-              }));
-              setConfiguracionPersonalizada(nuevaConfiguracion);
-              
               console.log('DEBUG antes de abrir modal:', {
-                turnosDelMes,
-                nuevaConfiguracion,
                 profesores: profesores.length,
                 tiposClase: tiposClase.length,
                 seleccion
@@ -1373,12 +1531,62 @@ const ReservarAbono = ({ onClose }) => {
                 api.get(`padel/tipos-clase/?sede_id=${seleccion.sede}`)
                   .then(res => {
                     const data = res?.data?.results ?? res?.data ?? [];
-                    setTiposClase(Array.isArray(data) ? data : []);
+                    const tiposCargados = Array.isArray(data) ? data : [];
+                    setTiposClase(tiposCargados);
+                    
+                    // Inicializar configuración personalizada con TODOS los turnos del mes (obligatorio configurar cada uno)
+                    const turnosDelMes = calcularTurnosDelMes(seleccion?.anio, seleccion?.mes, seleccion?.dia_semana, false);
+                    const configuracionInicial = Array.from({ length: turnosDelMes }, (_, index) => ({
+                      tipo_clase_id: tiposCargados.length > 0 ? tiposCargados[0].id : null,
+                      cantidad: 1
+                    }));
+                    setConfiguracionPersonalizada(configuracionInicial);
                   })
                   .catch(e => {
                     console.error("Error cargando tipos de clase:", e);
                     setTiposClase([]);
+                    // Inicializar con array vacío si no se pueden cargar los tipos
+                    const turnosDelMes = calcularTurnosDelMes(seleccion?.anio, seleccion?.mes, seleccion?.dia_semana, false);
+                    const configuracionInicial = Array.from({ length: turnosDelMes }, (_, index) => ({
+                      tipo_clase_id: null,
+                      cantidad: 1
+                    }));
+                    setConfiguracionPersonalizada(configuracionInicial);
                   });
+              } else if (tiposClase.length === 0 && api && sedeId) {
+                // Fallback: cargar tipos de clase con sedeId general
+                api.get(`padel/tipos-clase/?sede_id=${sedeId}`)
+                  .then(res => {
+                    const data = res?.data?.results ?? res?.data ?? [];
+                    const tiposCargados = Array.isArray(data) ? data : [];
+                    setTiposClase(tiposCargados);
+                    
+                    // Inicializar configuración personalizada con TODOS los turnos del mes (obligatorio configurar cada uno)
+                    const turnosDelMes = calcularTurnosDelMes(seleccion?.anio, seleccion?.mes, seleccion?.dia_semana, false);
+                    const configuracionInicial = Array.from({ length: turnosDelMes }, (_, index) => ({
+                      tipo_clase_id: tiposCargados.length > 0 ? tiposCargados[0].id : null,
+                      cantidad: 1
+                    }));
+                    setConfiguracionPersonalizada(configuracionInicial);
+                  })
+                  .catch(() => {
+                    setTiposClase([]);
+                    // Inicializar con array vacío si no se pueden cargar los tipos
+                    const turnosDelMes = calcularTurnosDelMes(seleccion?.anio, seleccion?.mes, seleccion?.dia_semana, false);
+                    const configuracionInicial = Array.from({ length: turnosDelMes }, (_, index) => ({
+                      tipo_clase_id: null,
+                      cantidad: 1
+                    }));
+                    setConfiguracionPersonalizada(configuracionInicial);
+                  });
+              } else {
+                // Si ya están cargados, inicializar directamente
+                const turnosDelMes = calcularTurnosDelMes(seleccion?.anio, seleccion?.mes, seleccion?.dia_semana, false);
+                const configuracionInicial = Array.from({ length: turnosDelMes }, (_, index) => ({
+                  tipo_clase_id: tiposClase.length > 0 ? tiposClase[0].id : null,
+                  cantidad: 1
+                }));
+                setConfiguracionPersonalizada(configuracionInicial);
               }
               
               configDisc.onOpen();

@@ -110,11 +110,18 @@ const ReservaPagoModalAbono = ({
   const totalEstimado = useMemo(() => {
     const base = Number(precioAbono) || 0;
     const total = base - totalDescuento;
-    return total > 0 ? total : 0;
+    const resultado = total > 0 ? total : 0;
+    
+    
+    return resultado;
   }, [precioAbono, totalDescuento]);
 
   const needsComprobante = totalEstimado > 0;
   const confirmDisabled = loading || (needsComprobante && !archivo);
+  
+  // ✅ Permitir confirmar cuando el total es $0 (sin comprobante ni bonificaciones)
+  const canConfirm = !loading && (!needsComprobante || archivo);
+  
 
   const toggleAll = (checkAll) => {
     if (checkAll) setSelectedBonos((bonosOrdenados || []).map((b) => b.id));
@@ -494,6 +501,7 @@ const ReservaPagoModalAbono = ({
               Falta comprobante. Subí el comprobante para confirmar.
             </Alert>
           )}
+          
 
           {!needsComprobante && (
             <Box
@@ -502,12 +510,12 @@ const ReservaPagoModalAbono = ({
               p={3}
               borderRadius="md"
               border="1px dashed"
-              borderColor={resumenBorder}
-              bg={`${resumenBg}66`}
+              borderColor="green.300"
+              bg="green.50"
               wordBreak="break-word"
             >
-              <Text fontSize={{ base: "xs", md: "sm" }} color="gray.700">
-                Con las bonificaciones seleccionadas, el total es <b>$0</b>. Comprobante <b>no requerido</b>.
+              <Text fontSize={{ base: "xs", md: "sm" }} color="green.700" fontWeight="medium">
+                ✅ Con las bonificaciones seleccionadas, el total es <b>$0</b>. Comprobante <b>no requerido</b>.
               </Text>
             </Box>
           )}
@@ -526,7 +534,7 @@ const ReservaPagoModalAbono = ({
             onClick={() => onConfirmar(selectedBonos)}
             size={{ base: "sm", md: "md" }}
             flexShrink={0}
-            isDisabled={confirmDisabled}
+            isDisabled={!canConfirm}
           >
             Confirmar pago de abono
           </Button>

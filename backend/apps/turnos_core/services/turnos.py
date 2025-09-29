@@ -142,6 +142,7 @@ def generar_turnos_para_prestador(
             creados = len(creados_objs)
             conflictos = a_crear - creados  # si el constraint existe, serán los colisionados por races
 
+
             total_generados += creados
 
             logger.info(

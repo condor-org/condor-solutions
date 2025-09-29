@@ -117,6 +117,43 @@ class Disponibilidad(models.Model):
     class Meta:
         unique_together = ("prestador", "lugar", "dia_semana", "hora_inicio", "hora_fin")
 
+    def clean(self):
+        """
+        Valida que no haya solapamiento entre disponibilidades del mismo prestador
+        en el mismo lugar y día de la semana.
+        """
+        from django.core.exceptions import ValidationError
+        
+        if not self.activo:
+            return
+            
+        # Buscar disponibilidades existentes que puedan solaparse
+        disponibilidades_existentes = Disponibilidad.objects.filter(
+            prestador=self.prestador,
+            lugar=self.lugar,
+            dia_semana=self.dia_semana,
+            activo=True
+        ).exclude(pk=self.pk)
+        
+        for disp in disponibilidades_existentes:
+            # Verificar solapamiento
+            if self._hay_solapamiento(self.hora_inicio, self.hora_fin, disp.hora_inicio, disp.hora_fin):
+                raise ValidationError(
+                    f"Ya existe una disponibilidad para {self.prestador} en {self.lugar} "
+                    f"los {self.get_dia_semana_display()} que se solapa con el horario "
+                    f"{disp.hora_inicio} - {disp.hora_fin}"
+                )
+    
+    def _hay_solapamiento(self, inicio1, fin1, inicio2, fin2):
+        """
+        Verifica si dos rangos de tiempo se solapan.
+        """
+        return inicio1 < fin2 and inicio2 < fin1
+    
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.prestador} en {self.lugar} los {self.get_dia_semana_display()} de {self.hora_inicio} a {self.hora_fin}"
 

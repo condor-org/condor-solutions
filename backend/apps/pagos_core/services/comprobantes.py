@@ -104,14 +104,24 @@ class ComprobanteService:
         # Validación OCR/parseo
         datos = cls._parse_and_validate(file_obj, config_data)
 
-        # Crear ComprobanteAbono
-        comprobante = ComprobanteAbono.objects.create(
-            cliente=usuario.cliente,
+        # Crear o obtener ComprobanteAbono existente
+        comprobante, created = ComprobanteAbono.objects.get_or_create(
             abono_mes=abono,
-            archivo=file_obj,
-            hash_archivo=checksum,
-            datos_extraidos=datos,
+            defaults={
+                'cliente': usuario.cliente,
+                'archivo': file_obj,
+                'hash_archivo': checksum,
+                'datos_extraidos': datos,
+            }
         )
+        
+        # Si ya existía, actualizar con los nuevos datos
+        if not created:
+            comprobante.cliente = usuario.cliente
+            comprobante.archivo = file_obj
+            comprobante.hash_archivo = checksum
+            comprobante.datos_extraidos = datos
+            comprobante.save()
 
         # Intento de pago
         alias_dest = datos.get("alias") or (f"Usando CBU/CVU {datos.get('cbu_destino')}" if datos.get("cbu_destino") else "")

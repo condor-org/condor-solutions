@@ -11,7 +11,6 @@ class AbonoMesAdmin(admin.ModelAdmin):
     ]
     list_filter = [
         "estado", "sede", "prestador", "anio", "mes", "dia_semana",
-        "tipo_clase__isnull",  # Para distinguir normales vs personalizados
         "creado_en"
     ]
     search_fields = [

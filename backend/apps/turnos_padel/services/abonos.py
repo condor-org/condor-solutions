@@ -47,11 +47,34 @@ def _fechas_mes_actual_desde_hoy(anio: int, mes: int, dia_semana: int) -> List[d
     """
     Fechas del mes (weekday=dia_semana), filtrando desde HOY inclusive
     si el mes consultado es el mes actual.
+    Incluye lógica de anticipación mínima para el día actual.
     """
+    # Configuración de anticipación mínima (en horas)
+    HORAS_ANTICIPACION_MINIMA = 1
+    
     hoy = timezone.localdate()
+    ahora = timezone.now()
+    
     fechas = AbonoMesSerializer._fechas_del_mes_por_dia_semana(anio, mes, dia_semana)
+    
     if anio == hoy.year and mes == hoy.month:
-        fechas = [f for f in fechas if f >= hoy]
+        # Para el mes actual, filtrar fechas futuras con anticipación
+        fechas_futuras = []
+        for fecha in fechas:
+            if fecha > hoy:
+                # Fechas futuras: incluir todas
+                fechas_futuras.append(fecha)
+            elif fecha == hoy:
+                # Día actual: verificar anticipación mínima
+                # Solo incluir si hay al menos HORAS_ANTICIPACION_MINIMA horas restantes
+                hora_actual = ahora.hour
+                if hora_actual < (24 - HORAS_ANTICIPACION_MINIMA):  # Ej: antes de las 23:00 para 1h de anticipación
+                    fechas_futuras.append(fecha)
+                # Si es muy tarde, no incluir el día actual
+            # Si fecha < hoy, no incluir (ya pasó)
+        
+        fechas = fechas_futuras
+    
     return fechas
 
 
@@ -481,6 +504,9 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
     # 1) Precios dinámicos basados en turnos del mes
     precio_abono = calcular_precio_abono_dinamico(abono, abono.anio, abono.mes)
     
+    # Asignar el monto calculado al abono
+    abono.monto = precio_abono
+    
     # Para abonos normales, usar precio del tipo_clase
     if abono.tipo_clase:
         precio_turno = float(abono.tipo_clase.precio)
@@ -600,12 +626,32 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
     caller_es_admin = bool(user and getattr(user, "tipo_usuario", None) in ("super_admin", "admin_cliente"))
     omitir_archivo = caller_es_admin and bool(forzar_admin)
 
-    # Precios “server source of truth”
-    precio_abono = float(getattr(abono.tipo_abono, "precio", None) or abono.monto or 0.0)
+    # Precios "server source of truth" - usar cálculo dinámico
+    # Para renovaciones, usar año y mes de la renovación, no del abono original
+    anio_renovacion = int(request.data.get("anio", abono.anio))
+    mes_renovacion = int(request.data.get("mes", abono.mes))
+    
+    # Para renovaciones personalizadas, usar la nueva configuración del payload
+    configuracion_personalizada = request.data.get("configuracion_personalizada")
+    print(f"[DEBUG] configuracion_personalizada del payload: {configuracion_personalizada}")
+    if configuracion_personalizada:
+        # Parsear JSON string si es necesario
+        if isinstance(configuracion_personalizada, str):
+            import json
+            configuracion_personalizada = json.loads(configuracion_personalizada)
+        # Crear un abono temporal con la nueva configuración para el cálculo
+        abono_temp = type('AbonoTemp', (), {
+            'id': abono.id,  # Agregar id para el log
+            'configuracion_personalizada': configuracion_personalizada,
+            'tipo_clase': None,
+            'monto': None
+        })()
+        precio_abono = calcular_precio_abono_dinamico(abono_temp, anio_renovacion, mes_renovacion)
+    else:
+        precio_abono = calcular_precio_abono_dinamico(abono, anio_renovacion, mes_renovacion)
 
-    # Bonificaciones válidas del usuario y del tipo correcto
-    code = (getattr(abono.tipo_clase, "codigo", "") or "").strip().lower()
-    code_alias = {"x1": "individual", "x2": "2 personas", "x3": "3 personas", "x4": "4 personas"}.get(code, "")
+    # Bonificaciones válidas del usuario (universales)
+    # Para renovaciones, no importa el tipo de clase - las bonificaciones son por monto
 
     bonos_qs = (
         TurnoBonificado.objects
@@ -617,7 +663,7 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
             usado=False,
         )
         .filter(models.Q(valido_hasta__isnull=True) | models.Q(valido_hasta__gte=timezone.localdate()))
-        .filter(models.Q(tipo_turno__iexact=code) | models.Q(tipo_turno__iexact=code_alias))
+        # Ya no filtramos por tipo_turno - las bonificaciones son universales
     )
     bonos = list(bonos_qs)
 
@@ -688,6 +734,8 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
 
 def calcular_precio_abono_dinamico(abono, anio, mes):
     """Calcula el precio dinámico basado en turnos disponibles del mes"""
+    print(f"[DEBUG] calcular_precio_abono_dinamico: abono_id={abono.id}, configuracion_personalizada={abono.configuracion_personalizada}, tipo_clase={abono.tipo_clase}")
+    
     if abono.configuracion_personalizada:
         # Para abonos personalizados: suma precios de cada tipo * cantidad
         total = 0
@@ -695,16 +743,24 @@ def calcular_precio_abono_dinamico(abono, anio, mes):
             try:
                 from apps.turnos_padel.models import TipoClasePadel
                 tipo_clase = TipoClasePadel.objects.get(id=config['tipo_clase_id'])
-                total += float(tipo_clase.precio) * config['cantidad']
-            except (TipoClasePadel.DoesNotExist, KeyError, ValueError):
+                subtotal = float(tipo_clase.precio) * config['cantidad']
+                total += subtotal
+                print(f"[DEBUG] Config: tipo_clase_id={config['tipo_clase_id']}, cantidad={config['cantidad']}, precio={tipo_clase.precio}, subtotal={subtotal}")
+            except (TipoClasePadel.DoesNotExist, KeyError, ValueError) as e:
+                print(f"[DEBUG] Error en config: {e}")
                 continue
+        print(f"[DEBUG] Total personalizado: {total}")
         return total
     elif abono.tipo_clase:
         # Para abonos normales: precio del tipo_clase * turnos del mes
         turnos_mes = contar_turnos_del_mes(anio, mes, abono.dia_semana)
-        return float(abono.tipo_clase.precio) * turnos_mes
+        precio = float(abono.tipo_clase.precio) * turnos_mes
+        print(f"[DEBUG] Abono normal: precio={abono.tipo_clase.precio}, turnos_mes={turnos_mes}, total={precio}")
+        return precio
     else:
-        return float(abono.monto) if abono.monto else 0.0
+        precio = float(abono.monto) if abono.monto else 0.0
+        print(f"[DEBUG] Usando monto fijo: {precio}")
+        return precio
 
 
 def contar_turnos_del_mes(anio, mes, dia_semana):

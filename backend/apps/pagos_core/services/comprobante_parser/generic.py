@@ -184,12 +184,22 @@ def _to_float_money(token: str) -> float:
     return float(s.replace(".", "").replace(",", ""))
 
 def _iso_from_dmy(d: str, m: str, y: str) -> str:
-    dt = date(year=int(y), month=int(m), day=int(d))
-    return dt.isoformat()
+    try:
+        dt = date(year=int(y), month=int(m), day=int(d))
+        return dt.isoformat()
+    except ValueError as e:
+        # Log the invalid date and return None to skip this date
+        print(f"Invalid date: day={d}, month={m}, year={y}, error={e}")
+        return None
 
 def _iso_from_ymd(y: str, m: str, d: str) -> str:
-    dt = date(year=int(y), month=int(m), day=int(d))
-    return dt.isoformat()
+    try:
+        dt = date(year=int(y), month=int(m), day=int(d))
+        return dt.isoformat()
+    except ValueError as e:
+        # Log the invalid date and return None to skip this date
+        print(f"Invalid date: year={y}, month={m}, day={d}, error={e}")
+        return None
 
 def _iso_from_long_es(d: str, mes: str, y: str) -> str:
     norm = (mes.lower()
@@ -339,32 +349,50 @@ def _extract_date_soft(txt: str, expected_iso: Optional[str]) -> str:
         for i, ln in enumerate(src_lines):
             # ISO con hora (fuerte)
             for m in RE_DT_ISO.finditer(ln):
-                out.append((i, _iso_from_ymd(m.group(1), m.group(2), m.group(3))))
+                date_str = _iso_from_ymd(m.group(1), m.group(2), m.group(3))
+                if date_str:
+                    out.append((i, date_str))
             # YMD puro
             for m in RE_DATE_YMD.finditer(ln):
-                out.append((i, _iso_from_ymd(m.group(1), m.group(2), m.group(3))))
+                date_str = _iso_from_ymd(m.group(1), m.group(2), m.group(3))
+                if date_str:
+                    out.append((i, date_str))
             # DMY 4
             for m in RE_DATE_DMY.finditer(ln):
-                out.append((i, _iso_from_dmy(m.group(1), m.group(2), m.group(3))))
+                date_str = _iso_from_dmy(m.group(1), m.group(2), m.group(3))
+                if date_str:
+                    out.append((i, date_str))
             # DMY 2
             for m in RE_DATE_DMY_2DIG.finditer(ln):
-                out.append((i, _iso_from_dmy_2dig(m.group(1), m.group(2), m.group(3))))
+                date_str = _iso_from_dmy_2dig(m.group(1), m.group(2), m.group(3))
+                if date_str:
+                    out.append((i, date_str))
             # D/MON/YYYY
             for m in RE_DATE_DMY_MON_ES.finditer(ln):
-                out.append((i, _iso_from_dmy_mon_es(m.group(1), m.group(2), m.group(3))))
+                date_str = _iso_from_dmy_mon_es(m.group(1), m.group(2), m.group(3))
+                if date_str:
+                    out.append((i, date_str))
             # Largo ES
             for m in RE_DATE_LONG_ES.finditer(ln):
-                out.append((i, _iso_from_long_es(m.group(1), m.group(2), m.group(3))))
+                date_str = _iso_from_long_es(m.group(1), m.group(2), m.group(3))
+                if date_str:
+                    out.append((i, date_str))
             for m in RE_DATE_LONG_ES_NO_DOW.finditer(ln):
-                out.append((i, _iso_from_long_es(m.group(1), m.group(2), m.group(3))))
+                date_str = _iso_from_long_es(m.group(1), m.group(2), m.group(3))
+                if date_str:
+                    out.append((i, date_str))
         # ISO flex (puede cruzar saltos de línea u otros separadores)
         for m in RE_DT_ISO_FLEX.finditer(source):
             y, mo, d = m.group(1), m.group(2), m.group(3)
-            out.append((0, _iso_from_ymd(y, mo, d)))
+            date_str = _iso_from_ymd(y, mo, d)
+            if date_str:
+                out.append((0, date_str))
         # Split tokens (YYYY MM DD [HH mm ss])
         for m in RE_DT_SPLIT.finditer(source):
             y, mo, d = m.group(1), m.group(2), m.group(3)
-            out.append((0, _iso_from_ymd(y, mo, d)))
+            date_str = _iso_from_ymd(y, mo, d)
+            if date_str:
+                out.append((0, date_str))
         return out
 
     # 0) Ventanas de fecha (si existen títulos)
@@ -372,6 +400,7 @@ def _extract_date_soft(txt: str, expected_iso: Optional[str]) -> str:
     for block in _window_from_titles(lines, RE_TIT_FECHA, FECHA_WINDOW_DOWN):
         # 1) ISO exacto con hora (YYYY-MM-DD HH:MM[:SS]) dentro del bloque → prioridad máxima
         blk_dates = [ _iso_from_ymd(m.group(1), m.group(2), m.group(3)) for m in RE_DT_ISO.finditer(block) ]
+        blk_dates = [d for d in blk_dates if d is not None]  # Filter out None values
         if not blk_dates:
             blk_dates = [ iso for _, iso in _collect_dates(block) ]
         candidate_dates.extend(blk_dates)
@@ -392,15 +421,25 @@ def _extract_date_soft(txt: str, expected_iso: Optional[str]) -> str:
                 # si hay una fecha en esta línea y hora cerca, devolver esa
                 d_candidates = []
                 for m in RE_DT_ISO.finditer(ln):
-                    d_candidates.append(_iso_from_ymd(m.group(1), m.group(2), m.group(3)))
+                    date_str = _iso_from_ymd(m.group(1), m.group(2), m.group(3))
+                    if date_str:
+                        d_candidates.append(date_str)
                 for m in RE_DATE_YMD.finditer(ln):
-                    d_candidates.append(_iso_from_ymd(m.group(1), m.group(2), m.group(3)))
+                    date_str = _iso_from_ymd(m.group(1), m.group(2), m.group(3))
+                    if date_str:
+                        d_candidates.append(date_str)
                 for m in RE_DATE_DMY.finditer(ln):
-                    d_candidates.append(_iso_from_dmy(m.group(1), m.group(2), m.group(3)))
+                    date_str = _iso_from_dmy(m.group(1), m.group(2), m.group(3))
+                    if date_str:
+                        d_candidates.append(date_str)
                 for m in RE_DATE_DMY_2DIG.finditer(ln):
-                    d_candidates.append(_iso_from_dmy_2dig(m.group(1), m.group(2), m.group(3)))
+                    date_str = _iso_from_dmy_2dig(m.group(1), m.group(2), m.group(3))
+                    if date_str:
+                        d_candidates.append(date_str)
                 for m in RE_DATE_DMY_MON_ES.finditer(ln):
-                    d_candidates.append(_iso_from_dmy_mon_es(m.group(1), m.group(2), m.group(3)))
+                    date_str = _iso_from_dmy_mon_es(m.group(1), m.group(2), m.group(3))
+                    if date_str:
+                        d_candidates.append(date_str)
                 if d_candidates:
                     # hora en la misma línea o siguiente
                     if RE_TIME_24.search(ln) or RE_TIME_AMPM.search(ln) or (i + 1 < len(blk_lines) and (RE_TIME_24.search(blk_lines[i+1]) or RE_TIME_AMPM.search(blk_lines[i+1]))):
@@ -415,8 +454,10 @@ def _extract_date_soft(txt: str, expected_iso: Optional[str]) -> str:
     if not dated:
         # último intento: buscar explícito ISO con hora (estricto y laxo)
         iso_inline = [ _iso_from_ymd(m.group(1), m.group(2), m.group(3)) for m in RE_DT_ISO.finditer(txt_n) ]
+        iso_inline = [d for d in iso_inline if d is not None]  # Filter out None values
         if not iso_inline:
             iso_inline = [ _iso_from_ymd(m.group(1), m.group(2), m.group(3)) for m in RE_DT_ISO_FLEX.finditer(txt_n) ]
+            iso_inline = [d for d in iso_inline if d is not None]  # Filter out None values
         if iso_inline:
             uniq_iso = sorted(set(iso_inline))
             logger.debug("[generic] date: ISO-with-time fallback → %s (cands=%s)", uniq_iso[0], uniq_iso)
@@ -437,15 +478,25 @@ def _extract_date_soft(txt: str, expected_iso: Optional[str]) -> str:
     for i, ln in enumerate(lines):
         found_here = []
         for m in RE_DT_ISO.finditer(ln):
-            found_here.append(_iso_from_ymd(m.group(1), m.group(2), m.group(3)))
+            date_str = _iso_from_ymd(m.group(1), m.group(2), m.group(3))
+            if date_str:
+                found_here.append(date_str)
         for m in RE_DATE_YMD.finditer(ln):
-            found_here.append(_iso_from_ymd(m.group(1), m.group(2), m.group(3)))
+            date_str = _iso_from_ymd(m.group(1), m.group(2), m.group(3))
+            if date_str:
+                found_here.append(date_str)
         for m in RE_DATE_DMY.finditer(ln):
-            found_here.append(_iso_from_dmy(m.group(1), m.group(2), m.group(3)))
+            date_str = _iso_from_dmy(m.group(1), m.group(2), m.group(3))
+            if date_str:
+                found_here.append(date_str)
         for m in RE_DATE_DMY_2DIG.finditer(ln):
-            found_here.append(_iso_from_dmy_2dig(m.group(1), m.group(2), m.group(3)))
+            date_str = _iso_from_dmy_2dig(m.group(1), m.group(2), m.group(3))
+            if date_str:
+                found_here.append(date_str)
         for m in RE_DATE_DMY_MON_ES.finditer(ln):
-            found_here.append(_iso_from_dmy_mon_es(m.group(1), m.group(2), m.group(3)))
+            date_str = _iso_from_dmy_mon_es(m.group(1), m.group(2), m.group(3))
+            if date_str:
+                found_here.append(date_str)
         if found_here:
             if RE_TIME_24.search(ln) or RE_TIME_AMPM.search(ln) or (i + 1 < len(lines) and (RE_TIME_24.search(lines[i+1]) or RE_TIME_AMPM.search(lines[i+1]))):
                 with_time.extend(found_here)

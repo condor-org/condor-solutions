@@ -36,6 +36,7 @@ services:
       DJANGO_REQUEST_LOG_LEVEL: "ERROR"
       DJANGO_MIDDLEWARE_LOG_LEVEL: "WARNING"
       DJANGO_LOG_SKIP_CONTAINS: "/api/notificaciones/unread_count/,/api/token/refresh/"
+      TZ: "America/Argentina/Buenos_Aires"  # ← Zona horaria de Argentina
     volumes:
       - ./backend:/app  # ← Volumen compartido para desarrollo
     depends_on:

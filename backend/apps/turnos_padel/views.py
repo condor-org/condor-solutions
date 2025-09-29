@@ -429,19 +429,33 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             return (anio_i + 1, 1) if mes_i == 12 else (anio_i, mes_i + 1)
 
         hoy = timezone.localdate()
-        fechas_actual_todas = fechas_mes(anio, mes, dia_semana)
-        fechas_actual = [d for d in fechas_actual_todas if d >= hoy]
-        prox_anio, prox_mes = proximo_mes(anio, mes)
-        fechas_prox = fechas_mes(prox_anio, prox_mes, dia_semana)
+        ahora = timezone.now()
+        fechas_turnos_abono = fechas_mes(anio, mes, dia_semana)
+        
+        # Solo fechas del mes actual con lógica de anticipación
+        HORAS_ANTICIPACION_MINIMA = 1
+        fechas_turnos_abono_futuras = []
+        for fecha in fechas_turnos_abono:
+            if fecha > hoy:
+                # Fechas futuras del mes actual: incluir todas
+                fechas_turnos_abono_futuras.append(fecha)
+            elif fecha == hoy:
+                # Día actual: verificar anticipación mínima
+                hora_actual = ahora.hour
+                # Solo restringir si ya pasó la hora límite (23:00 para 1h de anticipación)
+                if hora_actual < (24 - HORAS_ANTICIPACION_MINIMA):
+                    fechas_turnos_abono_futuras.append(fecha)
 
-        if not fechas_actual and not fechas_prox:
-            logger.info("[abonos.disponibles] sin fechas futuras para el día de semana")
+        # Validar que hay al menos una fecha disponible en el mes actual
+        if not fechas_turnos_abono_futuras:
+            logger.info("[abonos.disponibles] sin fechas disponibles en el mes actual para el día de semana")
             return Response([], status=200)
 
-        fechas_total = fechas_actual + fechas_prox
+        # Solo usar las fechas futuras del mes actual, NO el próximo mes
+        fechas_total = fechas_turnos_abono_futuras
         logger.debug(
-            "[abonos.disponibles] hoy=%s | fechas_actual=%s | fechas_prox=%s | total=%s",
-            hoy, len(fechas_actual), len(fechas_prox), len(fechas_total)
+            "[abonos.disponibles] hoy=%s | fechas_turnos_abono_futuras=%s | total=%s",
+            hoy, len(fechas_turnos_abono_futuras), len(fechas_total)
         )
 
         # 3) Recupera turnos para todas las fechas; agrupa por hora.
@@ -465,22 +479,58 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             h = t.hora.isoformat()
             por_hora.setdefault(h, {})[t.fecha] = t
 
+        logger.debug("[abonos.disponibles] turnos encontrados: %s", len(turnos_qs))
+        logger.debug("[abonos.disponibles] por_hora keys: %s", list(por_hora.keys()))
+
         # 4) Una hora es válida si TODAS las fechas del patrón están libres/no bloqueadas/no asignadas a abonos.
         horas_libres = []
         for h, mapa in por_hora.items():
+            logger.debug("[abonos.disponibles] verificando hora %s, mapa: %s", h, list(mapa.keys()))
             if not all(f in mapa for f in fechas_total):
+                logger.debug("[abonos.disponibles] hora %s: no todas las fechas están en el mapa", h)
                 continue
             ok = True
             for f in fechas_total:
                 t = mapa[f]
+                logger.debug("[abonos.disponibles] hora %s fecha %s: estado=%s, reservado=%s, prioridad=%s", 
+                           h, f, t.estado, getattr(t, "abono_mes_reservado", False), getattr(t, "abono_mes_prioridad", False))
                 if t.estado != "disponible":
+                    logger.debug("[abonos.disponibles] hora %s fecha %s: estado no disponible", h, f)
                     ok = False; break
                 if getattr(t, "abono_mes_reservado", False) or getattr(t, "abono_mes_prioridad", False):
+                    logger.debug("[abonos.disponibles] hora %s fecha %s: ya reservado", h, f)
                     ok = False; break
                 if hasattr(t, "bloqueado_para_reservas") and getattr(t, "bloqueado_para_reservas", False):
+                    logger.debug("[abonos.disponibles] hora %s fecha %s: bloqueado para reservas", h, f)
                     ok = False; break
             if ok:
+                logger.debug("[abonos.disponibles] hora %s: VÁLIDA", h)
                 horas_libres.append(h)
+            else:
+                logger.debug("[abonos.disponibles] hora %s: NO VÁLIDA", h)
+
+        # Filtrar horas para el día actual (solo si hay fechas del día actual)
+        if hoy in fechas_total:
+            # Usar la zona horaria local en lugar de UTC
+            import pytz
+            local_tz = pytz.timezone('America/Argentina/Buenos_Aires')
+            ahora_local = ahora.astimezone(local_tz)
+            hora_actual = ahora_local.hour
+            hora_minima = hora_actual + HORAS_ANTICIPACION_MINIMA
+            logger.debug("[abonos.disponibles] Día actual detectado. Hora actual: %s, Hora mínima: %s", hora_actual, hora_minima)
+            
+            # Filtrar horas que estén a más de 1 hora de la hora actual
+            horas_libres_filtradas = []
+            for h in horas_libres:
+                hora_turno = int(h.split(':')[0])  # Extraer la hora (ej: "09:00:00" -> 9)
+                if hora_turno >= hora_minima:
+                    horas_libres_filtradas.append(h)
+                    logger.debug("[abonos.disponibles] Hora %s (turno: %s) >= %s: INCLUIDA", h, hora_turno, hora_minima)
+                else:
+                    logger.debug("[abonos.disponibles] Hora %s (turno: %s) < %s: EXCLUIDA", h, hora_turno, hora_minima)
+            
+            horas_libres = horas_libres_filtradas
+            logger.debug("[abonos.disponibles] Horas filtradas para día actual: %s", horas_libres)
 
         horas_libres.sort()
         result = [{"hora": h} for h in horas_libres]
@@ -648,7 +698,7 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             ult = a.turnos_reservados.aggregate(ultimo=Max("fecha"))["ultimo"]
             dias = (ult - hoy).days if ult else None
             estado_vigencia = "activo" if ult and hoy <= ult else "vencido"
-            ventana_renovacion = bool(dias is not None and 1 <= dias <= 7 and not a.renovado)
+            ventana_renovacion = bool(dias is not None and 0 <= dias <= 7 and not a.renovado)
 
                 
             
