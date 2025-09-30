@@ -347,7 +347,7 @@ jobs:
             echo "[+] Limpieza de imágenes no usadas (PROD)"
             CURRENT_IMAGES=$(docker ps --format '{{.Image}}' | sort -u)
             ALL_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' "ghcr.io/${OWNER_LC}/condor-*")
-            for IMG in $ALL_IMAGES; dogit 
+            for IMG in $ALL_IMAGES; do
               if echo "$IMG" | grep -q ":${{ env.RELEASE_TAG }}$"; then continue; fi
               if echo "$CURRENT_IMAGES" | grep -qx "$IMG"; then continue; fi
               echo " - borrando $IMG"
