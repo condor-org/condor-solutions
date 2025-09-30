@@ -52,6 +52,7 @@ jobs:
   determine-environment:
     runs-on: ubuntu-latest
     needs: [get-latest-release]
+    if: always() && (needs.get-latest-release.result == 'success' || needs.get-latest-release.result == 'skipped')
     outputs:
       environment: ${{ steps.env.outputs.environment }}
       is_dev: ${{ steps.env.outputs.is_dev }}
