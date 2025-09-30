@@ -257,6 +257,8 @@ def confirmar_y_reservar_abono(abono: AbonoMes, comprobante_abono=None) -> Dict:
     - Setea fecha_limite_renovacion. NO toca 'estado' del abono (lo define el endpoint de pagos).
     - Devuelve resumen (para adjuntar a la respuesta del endpoint).
     """
+    logger.info("[abonos.confirmar_y_reservar][inicio] abono_id=%s usuario_id=%s sede_id=%s prestador_id=%s tiene_comprobante=%s", 
+               abono.id, abono.usuario_id, abono.sede_id, abono.prestador_id, bool(comprobante_abono))
     # Para abonos personalizados, tipo_clase es null
     if abono.configuracion_personalizada:
         # Para abonos personalizados, usar el primer tipo de clase de la configuración
@@ -492,9 +494,14 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
 
     serializer = AbonoMesSerializer(data=data, context={"request": request})
     serializer.is_valid(raise_exception=True)
+    logger.info("[abonos.validar_y_confirmar][serializer_ok] serializer validado correctamente")
 
     vdata = dict(serializer.validated_data)   # datos validados
     abono = AbonoMes(**vdata)                 # instancia sin guardar
+
+    logger.info("[abonos.validar_y_confirmar][abono_creado] usuario=%s sede=%s prestador=%s anio=%s mes=%s dsem=%s hora=%s tipo_clase=%s config_personalizada=%s", 
+               abono.usuario_id, abono.sede_id, abono.prestador_id, abono.anio, abono.mes, 
+               abono.dia_semana, abono.hora, abono.tipo_clase_id, abono.configuracion_personalizada)
 
     # ¿quién llama?
     user = getattr(request, "user", None)
@@ -506,6 +513,8 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
     
     # Asignar el monto calculado al abono
     abono.monto = precio_abono
+    
+    logger.info("[abonos.validar_y_confirmar][precio_calculado] precio_abono=%.2f", precio_abono)
     
     # Para abonos normales, usar precio del tipo_clase
     if abono.tipo_clase:
@@ -547,6 +556,9 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
     valor_bonos = sum(valores_bonos)
     restante = max(precio_abono - valor_bonos, 0.0)
 
+    logger.info("[abonos.validar_y_confirmar][bonificaciones] bonos_aplicados=%s valor_bonos=%.2f restante=%.2f", 
+               len(bonos), valor_bonos, restante)
+
     # >>> FIX: asegurar que 'abono' tenga ID antes de crear el comprobante <<<
     # (No cambia ninguna otra parte del flujo)
     if restante > 0 and not omitir_archivo and not abono.pk:
@@ -554,9 +566,16 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
 
     # 4) Si hay restante > 0, exigir comprobante por ese EXACTO monto (salvo override admin)
     comprobante_abono = None
+    logger.info("[abonos.validar_y_confirmar][comprobante_check] restante=%.2f omitir_archivo=%s tiene_archivo=%s", 
+               restante, omitir_archivo, bool(archivo))
+    
     if restante > 0 and not omitir_archivo:
         if not archivo:
             raise serializers.ValidationError({"comprobante": "Falta comprobante para cubrir el monto restante."})
+        
+        logger.info("[abonos.validar_y_confirmar][comprobante] llamando ComprobanteService con abono_id=%s monto_esperado=%.2f", 
+                   abono.id, restante)
+        
         # validar y crear comprobante por el RESTANTE (sin tocar turnos todavía)
         try:
             comprobante_abono = ComprobanteService.validar_y_crear_comprobante_abono(
@@ -565,7 +584,8 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
                 usuario=abono.usuario,   # 👈 beneficiario, no el admin
                 monto_esperado=restante,
             )
-        except DjangoValidationError:
+        except DjangoValidationError as e:
+            logger.error("[abonos.validar_y_confirmar][comprobante_error] ERROR real del comprobante: %s", str(e))
             raise serializers.ValidationError({"comprobante": "Comprobante no válido"})
 
     logger.info(
@@ -581,6 +601,7 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
     # 5) Persistir abono y reservar (pone locks, setea relaciones, etc.)
     # (Si ya se guardó antes por el fix, esto es idempotente)
     abono.save()
+    logger.info("[abonos.validar_y_confirmar][confirmar_y_reservar] llamando confirmar_y_reservar_abono con abono_id=%s", abono.id)
     resumen = confirmar_y_reservar_abono(
         abono=abono,
         comprobante_abono=comprobante_abono
@@ -652,6 +673,8 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
 
     # Bonificaciones válidas del usuario (universales)
     # Para renovaciones, no importa el tipo de clase - las bonificaciones son por monto
+    logger.info("[abonos.validar_y_confirmar][bonificaciones_inicio] bonificaciones_ids=%s usuario_id=%s", 
+               bonificaciones_ids, abono.usuario_id)
 
     bonos_qs = (
         TurnoBonificado.objects
@@ -666,6 +689,8 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
         # Ya no filtramos por tipo_turno - las bonificaciones son universales
     )
     bonos = list(bonos_qs)
+    
+    logger.info("[abonos.validar_y_confirmar][bonificaciones_encontradas] bonos_encontrados=%s", len(bonos))
 
     # Sumar valor real de cada bonificación (no el precio de la clase)
     try:
@@ -689,7 +714,8 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
                 usuario=abono.usuario,
                 monto_esperado=restante,
             )
-        except DjangoValidationError:
+        except DjangoValidationError as e:
+            logger.error("[abonos._validar_y_confirmar_renovacion][comprobante_error] ERROR real del comprobante: %s", str(e))
             raise serializers.ValidationError({"comprobante": "Comprobante no válido"})
 
     # Si hay comprobante, asociarlo a los turnos en prioridad de este abono (idempotente)
@@ -734,7 +760,6 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
 
 def calcular_precio_abono_dinamico(abono, anio, mes):
     """Calcula el precio dinámico basado en turnos disponibles del mes"""
-    print(f"[DEBUG] calcular_precio_abono_dinamico: abono_id={abono.id}, configuracion_personalizada={abono.configuracion_personalizada}, tipo_clase={abono.tipo_clase}")
     
     if abono.configuracion_personalizada:
         # Para abonos personalizados: suma precios de cada tipo * cantidad
@@ -745,21 +770,16 @@ def calcular_precio_abono_dinamico(abono, anio, mes):
                 tipo_clase = TipoClasePadel.objects.get(id=config['tipo_clase_id'])
                 subtotal = float(tipo_clase.precio) * config['cantidad']
                 total += subtotal
-                print(f"[DEBUG] Config: tipo_clase_id={config['tipo_clase_id']}, cantidad={config['cantidad']}, precio={tipo_clase.precio}, subtotal={subtotal}")
             except (TipoClasePadel.DoesNotExist, KeyError, ValueError) as e:
-                print(f"[DEBUG] Error en config: {e}")
                 continue
-        print(f"[DEBUG] Total personalizado: {total}")
         return total
     elif abono.tipo_clase:
         # Para abonos normales: precio del tipo_clase * turnos del mes
         turnos_mes = contar_turnos_del_mes(anio, mes, abono.dia_semana)
         precio = float(abono.tipo_clase.precio) * turnos_mes
-        print(f"[DEBUG] Abono normal: precio={abono.tipo_clase.precio}, turnos_mes={turnos_mes}, total={precio}")
         return precio
     else:
         precio = float(abono.monto) if abono.monto else 0.0
-        print(f"[DEBUG] Usando monto fijo: {precio}")
         return precio
 
 

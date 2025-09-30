@@ -479,35 +479,22 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             h = t.hora.isoformat()
             por_hora.setdefault(h, {})[t.fecha] = t
 
-        logger.debug("[abonos.disponibles] turnos encontrados: %s", len(turnos_qs))
-        logger.debug("[abonos.disponibles] por_hora keys: %s", list(por_hora.keys()))
-
         # 4) Una hora es válida si TODAS las fechas del patrón están libres/no bloqueadas/no asignadas a abonos.
         horas_libres = []
         for h, mapa in por_hora.items():
-            logger.debug("[abonos.disponibles] verificando hora %s, mapa: %s", h, list(mapa.keys()))
             if not all(f in mapa for f in fechas_total):
-                logger.debug("[abonos.disponibles] hora %s: no todas las fechas están en el mapa", h)
                 continue
             ok = True
             for f in fechas_total:
                 t = mapa[f]
-                logger.debug("[abonos.disponibles] hora %s fecha %s: estado=%s, reservado=%s, prioridad=%s", 
-                           h, f, t.estado, getattr(t, "abono_mes_reservado", False), getattr(t, "abono_mes_prioridad", False))
                 if t.estado != "disponible":
-                    logger.debug("[abonos.disponibles] hora %s fecha %s: estado no disponible", h, f)
                     ok = False; break
                 if getattr(t, "abono_mes_reservado", False) or getattr(t, "abono_mes_prioridad", False):
-                    logger.debug("[abonos.disponibles] hora %s fecha %s: ya reservado", h, f)
                     ok = False; break
                 if hasattr(t, "bloqueado_para_reservas") and getattr(t, "bloqueado_para_reservas", False):
-                    logger.debug("[abonos.disponibles] hora %s fecha %s: bloqueado para reservas", h, f)
                     ok = False; break
             if ok:
-                logger.debug("[abonos.disponibles] hora %s: VÁLIDA", h)
                 horas_libres.append(h)
-            else:
-                logger.debug("[abonos.disponibles] hora %s: NO VÁLIDA", h)
 
         # Filtrar horas para el día actual (solo si hay fechas del día actual)
         if hoy in fechas_total:
@@ -517,7 +504,6 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             ahora_local = ahora.astimezone(local_tz)
             hora_actual = ahora_local.hour
             hora_minima = hora_actual + HORAS_ANTICIPACION_MINIMA
-            logger.debug("[abonos.disponibles] Día actual detectado. Hora actual: %s, Hora mínima: %s", hora_actual, hora_minima)
             
             # Filtrar horas que estén a más de 1 hora de la hora actual
             horas_libres_filtradas = []
@@ -525,12 +511,8 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
                 hora_turno = int(h.split(':')[0])  # Extraer la hora (ej: "09:00:00" -> 9)
                 if hora_turno >= hora_minima:
                     horas_libres_filtradas.append(h)
-                    logger.debug("[abonos.disponibles] Hora %s (turno: %s) >= %s: INCLUIDA", h, hora_turno, hora_minima)
-                else:
-                    logger.debug("[abonos.disponibles] Hora %s (turno: %s) < %s: EXCLUIDA", h, hora_turno, hora_minima)
             
             horas_libres = horas_libres_filtradas
-            logger.debug("[abonos.disponibles] Horas filtradas para día actual: %s", horas_libres)
 
         horas_libres.sort()
         result = [{"hora": h} for h in horas_libres]
@@ -550,6 +532,7 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         - Adjunta bonificaciones/archivo y notifica admins del cliente.
         - Transacción atómica para consistencia.
         """
+        logger.info("[abonos.reservar][inicio] request.data=%s", request.data)
         user = request.user
         data = request.data.copy()
 
@@ -596,6 +579,12 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
 
         bonificaciones_ids = data.getlist("bonificaciones_ids") if hasattr(data, "getlist") else data.get("bonificaciones_ids", [])
         archivo = data.get("archivo")
+
+        logger.info("[abonos.reservar][payload] data=%s bonificaciones_ids=%s tiene_archivo=%s", 
+                   data, bonificaciones_ids, bool(archivo))
+
+        logger.info("[abonos.reservar][call] llamando validar_y_confirmar_abono con data=%s bonificaciones_ids=%s forzar_admin=%s", 
+                   data, bonificaciones_ids, forzar_admin)
 
         try:
             abono, resumen = validar_y_confirmar_abono(

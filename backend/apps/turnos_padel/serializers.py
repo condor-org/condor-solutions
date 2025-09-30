@@ -406,6 +406,9 @@ class AbonoMesSerializer(serializers.ModelSerializer):
             activo=True
         )
         
+        logger.info("[abonos.validate][config_personalizada] tipo_clase_ids=%s sede_id=%s tipos_encontrados=%s", 
+                   tipo_clase_ids, sede.id, [t.id for t in tipos_clase])
+        
         if len(tipos_clase) != len(tipo_clase_ids):
             raise serializers.ValidationError("Algunos tipos de clase no existen o no pertenecen a la sede")
         

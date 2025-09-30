@@ -4,7 +4,7 @@ from rest_framework import serializers
 from apps.common.logging import LoggedModelSerializer
 from django.core.exceptions import ValidationError as DjangoValidationError
 from apps.turnos_core.models import Turno
-from apps.pagos_core.models import ComprobantePago
+from apps.pagos_core.models import ComprobantePago, ComprobanteAbono
 from apps.turnos_padel.models import AbonoMes  # 🧩 requerido por ComprobanteAbonoUploadSerializer
 
 
@@ -85,6 +85,8 @@ class ComprobantePagoSerializer(LoggedModelSerializer):
     sede_nombre = serializers.SerializerMethodField()
     especialidad_nombre = serializers.SerializerMethodField()
     cliente_nombre = serializers.SerializerMethodField()
+    tipo = serializers.SerializerMethodField()
+    tipo_display = serializers.SerializerMethodField()
 
     class Meta:
         model = ComprobantePago
@@ -101,6 +103,8 @@ class ComprobantePagoSerializer(LoggedModelSerializer):
             "sede_nombre",
             "especialidad_nombre",
             "cliente_nombre",
+            "tipo",
+            "tipo_display",
         ]
 
     # ⚠️ En estos getters se usa print() para logs de error.
@@ -164,6 +168,44 @@ class ComprobantePagoSerializer(LoggedModelSerializer):
         except Exception as e:
             print(f"[DEBUG] especialidad_nombre ERROR comprobante {obj.id}: {e}")
             return ""
+
+    def get_tipo(self, obj):
+        """Obtener el tipo de comprobante (turno o abono)"""
+        return getattr(obj, 'tipo', 'turno')
+
+    def get_tipo_display(self, obj):
+        """Obtener el nombre legible del tipo"""
+        return getattr(obj, 'tipo_display', 'Clase Individual')
+
+
+class ComprobanteUnificadoSerializer(serializers.Serializer):
+    """
+    Serializer unificado para mostrar tanto ComprobantePago como ComprobanteAbono
+    en la lista de pagos preaprobados.
+    """
+    id = serializers.IntegerField()
+    created_at = serializers.DateTimeField()
+    tipo = serializers.CharField()
+    tipo_display = serializers.CharField()
+    valido = serializers.BooleanField()
+    datos_extraidos = serializers.JSONField()
+    
+    # Campos específicos de turnos
+    turno_id = serializers.IntegerField(required=False)
+    usuario_nombre = serializers.CharField(required=False)
+    usuario_email = serializers.CharField(required=False)
+    turno_hora = serializers.TimeField(required=False)
+    profesor_nombre = serializers.CharField(required=False)
+    sede_nombre = serializers.CharField(required=False)
+    especialidad_nombre = serializers.CharField(required=False)
+    cliente_nombre = serializers.CharField(required=False)
+    
+    # Campos específicos de abonos
+    abono_mes_id = serializers.IntegerField(required=False)
+    abono_mes_anio = serializers.IntegerField(required=False)
+    abono_mes_mes = serializers.IntegerField(required=False)
+    abono_mes_precio = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    abono_mes_configuracion_personalizada = serializers.JSONField(required=False)
 
 
 class TurnoReservaSerializer(serializers.Serializer):
@@ -248,6 +290,64 @@ class TurnoReservaSerializer(serializers.Serializer):
         turno.estado = "reservado"
         turno.save(update_fields=["usuario", "estado"])
         return turno
+
+
+class ComprobanteAbonoSerializer(LoggedModelSerializer):
+    """
+    Serializer para listado de ComprobanteAbono.
+    """
+    abono_mes_id = serializers.IntegerField(source="abono_mes.id", read_only=True)
+    abono_mes_anio = serializers.IntegerField(source="abono_mes.anio", read_only=True)
+    abono_mes_mes = serializers.IntegerField(source="abono_mes.mes", read_only=True)
+    abono_mes_precio = serializers.DecimalField(source="abono_mes.precio", max_digits=10, decimal_places=2, read_only=True)
+    abono_mes_configuracion_personalizada = serializers.JSONField(source="abono_mes.configuracion_personalizada", read_only=True)
+    abono_mes_renovado = serializers.BooleanField(source="abono_mes.renovado", read_only=True)
+    abono_mes_fecha_limite_renovacion = serializers.DateField(source="abono_mes.fecha_limite_renovacion", read_only=True)
+    usuario_nombre = serializers.CharField(source="abono_mes.usuario.nombre", read_only=True)
+    usuario_email = serializers.CharField(source="abono_mes.usuario.email", read_only=True)
+    cliente_nombre = serializers.CharField(source="cliente.nombre", read_only=True)
+    tipo = serializers.SerializerMethodField()
+    tipo_display = serializers.SerializerMethodField()
+    es_renovacion = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ComprobanteAbono
+        fields = [
+            "id",
+            "created_at",
+            "valido",
+            "datos_extraidos",
+            "abono_mes_id",
+            "abono_mes_anio",
+            "abono_mes_mes",
+            "abono_mes_precio",
+            "abono_mes_configuracion_personalizada",
+            "abono_mes_renovado",
+            "abono_mes_fecha_limite_renovacion",
+            "usuario_nombre",
+            "usuario_email",
+            "cliente_nombre",
+            "tipo",
+            "tipo_display",
+            "es_renovacion",
+        ]
+
+    def get_tipo(self, obj):
+        return 'abono'
+
+    def get_tipo_display(self, obj):
+        return 'Abono Mensual'
+
+    def get_es_renovacion(self, obj):
+        """Determina si este comprobante es de una renovación de abono."""
+        abono = obj.abono_mes
+        if not abono:
+            return False
+        
+        # Es renovación si:
+        # 1. El abono está marcado como renovado, O
+        # 2. Tiene fecha límite de renovación (indica que es renovación)
+        return abono.renovado or bool(abono.fecha_limite_renovacion)
 
 
 class ComprobanteAbonoUploadSerializer(serializers.Serializer):

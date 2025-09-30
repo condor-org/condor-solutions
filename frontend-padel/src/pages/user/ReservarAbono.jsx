@@ -886,8 +886,23 @@ const ReservarAbono = ({ onClose }) => {
         onClose?.();
       }
     } catch (e) {
-      const msg = e?.response?.data?.error || e?.response?.data?.detail || e?.message || "No se pudo completar la operación";
-      toast({ title: "Error", description: msg, status: "error", duration: 5000 });
+      // Manejo específico de errores de comprobante
+      let msg = "No se pudo completar la operación";
+      let title = "Error";
+      
+      if (e?.response?.data?.comprobante) {
+        // Error específico de comprobante - mensaje genérico para el usuario
+        title = "Comprobante inválido";
+        msg = "El comprobante no es válido. Verificá que sea un comprobante de pago real y que corresponda a la sede seleccionada.";
+      } else if (e?.response?.data?.error) {
+        msg = e.response.data.error;
+      } else if (e?.response?.data?.detail) {
+        msg = e.response.data.detail;
+      } else if (e?.message) {
+        msg = e.message;
+      }
+      
+      toast({ title, description: msg, status: "error", duration: 5000 });
     } finally {
       setEnviando(false);
     }

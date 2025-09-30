@@ -396,13 +396,25 @@ const ReservarTurno = ({ onClose }) => {
       setProfesorId("");
       setTimeout(() => setProfesorId(profId), 50);
     } catch (e) {
-      const msg =
-        e?.response?.data?.archivo ||
-        e?.response?.data?.bonificacion_id ||
-        e?.response?.data?.error ||
-        e?.response?.data?.detail ||
-        "Error al enviar la reserva";
-      toast({ title: "Error", description: String(msg), status: "error", duration: 5000 });
+      // Manejo específico de errores de comprobante
+      let msg = "Error al enviar la reserva";
+      let title = "Error";
+      
+      if (e?.response?.data?.comprobante) {
+        // Error específico de comprobante - mensaje genérico para el usuario
+        title = "Comprobante inválido";
+        msg = "El comprobante no es válido. Verificá que sea un comprobante de pago real y que corresponda a la sede seleccionada.";
+      } else if (e?.response?.data?.archivo) {
+        msg = e.response.data.archivo;
+      } else if (e?.response?.data?.bonificacion_id) {
+        msg = e.response.data.bonificacion_id;
+      } else if (e?.response?.data?.error) {
+        msg = e.response.data.error;
+      } else if (e?.response?.data?.detail) {
+        msg = e.response.data.detail;
+      }
+      
+      toast({ title, description: String(msg), status: "error", duration: 5000 });
     } finally {
       setLoading(false);
     }
