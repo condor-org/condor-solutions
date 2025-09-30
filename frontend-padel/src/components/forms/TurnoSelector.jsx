@@ -1,7 +1,7 @@
 // src/components/forms/TurnoSelector.jsx
 import React from 'react';
 import {
-  FormControl, FormLabel, Select, Input, useColorModeValue, Stack, useBreakpointValue
+  FormControl, FormLabel, Select, Input, useColorModeValue, Stack, useBreakpointValue, Text
 } from '@chakra-ui/react';
 
 const LABELS = {
@@ -26,6 +26,7 @@ const TurnoSelector = ({
   onDayChange,         // fn(e.target.value)
   minDay,              // string "YYYY-MM-DD"
   maxDay,              // string "YYYY-MM-DD"
+  diasDisponibles = [], // Nueva prop para días disponibles del profesor
   disabled = false,
 }) => {
   const inputBg = useColorModeValue('white', 'gray.700');
@@ -120,7 +121,14 @@ const TurnoSelector = ({
       {/* Día (solo mobile) */}
       {isMobile && (
         <FormControl flex={1} minW={0} isDisabled={!profesorId || disabled}>
-          <FormLabel color={mutedText}>Día</FormLabel>
+          <FormLabel color={mutedText}>
+            Día
+            {profesorId && diasDisponibles.length > 0 && (
+              <Text as="span" fontSize="xs" color={mutedText} ml={2}>
+                (solo días disponibles)
+              </Text>
+            )}
+          </FormLabel>
           <Input
             type="date"
             value={day || ""}

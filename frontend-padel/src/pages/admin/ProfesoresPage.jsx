@@ -22,6 +22,38 @@ const diasSemana = [
   { value: 3, label: "Jueves" }, { value: 4, label: "Viernes" }, { value: 5, label: "Sábado" }, { value: 6, label: "Domingo" },
 ];
 
+// Función para verificar solapamiento de disponibilidades
+const verificarSolapamientoDisponibilidades = (disponibilidades) => {
+  for (let i = 0; i < disponibilidades.length; i++) {
+    for (let j = i + 1; j < disponibilidades.length; j++) {
+      const disp1 = disponibilidades[i];
+      const disp2 = disponibilidades[j];
+      
+      // Solo verificar si son del mismo lugar y día
+      if (disp1.sede === disp2.sede && disp1.dia === disp2.dia) {
+        // Convertir horas a minutos para comparar
+        const horaInicio1 = tiempoAMinutos(disp1.hora_inicio);
+        const horaFin1 = tiempoAMinutos(disp1.hora_fin);
+        const horaInicio2 = tiempoAMinutos(disp2.hora_inicio);
+        const horaFin2 = tiempoAMinutos(disp2.hora_fin);
+        
+        // Verificar solapamiento
+        if (horaInicio1 < horaFin2 && horaInicio2 < horaFin1) {
+          const diaNombre = diasSemana.find(d => d.value === disp1.dia)?.label || "Día";
+          return `Hay solapamiento en ${diaNombre}: ${disp1.hora_inicio}-${disp1.hora_fin} se solapa con ${disp2.hora_inicio}-${disp2.hora_fin}`;
+        }
+      }
+    }
+  }
+  return null;
+};
+
+// Función helper para convertir tiempo a minutos
+const tiempoAMinutos = (tiempo) => {
+  const [hora, minutos] = tiempo.split(':').map(Number);
+  return hora * 60 + minutos;
+};
+
 const FIELD_PROPS = { height: "40px", fontSize: "16px", width: "100%", minW: 0, maxW: "100%" };
 const GRID_TEMPLATE = "1.2fr 1fr 1fr 1fr 48px";
 
@@ -113,6 +145,11 @@ const ProfesoresPage = () => {
     if (!editingId && password.length < 6) return toast.error("La contraseña debe tener al menos 6 caracteres.");
     if (disponibilidades.some(d => !d.sede)) return toast.error("Completá la sede en cada disponibilidad.");
     if (user.tipo_usuario === "super_admin" && (!clienteId || isNaN(clienteId))) return toast.error("ID de cliente inválido.");
+    
+    // Validar solapamiento de disponibilidades
+    const disponibilidadesValidas = disponibilidades.filter(d => d.sede && d.sede !== "");
+    const haySolapamiento = verificarSolapamientoDisponibilidades(disponibilidadesValidas);
+    if (haySolapamiento) return toast.error(haySolapamiento);
 
     const payload = {
       nombre, apellido, email, telefono, especialidad, nombre_publico: nombrePublico, activo: true,

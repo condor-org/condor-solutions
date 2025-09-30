@@ -12,12 +12,30 @@ const TurnoCalendar = ({
   height = 500,
   slotMinTime = '07:00:00',
   slotMaxTime = '23:00:00',
+  diasDisponibles = [], // Días de la semana disponibles del profesor
+  profesorId, // ID del profesor seleccionado
 }) => {
   const bg = useColorModeValue('white', 'gray.800');
   const border = useColorModeValue('gray.200', 'gray.700');
   const text = useColorModeValue('gray.800', 'white');
 
   const isMobile = useBreakpointValue({ base: true, md: false });
+
+  // Función para deshabilitar días no disponibles del profesor
+  const dayCellClassNames = (info) => {
+    if (!profesorId || diasDisponibles.length === 0) {
+      return []; // Si no hay profesor seleccionado o no hay filtro, mostrar todos los días
+    }
+    
+    const diaSemana = info.date.getDay(); // 0 = domingo, 1 = lunes, etc.
+    const esDisponible = diasDisponibles.includes(diaSemana);
+    
+    if (!esDisponible) {
+      return ['fc-day-disabled']; // Clase CSS para deshabilitar el día
+    }
+    
+    return [];
+  };
 
   // Desktop: exactamente igual que antes
   const headerDesktop = { left: 'prev,next today', center: 'title', right: '' };
@@ -54,6 +72,19 @@ const TurnoCalendar = ({
           '& .fc .fc-toolbar.fc-header-toolbar': { marginBottom: { base: '6px', md: '12px' } },
           '& .fc-timegrid-event': { borderRadius: '8px' },
           '& .fc-scrollgrid, & .fc-timegrid-body': { borderRadius: '8px' },
+          /* Estilos para días no disponibles del profesor */
+          '& .fc-day-disabled': {
+            backgroundColor: '#f5f5f5 !important',
+            color: '#999 !important',
+            cursor: 'not-allowed !important',
+            opacity: '0.5 !important',
+          },
+          '& .fc-day-disabled .fc-daygrid-day-number': {
+            color: '#999 !important',
+          },
+          '& .fc-day-disabled .fc-timegrid-slot': {
+            backgroundColor: '#f5f5f5 !important',
+          },
         }}
       >
         <FullCalendar
@@ -78,6 +109,8 @@ const TurnoCalendar = ({
           allDaySlot={false}
           // opcional: arrancar scrolleado cerca de ahora para mobile
           scrollTime={isMobile ? new Date().toTimeString().slice(0,5) : undefined}
+          // Filtrar días disponibles del profesor
+          dayCellClassNames={dayCellClassNames}
         />
       </Box>
     </Box>

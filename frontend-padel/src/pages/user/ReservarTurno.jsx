@@ -99,6 +99,7 @@ const ReservarTurno = ({ onClose }) => {
   const [sedeId, setSedeId] = useState("");
   const [profesorId, setProfesorId] = useState("");
   const [tipoClaseId, setTipoClaseId] = useState("");
+  const [diasDisponibles, setDiasDisponibles] = useState([]);
 
   // Disponibilidad para el calendario / lista mobile
   const [turnos, setTurnos] = useState([]);
@@ -205,6 +206,32 @@ const ReservarTurno = ({ onClose }) => {
       .catch(() => setProfesores([]))
       .finally(() => setProfesoresLoading(false));
   }, [sedeId, accessToken]);
+
+  // Filtrar días disponibles basado en disponibilidades del profesor
+  useEffect(() => {
+    if (!profesorId || !sedeId) {
+      setDiasDisponibles([]);
+      setSelectedDay(isoHoy); // Limpiar selección de día
+      return;
+    }
+
+    const profesor = profesores.find(p => String(p.id) === String(profesorId));
+    if (!profesor?.disponibilidades) {
+      setDiasDisponibles([]);
+      setSelectedDay(isoHoy);
+      return;
+    }
+
+    // Filtrar disponibilidades para la sede actual
+    const disponibilidadesSede = profesor.disponibilidades.filter(
+      disp => String(disp.sede_id) === String(sedeId)
+    );
+
+    // Extraer días de la semana únicos
+    const diasUnicos = [...new Set(disponibilidadesSede.map(disp => disp.dia_semana))];
+    setDiasDisponibles(diasUnicos);
+    setSelectedDay(isoHoy); // Limpiar selección de día
+  }, [profesorId, sedeId, profesores]);
 
   // Turnos disponibles
   useEffect(() => {
@@ -369,13 +396,25 @@ const ReservarTurno = ({ onClose }) => {
       setProfesorId("");
       setTimeout(() => setProfesorId(profId), 50);
     } catch (e) {
-      const msg =
-        e?.response?.data?.archivo ||
-        e?.response?.data?.bonificacion_id ||
-        e?.response?.data?.error ||
-        e?.response?.data?.detail ||
-        "Error al enviar la reserva";
-      toast({ title: "Error", description: String(msg), status: "error", duration: 5000 });
+      // Manejo específico de errores de comprobante
+      let msg = "Error al enviar la reserva";
+      let title = "Error";
+      
+      if (e?.response?.data?.comprobante) {
+        // Error específico de comprobante - mensaje genérico para el usuario
+        title = "Comprobante inválido";
+        msg = "El comprobante no es válido. Verificá que sea un comprobante de pago real y que corresponda a la sede seleccionada.";
+      } else if (e?.response?.data?.archivo) {
+        msg = e.response.data.archivo;
+      } else if (e?.response?.data?.bonificacion_id) {
+        msg = e.response.data.bonificacion_id;
+      } else if (e?.response?.data?.error) {
+        msg = e.response.data.error;
+      } else if (e?.response?.data?.detail) {
+        msg = e.response.data.detail;
+      }
+      
+      toast({ title, description: String(msg), status: "error", duration: 5000 });
     } finally {
       setLoading(false);
     }
@@ -482,6 +521,7 @@ const ReservarTurno = ({ onClose }) => {
         onDayChange={setSelectedDay}
         minDay={isoHoy}
         maxDay={availableDays.length ? availableDays[availableDays.length - 1] : undefined}
+        diasDisponibles={diasDisponibles}
       />
 
       {isMobile ? (
@@ -550,6 +590,8 @@ const ReservarTurno = ({ onClose }) => {
           slotMinTime="07:00:00"
           slotMaxTime="23:00:00"
           renderEventContent={renderEventContent}
+          diasDisponibles={diasDisponibles}
+          profesorId={profesorId}
         />
       )}
 

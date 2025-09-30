@@ -19,6 +19,7 @@ from apps.pagos_core.models import ComprobantePago, ComprobanteAbono, PagoIntent
 from apps.pagos_core.serializers import (
     ComprobantePagoSerializer,
     ComprobanteUploadSerializer,
+    ComprobanteAbonoSerializer,
     ComprobanteAbonoUploadSerializer,
 )
 from apps.pagos_core.filters import ComprobantePagoFilter
@@ -58,17 +59,73 @@ class ComprobanteView(ListCreateAPIView):
     filterset_class = ComprobantePagoFilter
     ordering_fields = ["created_at", "valido"]
     ordering = ["-created_at"]
-
+    
     def get_serializer_class(self):
         return ComprobanteUploadSerializer if self.request.method == "POST" else ComprobantePagoSerializer
 
     def get_queryset(self):
         usuario = self.request.user
-        qs = (
-            ComprobantePago.objects
-            .select_related("turno", "turno__usuario", "turno__lugar", "cliente")
-            .order_by("-created_at")
-        )
+        
+        # 🔎 Extra: filtros por estado de pago
+        solo_preaprobados = self.request.query_params.get("solo_preaprobados", "").lower() in ("1", "true", "t", "yes")
+        solo_aprobados = self.request.query_params.get("solo_aprobados", "").lower() in ("1", "true", "t", "yes")
+        solo_rechazados = self.request.query_params.get("solo_rechazados", "").lower() in ("1", "true", "t", "yes")
+        
+        if solo_preaprobados:
+            # Solo ComprobantePago con PagoIntento pre_aprobado
+            ct_pago = ContentType.objects.get_for_model(ComprobantePago)
+            intentos_pre_pago = PagoIntento.objects.filter(
+                content_type=ct_pago,
+                object_id=OuterRef("pk"),
+                estado="pre_aprobado",
+            )
+            
+            qs = (
+                ComprobantePago.objects
+                .select_related("turno", "turno__usuario", "turno__lugar", "cliente")
+                .annotate(tiene_preaprobado=Exists(intentos_pre_pago))
+                .filter(tiene_preaprobado=True)
+                .order_by("-created_at")
+            )
+        elif solo_aprobados:
+            # Solo ComprobantePago con PagoIntento confirmado
+            ct_pago = ContentType.objects.get_for_model(ComprobantePago)
+            intentos_confirmados = PagoIntento.objects.filter(
+                content_type=ct_pago,
+                object_id=OuterRef("pk"),
+                estado="confirmado",
+            )
+            
+            qs = (
+                ComprobantePago.objects
+                .select_related("turno", "turno__usuario", "turno__lugar", "cliente")
+                .annotate(tiene_confirmado=Exists(intentos_confirmados))
+                .filter(tiene_confirmado=True)
+                .order_by("-created_at")
+            )
+        elif solo_rechazados:
+            # Solo ComprobantePago con PagoIntento rechazado
+            ct_pago = ContentType.objects.get_for_model(ComprobantePago)
+            intentos_rechazados = PagoIntento.objects.filter(
+                content_type=ct_pago,
+                object_id=OuterRef("pk"),
+                estado="rechazado",
+            )
+            
+            qs = (
+                ComprobantePago.objects
+                .select_related("turno", "turno__usuario", "turno__lugar", "cliente")
+                .annotate(tiene_rechazado=Exists(intentos_rechazados))
+                .filter(tiene_rechazado=True)
+                .order_by("-created_at")
+            )
+        else:
+            # Comportamiento normal: todos los ComprobantePago
+            qs = (
+                ComprobantePago.objects
+                .select_related("turno", "turno__usuario", "turno__lugar", "cliente")
+                .order_by("-created_at")
+            )
 
         # 🔐 Scope por tipo de usuario
         tu = getattr(usuario, "tipo_usuario", None)
@@ -80,17 +137,7 @@ class ComprobanteView(ListCreateAPIView):
             qs = qs.filter(turno__usuario=usuario)
         else:  # usuario_final
             qs = qs.filter(turno__usuario=usuario)
-
-        # 🔎 Extra: solo comprobantes con intento "pre_aprobado"
-        flag = self.request.query_params.get("solo_preaprobados", "").lower() in ("1", "true", "t", "yes")
-        if flag:
-            ct = ContentType.objects.get_for_model(ComprobantePago)
-            intentos_pre = PagoIntento.objects.filter(
-                content_type=ct,
-                object_id=OuterRef("pk"),
-                estado="pre_aprobado",
-            )
-            qs = qs.annotate(tiene_preaprobado=Exists(intentos_pre)).filter(tiene_preaprobado=True)
+        
         return qs
 
     def post(self, request, *args, **kwargs):
@@ -166,7 +213,64 @@ class ComprobanteAprobarRechazarView(APIView):
         # 2) Comprobante de abono mensual
         try:
             comprobante_abono = ComprobanteAbono.objects.select_related("abono_mes").get(pk=pk)
-            # ... lógica de aprobar/rechazar, actualiza AbonoMes y libera turnos ...
+            logger.debug("[PATCH] ComprobanteAbono encontrado: %s", comprobante_abono.id)
+            
+            if action == "aprobar":
+                # Aprobar abono
+                comprobante_abono.valido = True
+                comprobante_abono.save(update_fields=["valido"])
+                
+                # Actualizar PagoIntento
+                ct_abono = ContentType.objects.get_for_model(ComprobanteAbono)
+                pago_intento = PagoIntento.objects.filter(
+                    content_type=ct_abono,
+                    object_id=comprobante_abono.id,
+                    estado="pre_aprobado"
+                ).first()
+                
+                if pago_intento:
+                    pago_intento.estado = "confirmado"
+                    pago_intento.save(update_fields=["estado"])
+                
+                # Actualizar estado del abono
+                abono = comprobante_abono.abono_mes
+                abono.estado = "pagado"
+                abono.save(update_fields=["estado"])
+                
+                logger.info("[PATCH] Abono %s aprobado exitosamente", abono.id)
+                return Response({"message": "Abono aprobado exitosamente"}, status=200)
+                
+            elif action == "rechazar":
+                # Rechazar abono
+                comprobante_abono.valido = False
+                comprobante_abono.save(update_fields=["valido"])
+                
+                # Actualizar PagoIntento
+                ct_abono = ContentType.objects.get_for_model(ComprobanteAbono)
+                pago_intento = PagoIntento.objects.filter(
+                    content_type=ct_abono,
+                    object_id=comprobante_abono.id,
+                    estado="pre_aprobado"
+                ).first()
+                
+                if pago_intento:
+                    pago_intento.estado = "rechazado"
+                    pago_intento.save(update_fields=["estado"])
+                
+                # Liberar turnos reservados
+                abono = comprobante_abono.abono_mes
+                for turno in abono.turnos_reservados.all():
+                    turno.estado = "disponible"
+                    turno.usuario = None
+                    turno.save(update_fields=["estado", "usuario"])
+                
+                # Cambiar estado del abono
+                abono.estado = "cancelado"
+                abono.save(update_fields=["estado"])
+                
+                logger.info("[PATCH] Abono %s rechazado exitosamente", abono.id)
+                return Response({"message": "Abono rechazado exitosamente"}, status=200)
+            
         except ComprobanteAbono.DoesNotExist:
             return Response({"error": "No encontrado"}, status=404)
 
@@ -224,3 +328,108 @@ class ComprobanteAbonoView(APIView):
             raise serializers.ValidationError({"abono_mes_id": "Este campo es obligatorio."})
 
         # ... lógica de cálculo, aplicación de bonos y confirmación ...
+
+
+class ComprobanteAbonoView(ListCreateAPIView):
+    """
+    🔹 Listado y carga de comprobantes de abonos mensuales.
+
+    - GET: listado con filtros por cliente/usuario (scope por rol).
+    - POST: subida de comprobante (archivo obligatorio, OCR + validaciones).
+    - Query param: `solo_preaprobados=1` → filtra por PagoIntento en estado "pre_aprobado".
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    serializer_class = ComprobanteAbonoUploadSerializer
+
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
+    ordering_fields = ["created_at", "valido"]
+    ordering = ["-created_at"]
+    
+    def get_serializer_class(self):
+        return ComprobanteAbonoUploadSerializer if self.request.method == "POST" else ComprobanteAbonoSerializer
+
+    def get_queryset(self):
+        usuario = self.request.user
+        
+        # 🔎 Extra: filtros por estado de pago
+        solo_preaprobados = self.request.query_params.get("solo_preaprobados", "").lower() in ("1", "true", "t", "yes")
+        solo_aprobados = self.request.query_params.get("solo_aprobados", "").lower() in ("1", "true", "t", "yes")
+        solo_rechazados = self.request.query_params.get("solo_rechazados", "").lower() in ("1", "true", "t", "yes")
+        
+        if solo_preaprobados:
+            # Solo ComprobanteAbono con PagoIntento pre_aprobado
+            ct_abono = ContentType.objects.get_for_model(ComprobanteAbono)
+            intentos_pre_abono = PagoIntento.objects.filter(
+                content_type=ct_abono,
+                object_id=OuterRef("pk"),
+                estado="pre_aprobado",
+            )
+            
+            qs = (
+                ComprobanteAbono.objects
+                .select_related("abono_mes", "abono_mes__usuario", "cliente")
+                .annotate(tiene_preaprobado=Exists(intentos_pre_abono))
+                .filter(tiene_preaprobado=True)
+                .order_by("-created_at")
+            )
+        elif solo_aprobados:
+            # Solo ComprobanteAbono con PagoIntento confirmado
+            ct_abono = ContentType.objects.get_for_model(ComprobanteAbono)
+            intentos_confirmados = PagoIntento.objects.filter(
+                content_type=ct_abono,
+                object_id=OuterRef("pk"),
+                estado="confirmado",
+            )
+            
+            qs = (
+                ComprobanteAbono.objects
+                .select_related("abono_mes", "abono_mes__usuario", "cliente")
+                .annotate(tiene_confirmado=Exists(intentos_confirmados))
+                .filter(tiene_confirmado=True)
+                .order_by("-created_at")
+            )
+        elif solo_rechazados:
+            # Solo ComprobanteAbono con PagoIntento rechazado
+            ct_abono = ContentType.objects.get_for_model(ComprobanteAbono)
+            intentos_rechazados = PagoIntento.objects.filter(
+                content_type=ct_abono,
+                object_id=OuterRef("pk"),
+                estado="rechazado",
+            )
+            
+            qs = (
+                ComprobanteAbono.objects
+                .select_related("abono_mes", "abono_mes__usuario", "cliente")
+                .annotate(tiene_rechazado=Exists(intentos_rechazados))
+                .filter(tiene_rechazado=True)
+                .order_by("-created_at")
+            )
+        else:
+            # Comportamiento normal: todos los ComprobanteAbono
+            qs = (
+                ComprobanteAbono.objects
+                .select_related("abono_mes", "abono_mes__usuario", "cliente")
+                .order_by("-created_at")
+            )
+
+        # 🔐 Scope por tipo de usuario
+        tu = getattr(usuario, "tipo_usuario", None)
+        if tu == "super_admin":
+            pass
+        elif tu == "admin_cliente" and usuario.cliente_id:
+            qs = qs.filter(cliente=usuario.cliente)
+        elif tu == "empleado_cliente":
+            qs = qs.filter(abono_mes__usuario=usuario)
+        else:  # usuario_final
+            qs = qs.filter(abono_mes__usuario=usuario)
+        
+        return qs
+
+    def post(self, request, *args, **kwargs):
+        """
+        ➜ Subida de comprobante de abono.
+        - Valida con `ComprobanteAbonoUploadSerializer` (OCR + reglas de negocio).
+        """
+        return super().post(request, *args, **kwargs)

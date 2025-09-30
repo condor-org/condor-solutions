@@ -45,26 +45,46 @@ ANTIGUEDAD_MAXIMA_DE_COMPROBANTE_EN_MINUTOS = 15
 class ComprobanteService:
 
     @staticmethod
-    def download_comprobante(comprobante_id: int, usuario) -> ComprobantePago:
+    def download_comprobante(comprobante_id: int, usuario):
+        # Intentar primero con ComprobantePago
         try:
             comprobante = ComprobantePago.objects.get(pk=comprobante_id)
-        except ComprobantePago.DoesNotExist:
-            raise PermissionDenied("Comprobante no encontrado.")
+            if not comprobante.archivo:
+                raise PermissionDenied("El comprobante no tiene archivo asociado.")
 
-        if not comprobante.archivo:
-            raise PermissionDenied("El comprobante no tiene archivo asociado.")
-
-        if usuario.is_authenticated and usuario.tipo_usuario == "super_admin":
-            return comprobante
-
-        if usuario.is_authenticated and usuario.tipo_usuario == "admin_cliente":
-            if comprobante.cliente == usuario.cliente:
+            if usuario.is_authenticated and usuario.tipo_usuario == "super_admin":
                 return comprobante
 
-        if comprobante.turno and comprobante.turno.usuario == usuario:
-            return comprobante
+            if usuario.is_authenticated and usuario.tipo_usuario == "admin_cliente":
+                if comprobante.cliente == usuario.cliente:
+                    return comprobante
 
-        raise PermissionDenied("No tenés permiso para ver este comprobante.")
+            if comprobante.turno and comprobante.turno.usuario == usuario:
+                return comprobante
+
+            raise PermissionDenied("No tenés permiso para ver este comprobante.")
+            
+        except ComprobantePago.DoesNotExist:
+            # Intentar con ComprobanteAbono
+            try:
+                comprobante = ComprobanteAbono.objects.get(pk=comprobante_id)
+                if not comprobante.archivo:
+                    raise PermissionDenied("El comprobante no tiene archivo asociado.")
+
+                if usuario.is_authenticated and usuario.tipo_usuario == "super_admin":
+                    return comprobante
+
+                if usuario.is_authenticated and usuario.tipo_usuario == "admin_cliente":
+                    if comprobante.cliente == usuario.cliente:
+                        return comprobante
+
+                if comprobante.abono_mes and comprobante.abono_mes.usuario == usuario:
+                    return comprobante
+
+                raise PermissionDenied("No tenés permiso para ver este comprobante.")
+                
+            except ComprobanteAbono.DoesNotExist:
+                raise PermissionDenied("Comprobante no encontrado.")
 
     @staticmethod
     def _generate_hash(file_obj) -> str:
@@ -80,6 +100,9 @@ class ComprobanteService:
         Valida el comprobante contra alias/CBU de la sede y el monto_esperado (restante).
         Crea ComprobanteAbono y un PagoIntento. No modifica turnos ni bonificaciones.
         """
+        logger.info("[comprobante.abono][inicio] abono_id=%s usuario_id=%s monto_esperado=%.2f tipo_clase=%s config_personalizada=%s", 
+                   abono.id, usuario.id, monto_esperado, abono.tipo_clase_id, abono.configuracion_personalizada)
+        
         if not file_obj:
             raise ValidationError("Debés subir comprobante.")
 
@@ -88,9 +111,36 @@ class ComprobanteService:
         if ComprobanteAbono.objects.filter(hash_archivo=checksum).exists():
             raise ValidationError("Comprobante duplicado.")
 
-        # Datos de la sede (alias/cbu)
-        alias = abono.tipo_clase.configuracion_sede.alias
-        cbu_cvu = abono.tipo_clase.configuracion_sede.cbu_cvu
+        # Datos de la sede (alias/cbu) - Solución robusta para abonos normales y personalizados
+        logger.info("[comprobante.abono][config_sede] tipo_clase=%s configuracion_sede=%s", 
+                   abono.tipo_clase, getattr(abono.tipo_clase, 'configuracion_sede', None) if abono.tipo_clase else None)
+        
+        # Obtener configuración de sede de manera segura
+        if abono.tipo_clase_id:
+            # Abono normal: usar tipo_clase
+            try:
+                from apps.turnos_padel.models import TipoClasePadel
+                tipo_clase = TipoClasePadel.objects.get(id=abono.tipo_clase_id)
+                alias = tipo_clase.configuracion_sede.alias
+                cbu_cvu = tipo_clase.configuracion_sede.cbu_cvu
+                logger.info("[comprobante.abono][abono_normal] tipo_clase_id=%s alias=%s", abono.tipo_clase_id, alias)
+            except TipoClasePadel.DoesNotExist:
+                raise ValidationError("Tipo de clase no encontrado")
+        elif abono.configuracion_personalizada:
+            # Abono personalizado: usar el primer tipo de la configuración
+            try:
+                from apps.turnos_padel.models import TipoClasePadel
+                primer_tipo_id = abono.configuracion_personalizada[0]['tipo_clase_id']
+                tipo_clase = TipoClasePadel.objects.get(id=primer_tipo_id)
+                alias = tipo_clase.configuracion_sede.alias
+                cbu_cvu = tipo_clase.configuracion_sede.cbu_cvu
+                logger.info("[comprobante.abono][abono_personalizado] primer_tipo_id=%s alias=%s", primer_tipo_id, alias)
+            except (IndexError, KeyError, TipoClasePadel.DoesNotExist) as e:
+                logger.error("[comprobante.abono][error_personalizado] error=%s config=%s", str(e), abono.configuracion_personalizada)
+                raise ValidationError("Configuración personalizada inválida")
+        else:
+            logger.error("[comprobante.abono][error_sin_tipo] tipo_clase_id=%s config_personalizada=%s", abono.tipo_clase_id, abono.configuracion_personalizada)
+            raise ValidationError("Abono sin tipo de clase definido")
         if not (alias or cbu_cvu):
             raise ValidationError("Alias/CBU no configurados para la sede.")
 
@@ -102,21 +152,42 @@ class ComprobanteService:
         }
 
         # Validación OCR/parseo
-        datos = cls._parse_and_validate(file_obj, config_data)
+        logger.info("[comprobante.abono][validacion_ocr] iniciando validación OCR/parseo")
+        try:
+            datos = cls._parse_and_validate(file_obj, config_data)
+            logger.info("[comprobante.abono][validacion_ocr] datos extraídos: %s", datos)
+        except Exception as e:
+            logger.error("[comprobante.abono][validacion_ocr] ERROR en validación OCR: %s", str(e))
+            raise ValidationError(f"Error al procesar el comprobante: {str(e)}")
 
-        # Crear ComprobanteAbono
-        comprobante = ComprobanteAbono.objects.create(
-            cliente=usuario.cliente,
+        # Crear o obtener ComprobanteAbono existente
+        comprobante, created = ComprobanteAbono.objects.get_or_create(
             abono_mes=abono,
-            archivo=file_obj,
-            hash_archivo=checksum,
-            datos_extraidos=datos,
+            defaults={
+                'cliente': usuario.cliente,
+                'archivo': file_obj,
+                'hash_archivo': checksum,
+                'datos_extraidos': datos,
+            }
         )
+        
+        # Si ya existía, actualizar con los nuevos datos
+        if not created:
+            comprobante.cliente = usuario.cliente
+            comprobante.archivo = file_obj
+            comprobante.hash_archivo = checksum
+            comprobante.datos_extraidos = datos
+            comprobante.save()
 
         # Intento de pago
         alias_dest = datos.get("alias") or (f"Usando CBU/CVU {datos.get('cbu_destino')}" if datos.get("cbu_destino") else "")
         cbu_dest = datos.get("cbu_destino") or (f"Usando alias {datos.get('alias')}" if datos.get("alias") else "")
-        PagoIntento.objects.create(
+        monto_detectado = datos.get("monto")
+        
+        logger.info("[comprobante.abono][validacion_datos] alias_dest=%s cbu_dest=%s monto_detectado=%s monto_esperado=%s", 
+                   alias_dest, cbu_dest, monto_detectado, monto_esperado)
+        
+        pago_intento = PagoIntento.objects.create(
             cliente=usuario.cliente,
             usuario=usuario,
             estado="pre_aprobado",
@@ -127,6 +198,8 @@ class ComprobanteService:
             origen=comprobante,
             tiempo_expiracion=timezone.now() + timezone.timedelta(minutes=config_data["tiempo_maximo_minutos"]),
         )
+        logger.info("[comprobante.abono][pago_intento_creado] pago_intento_id=%s estado=pre_aprobado origen=ComprobanteAbono_%s", 
+                   pago_intento.id, comprobante.id)
 
         return comprobante
 
@@ -177,6 +250,7 @@ class ComprobanteService:
             # Log + chequeo de confianza (no bloqueante, solo warning)
             avg = float(meta.get("avg_confidence") or 0.0)
             weird = meta.get("suspicious_tokens") or []
+            logger.info("[comprobante.parse][ocr_resultado] confianza=%.2f texto_extraido=%s", avg, texto[:100] + "..." if len(texto) > 100 else texto)
             logger.debug(
                 "OCR Vision: engine=%s | avg_conf=%.3f | weird_tokens=%d",
                 meta.get("engine"), avg, len(weird)
@@ -203,6 +277,7 @@ class ComprobanteService:
         - El monto debe coincidir con el monto oficial esperado.
         - El destino (CBU/Alias) debe matchear lo configurado para la sede (si aplica).
         """
+        logger.info("[comprobante.parse][inicio] iniciando parseo y validación")
         texto = ComprobanteService._extract_text(file_obj)
 
         # Config normalizada (acepta dict o modelo)
@@ -210,6 +285,9 @@ class ComprobanteService:
         alias_cfg = getattr(config, "alias", None) or (isinstance(config, dict) and config.get("alias"))
         monto_esperado = getattr(config, "monto_esperado", None) or (isinstance(config, dict) and config.get("monto_esperado"))
         tiempo_max = getattr(config, "tiempo_maximo_minutos", None) or (isinstance(config, dict) and config.get("tiempo_maximo_minutos"))
+        
+        logger.info("[comprobante.parse][config] cbu_cfg=%s alias_cfg=%s monto_esperado=%s tiempo_max=%s", 
+                   cbu_cfg, alias_cfg, monto_esperado, tiempo_max)
 
         try:
             monto_esperado = float(monto_esperado)
@@ -238,9 +316,9 @@ class ComprobanteService:
 
         try:
             parsed = extractor.extract(texto, cfg=cfg)  # dict: monto, fecha, cbu, alias (validados)
-            logger.debug("[comprobantes.parse][%s] Parsed bruto: %s", extractor_name, parsed)
+            logger.info("[comprobante.parse][extractor] extractor=%s resultado=%s", extractor_name, parsed)
         except ParserExtractionError as e:
-            logger.warning("[comprobantes.parse][%s] Fallo de extracción/validación: %s", extractor_name, e)
+            logger.error("[comprobante.parse][extractor] ERROR en extracción con %s: %s", extractor_name, str(e))
             logger.info("[comprobantes.parse] Fallback → extractor genérico (bank=%s)", extractor_name)
             parsed = generic_extractor.extract(texto, cfg=cfg)
         except Exception as e:

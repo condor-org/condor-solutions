@@ -1,7 +1,7 @@
 // src/pages/auth/LoginPage.jsx
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Box, Heading, Text, VStack } from "@chakra-ui/react";
+import { Box, Heading, Text, VStack, Spinner } from "@chakra-ui/react";
 import Button from "../../components/ui/Button";
 import { startGoogleLogin } from "../../auth/oauthClient";
 
@@ -35,9 +35,11 @@ const GoogleIcon = (props) => (
 const LoginPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleGoogle = async () => {
     try {
+      setIsLoading(true);
       const host = window.location.hostname; // subdominio → tenant
       const from = (location.state && location.state.from) || "/";
       const invite = new URLSearchParams(window.location.search).get("invite") || undefined; // ← invite si vino
@@ -45,6 +47,7 @@ const LoginPage = () => {
       await startGoogleLogin({ host, returnTo: from, invite });
     } catch (e) {
       console.error("[OAuth] startGoogleLogin failed", e);
+      setIsLoading(false); // Solo resetear si hay error
     }
   };
 
@@ -107,10 +110,13 @@ const LoginPage = () => {
             onClick={handleGoogle}
             width="full"
             size="lg"
+            isLoading={isLoading}
+            loadingText="Conectando..."
+            isDisabled={isLoading}
             style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
           >
-            <GoogleIcon />
-            <span>Ingresar con Google</span>
+            {!isLoading && <GoogleIcon />}
+            <span>{isLoading ? "Conectando..." : "Ingresar con Google"}</span>
           </Button>
 
           <Text fontSize="xs" color="gray.500">

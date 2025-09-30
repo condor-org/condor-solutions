@@ -389,7 +389,6 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Parámetros inválidos"}, status=status.HTTP_400_BAD_REQUEST)
 
         hora_filtro = request.query_params.get("hora")        # opcional
-        tipo_codigo = request.query_params.get("tipo_codigo") # opcional
 
         # 🔐 Autorización por cliente/sede (multi-tenant).
         sede = Lugar.objects.select_related("cliente").filter(id=sede_id).first()
@@ -403,13 +402,11 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             if getattr(user, "cliente_id", None) != sede.cliente_id:
                 return Response({"detail": "No autorizado"}, status=403)
 
-        # 1) Catálogo de tipos de clase activos (filtrable por código).
+        # 1) Catálogo de tipos de clase activos (ya no se filtra por código).
         tipos_qs = TipoClasePadel.objects.filter(
             configuracion_sede__sede_id=sede_id,
             activo=True
         ).only("id", "codigo", "precio")
-        if tipo_codigo:
-            tipos_qs = tipos_qs.filter(codigo=tipo_codigo)
 
         tipos_map = [{
             "id": t.id,
@@ -432,19 +429,33 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             return (anio_i + 1, 1) if mes_i == 12 else (anio_i, mes_i + 1)
 
         hoy = timezone.localdate()
-        fechas_actual_todas = fechas_mes(anio, mes, dia_semana)
-        fechas_actual = [d for d in fechas_actual_todas if d >= hoy]
-        prox_anio, prox_mes = proximo_mes(anio, mes)
-        fechas_prox = fechas_mes(prox_anio, prox_mes, dia_semana)
+        ahora = timezone.now()
+        fechas_turnos_abono = fechas_mes(anio, mes, dia_semana)
+        
+        # Solo fechas del mes actual con lógica de anticipación
+        HORAS_ANTICIPACION_MINIMA = 1
+        fechas_turnos_abono_futuras = []
+        for fecha in fechas_turnos_abono:
+            if fecha > hoy:
+                # Fechas futuras del mes actual: incluir todas
+                fechas_turnos_abono_futuras.append(fecha)
+            elif fecha == hoy:
+                # Día actual: verificar anticipación mínima
+                hora_actual = ahora.hour
+                # Solo restringir si ya pasó la hora límite (23:00 para 1h de anticipación)
+                if hora_actual < (24 - HORAS_ANTICIPACION_MINIMA):
+                    fechas_turnos_abono_futuras.append(fecha)
 
-        if not fechas_actual and not fechas_prox:
-            logger.info("[abonos.disponibles] sin fechas futuras para el día de semana")
+        # Validar que hay al menos una fecha disponible en el mes actual
+        if not fechas_turnos_abono_futuras:
+            logger.info("[abonos.disponibles] sin fechas disponibles en el mes actual para el día de semana")
             return Response([], status=200)
 
-        fechas_total = fechas_actual + fechas_prox
+        # Solo usar las fechas futuras del mes actual, NO el próximo mes
+        fechas_total = fechas_turnos_abono_futuras
         logger.debug(
-            "[abonos.disponibles] hoy=%s | fechas_actual=%s | fechas_prox=%s | total=%s",
-            hoy, len(fechas_actual), len(fechas_prox), len(fechas_total)
+            "[abonos.disponibles] hoy=%s | fechas_turnos_abono_futuras=%s | total=%s",
+            hoy, len(fechas_turnos_abono_futuras), len(fechas_total)
         )
 
         # 3) Recupera turnos para todas las fechas; agrupa por hora.
@@ -485,12 +496,30 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             if ok:
                 horas_libres.append(h)
 
+        # Filtrar horas para el día actual (solo si hay fechas del día actual)
+        if hoy in fechas_total:
+            # Usar la zona horaria local en lugar de UTC
+            import pytz
+            local_tz = pytz.timezone('America/Argentina/Buenos_Aires')
+            ahora_local = ahora.astimezone(local_tz)
+            hora_actual = ahora_local.hour
+            hora_minima = hora_actual + HORAS_ANTICIPACION_MINIMA
+            
+            # Filtrar horas que estén a más de 1 hora de la hora actual
+            horas_libres_filtradas = []
+            for h in horas_libres:
+                hora_turno = int(h.split(':')[0])  # Extraer la hora (ej: "09:00:00" -> 9)
+                if hora_turno >= hora_minima:
+                    horas_libres_filtradas.append(h)
+            
+            horas_libres = horas_libres_filtradas
+
         horas_libres.sort()
-        result = [{"hora": h, "tipo_clase": tipo} for h in horas_libres for tipo in tipos_map]
+        result = [{"hora": h} for h in horas_libres]
 
         logger.info(
-            "[abonos.disponibles] sede=%s prestador=%s dsem=%s anio=%s mes=%s -> horas=%s, tipos=%s",
-            sede_id, prestador_id, dia_semana, anio, mes, horas_libres, [t["codigo"] for t in tipos_map]
+            "[abonos.disponibles] sede=%s prestador=%s dsem=%s anio=%s mes=%s -> horas=%s",
+            sede_id, prestador_id, dia_semana, anio, mes, horas_libres
         )
         return Response(result, status=200)
 
@@ -503,6 +532,7 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         - Adjunta bonificaciones/archivo y notifica admins del cliente.
         - Transacción atómica para consistencia.
         """
+        logger.info("[abonos.reservar][inicio] request.data=%s", request.data)
         user = request.user
         data = request.data.copy()
 
@@ -549,6 +579,12 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
 
         bonificaciones_ids = data.getlist("bonificaciones_ids") if hasattr(data, "getlist") else data.get("bonificaciones_ids", [])
         archivo = data.get("archivo")
+
+        logger.info("[abonos.reservar][payload] data=%s bonificaciones_ids=%s tiene_archivo=%s", 
+                   data, bonificaciones_ids, bool(archivo))
+
+        logger.info("[abonos.reservar][call] llamando validar_y_confirmar_abono con data=%s bonificaciones_ids=%s forzar_admin=%s", 
+                   data, bonificaciones_ids, forzar_admin)
 
         try:
             abono, resumen = validar_y_confirmar_abono(
@@ -651,7 +687,7 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             ult = a.turnos_reservados.aggregate(ultimo=Max("fecha"))["ultimo"]
             dias = (ult - hoy).days if ult else None
             estado_vigencia = "activo" if ult and hoy <= ult else "vencido"
-            ventana_renovacion = bool(dias is not None and 1 <= dias <= 7 and not a.renovado)
+            ventana_renovacion = bool(dias is not None and 0 <= dias <= 7 and not a.renovado)
 
                 
             

@@ -47,11 +47,34 @@ def _fechas_mes_actual_desde_hoy(anio: int, mes: int, dia_semana: int) -> List[d
     """
     Fechas del mes (weekday=dia_semana), filtrando desde HOY inclusive
     si el mes consultado es el mes actual.
+    Incluye lógica de anticipación mínima para el día actual.
     """
+    # Configuración de anticipación mínima (en horas)
+    HORAS_ANTICIPACION_MINIMA = 1
+    
     hoy = timezone.localdate()
+    ahora = timezone.now()
+    
     fechas = AbonoMesSerializer._fechas_del_mes_por_dia_semana(anio, mes, dia_semana)
+    
     if anio == hoy.year and mes == hoy.month:
-        fechas = [f for f in fechas if f >= hoy]
+        # Para el mes actual, filtrar fechas futuras con anticipación
+        fechas_futuras = []
+        for fecha in fechas:
+            if fecha > hoy:
+                # Fechas futuras: incluir todas
+                fechas_futuras.append(fecha)
+            elif fecha == hoy:
+                # Día actual: verificar anticipación mínima
+                # Solo incluir si hay al menos HORAS_ANTICIPACION_MINIMA horas restantes
+                hora_actual = ahora.hour
+                if hora_actual < (24 - HORAS_ANTICIPACION_MINIMA):  # Ej: antes de las 23:00 para 1h de anticipación
+                    fechas_futuras.append(fecha)
+                # Si es muy tarde, no incluir el día actual
+            # Si fecha < hoy, no incluir (ya pasó)
+        
+        fechas = fechas_futuras
+    
     return fechas
 
 
@@ -234,9 +257,19 @@ def confirmar_y_reservar_abono(abono: AbonoMes, comprobante_abono=None) -> Dict:
     - Setea fecha_limite_renovacion. NO toca 'estado' del abono (lo define el endpoint de pagos).
     - Devuelve resumen (para adjuntar a la respuesta del endpoint).
     """
-    tipo_turno_code = _tipo_code(abono.tipo_clase)
-    if not tipo_turno_code:
-        raise ValueError("Tipo de clase inválido para el abono.")
+    logger.info("[abonos.confirmar_y_reservar][inicio] abono_id=%s usuario_id=%s sede_id=%s prestador_id=%s tiene_comprobante=%s", 
+               abono.id, abono.usuario_id, abono.sede_id, abono.prestador_id, bool(comprobante_abono))
+    # Para abonos personalizados, tipo_clase es null
+    if abono.configuracion_personalizada:
+        # Para abonos personalizados, usar el primer tipo de clase de la configuración
+        if not abono.configuracion_personalizada:
+            raise ValueError("Configuración personalizada vacía para el abono.")
+        tipo_turno_code = abono.configuracion_personalizada[0].get('codigo', 'x1')
+    else:
+        # Para abonos normales, validar tipo_clase
+        tipo_turno_code = _tipo_code(abono.tipo_clase)
+        if not tipo_turno_code:
+            raise ValueError("Tipo de clase inválido para el abono.")
 
     fechas_actual = _fechas_mes_actual_desde_hoy(abono.anio, abono.mes, abono.dia_semana)
     prox_anio, prox_mes = proximo_mes(abono.anio, abono.mes)
@@ -461,22 +494,40 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
 
     serializer = AbonoMesSerializer(data=data, context={"request": request})
     serializer.is_valid(raise_exception=True)
+    logger.info("[abonos.validar_y_confirmar][serializer_ok] serializer validado correctamente")
 
     vdata = dict(serializer.validated_data)   # datos validados
     abono = AbonoMes(**vdata)                 # instancia sin guardar
+
+    logger.info("[abonos.validar_y_confirmar][abono_creado] usuario=%s sede=%s prestador=%s anio=%s mes=%s dsem=%s hora=%s tipo_clase=%s config_personalizada=%s", 
+               abono.usuario_id, abono.sede_id, abono.prestador_id, abono.anio, abono.mes, 
+               abono.dia_semana, abono.hora, abono.tipo_clase_id, abono.configuracion_personalizada)
 
     # ¿quién llama?
     user = getattr(request, "user", None)
     caller_es_admin = bool(user and getattr(user, "tipo_usuario", None) in ("super_admin", "admin_cliente"))
     omitir_archivo = caller_es_admin and bool(forzar_admin)
 
-    # 1) Precios desde DB (no confiamos en front)
-    precio_abono = float(abono.tipo_abono.precio) if abono.tipo_abono_id else float(abono.monto)
-    precio_turno = float(abono.tipo_clase.precio)
-    code = (getattr(abono.tipo_clase, "codigo", "") or "").strip().lower()
-    code_alias = {"x1": "individual", "x2": "2 personas", "x3": "3 personas", "x4": "4 personas"}.get(code, "")
+    # 1) Precios dinámicos basados en turnos del mes
+    precio_abono = calcular_precio_abono_dinamico(abono, abono.anio, abono.mes)
+    
+    # Asignar el monto calculado al abono
+    abono.monto = precio_abono
+    
+    logger.info("[abonos.validar_y_confirmar][precio_calculado] precio_abono=%.2f", precio_abono)
+    
+    # Para abonos normales, usar precio del tipo_clase
+    if abono.tipo_clase:
+        precio_turno = float(abono.tipo_clase.precio)
+        code = (getattr(abono.tipo_clase, "codigo", "") or "").strip().lower()
+        code_alias = {"x1": "individual", "x2": "2 personas", "x3": "3 personas", "x4": "4 personas"}.get(code, "")
+    else:
+        # Para abonos personalizados, usar precio promedio o el primer tipo
+        precio_turno = 0
+        code = ""
+        code_alias = "personalizado"
 
-    # 2) Traer bonificaciones válidas del USUARIO DESTINO y del tipo correcto (DB)
+    # 2) Traer bonificaciones válidas del USUARIO DESTINO (sin filtro por tipo)
     bonificaciones_ids = bonificaciones_ids or []
     bonos_qs = (
         TurnoBonificado.objects
@@ -490,9 +541,7 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
         .filter(
             models.Q(valido_hasta__isnull=True) | models.Q(valido_hasta__gte=timezone.localdate())
         )
-        .filter(
-            models.Q(tipo_turno__iexact=code) | models.Q(tipo_turno__iexact=code_alias)
-        )
+        # Ya no filtramos por tipo_turno - las bonificaciones son universales
     )
     bonos = list(bonos_qs)
 
@@ -507,6 +556,9 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
     valor_bonos = sum(valores_bonos)
     restante = max(precio_abono - valor_bonos, 0.0)
 
+    logger.info("[abonos.validar_y_confirmar][bonificaciones] bonos_aplicados=%s valor_bonos=%.2f restante=%.2f", 
+               len(bonos), valor_bonos, restante)
+
     # >>> FIX: asegurar que 'abono' tenga ID antes de crear el comprobante <<<
     # (No cambia ninguna otra parte del flujo)
     if restante > 0 and not omitir_archivo and not abono.pk:
@@ -514,9 +566,16 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
 
     # 4) Si hay restante > 0, exigir comprobante por ese EXACTO monto (salvo override admin)
     comprobante_abono = None
+    logger.info("[abonos.validar_y_confirmar][comprobante_check] restante=%.2f omitir_archivo=%s tiene_archivo=%s", 
+               restante, omitir_archivo, bool(archivo))
+    
     if restante > 0 and not omitir_archivo:
         if not archivo:
             raise serializers.ValidationError({"comprobante": "Falta comprobante para cubrir el monto restante."})
+        
+        logger.info("[abonos.validar_y_confirmar][comprobante] llamando ComprobanteService con abono_id=%s monto_esperado=%.2f", 
+                   abono.id, restante)
+        
         # validar y crear comprobante por el RESTANTE (sin tocar turnos todavía)
         try:
             comprobante_abono = ComprobanteService.validar_y_crear_comprobante_abono(
@@ -525,7 +584,8 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
                 usuario=abono.usuario,   # 👈 beneficiario, no el admin
                 monto_esperado=restante,
             )
-        except DjangoValidationError:
+        except DjangoValidationError as e:
+            logger.error("[abonos.validar_y_confirmar][comprobante_error] ERROR real del comprobante: %s", str(e))
             raise serializers.ValidationError({"comprobante": "Comprobante no válido"})
 
     logger.info(
@@ -541,6 +601,7 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
     # 5) Persistir abono y reservar (pone locks, setea relaciones, etc.)
     # (Si ya se guardó antes por el fix, esto es idempotente)
     abono.save()
+    logger.info("[abonos.validar_y_confirmar][confirmar_y_reservar] llamando confirmar_y_reservar_abono con abono_id=%s", abono.id)
     resumen = confirmar_y_reservar_abono(
         abono=abono,
         comprobante_abono=comprobante_abono
@@ -586,12 +647,34 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
     caller_es_admin = bool(user and getattr(user, "tipo_usuario", None) in ("super_admin", "admin_cliente"))
     omitir_archivo = caller_es_admin and bool(forzar_admin)
 
-    # Precios “server source of truth”
-    precio_abono = float(getattr(abono.tipo_abono, "precio", None) or abono.monto or 0.0)
+    # Precios "server source of truth" - usar cálculo dinámico
+    # Para renovaciones, usar año y mes de la renovación, no del abono original
+    anio_renovacion = int(request.data.get("anio", abono.anio))
+    mes_renovacion = int(request.data.get("mes", abono.mes))
+    
+    # Para renovaciones personalizadas, usar la nueva configuración del payload
+    configuracion_personalizada = request.data.get("configuracion_personalizada")
+    print(f"[DEBUG] configuracion_personalizada del payload: {configuracion_personalizada}")
+    if configuracion_personalizada:
+        # Parsear JSON string si es necesario
+        if isinstance(configuracion_personalizada, str):
+            import json
+            configuracion_personalizada = json.loads(configuracion_personalizada)
+        # Crear un abono temporal con la nueva configuración para el cálculo
+        abono_temp = type('AbonoTemp', (), {
+            'id': abono.id,  # Agregar id para el log
+            'configuracion_personalizada': configuracion_personalizada,
+            'tipo_clase': None,
+            'monto': None
+        })()
+        precio_abono = calcular_precio_abono_dinamico(abono_temp, anio_renovacion, mes_renovacion)
+    else:
+        precio_abono = calcular_precio_abono_dinamico(abono, anio_renovacion, mes_renovacion)
 
-    # Bonificaciones válidas del usuario y del tipo correcto
-    code = (getattr(abono.tipo_clase, "codigo", "") or "").strip().lower()
-    code_alias = {"x1": "individual", "x2": "2 personas", "x3": "3 personas", "x4": "4 personas"}.get(code, "")
+    # Bonificaciones válidas del usuario (universales)
+    # Para renovaciones, no importa el tipo de clase - las bonificaciones son por monto
+    logger.info("[abonos.validar_y_confirmar][bonificaciones_inicio] bonificaciones_ids=%s usuario_id=%s", 
+               bonificaciones_ids, abono.usuario_id)
 
     bonos_qs = (
         TurnoBonificado.objects
@@ -603,9 +686,11 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
             usado=False,
         )
         .filter(models.Q(valido_hasta__isnull=True) | models.Q(valido_hasta__gte=timezone.localdate()))
-        .filter(models.Q(tipo_turno__iexact=code) | models.Q(tipo_turno__iexact=code_alias))
+        # Ya no filtramos por tipo_turno - las bonificaciones son universales
     )
     bonos = list(bonos_qs)
+    
+    logger.info("[abonos.validar_y_confirmar][bonificaciones_encontradas] bonos_encontrados=%s", len(bonos))
 
     # Sumar valor real de cada bonificación (no el precio de la clase)
     try:
@@ -629,7 +714,8 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
                 usuario=abono.usuario,
                 monto_esperado=restante,
             )
-        except DjangoValidationError:
+        except DjangoValidationError as e:
+            logger.error("[abonos._validar_y_confirmar_renovacion][comprobante_error] ERROR real del comprobante: %s", str(e))
             raise serializers.ValidationError({"comprobante": "Comprobante no válido"})
 
     # Si hay comprobante, asociarlo a los turnos en prioridad de este abono (idempotente)
@@ -670,3 +756,47 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
     )
 
     return abono, resumen
+
+
+def calcular_precio_abono_dinamico(abono, anio, mes):
+    """Calcula el precio dinámico basado en turnos disponibles del mes"""
+    
+    if abono.configuracion_personalizada:
+        # Para abonos personalizados: suma precios de cada tipo * cantidad
+        total = 0
+        for config in abono.configuracion_personalizada:
+            try:
+                from apps.turnos_padel.models import TipoClasePadel
+                tipo_clase = TipoClasePadel.objects.get(id=config['tipo_clase_id'])
+                subtotal = float(tipo_clase.precio) * config['cantidad']
+                total += subtotal
+            except (TipoClasePadel.DoesNotExist, KeyError, ValueError) as e:
+                continue
+        return total
+    elif abono.tipo_clase:
+        # Para abonos normales: precio del tipo_clase * turnos del mes
+        turnos_mes = contar_turnos_del_mes(anio, mes, abono.dia_semana)
+        precio = float(abono.tipo_clase.precio) * turnos_mes
+        return precio
+    else:
+        precio = float(abono.monto) if abono.monto else 0.0
+        return precio
+
+
+def contar_turnos_del_mes(anio, mes, dia_semana):
+    """Cuenta los turnos disponibles para el día de la semana en el mes"""
+    from datetime import date
+    hoy = date.today()
+    
+    # Contar días del mes que caen en el día de la semana
+    from calendar import Calendar
+    cal = Calendar(firstweekday=0)
+    fechas = []
+    for week in cal.monthdatescalendar(anio, mes):
+        for d in week:
+            if d.month == mes and d.weekday() == dia_semana:
+                fechas.append(d)
+    
+    # Solo fechas futuras
+    fechas_futuras = [f for f in fechas if f >= hoy]
+    return len(fechas_futuras)
