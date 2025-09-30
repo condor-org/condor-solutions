@@ -87,6 +87,12 @@ jobs:
           echo "release_tag=$TAG" >> $GITHUB_OUTPUT
           echo "Ambiente determinado: $ENV"
           echo "Tag a usar: $TAG"
+      - name: Debug outputs
+        run: |
+          echo "Environment: ${{ steps.env.outputs.environment }}"
+          echo "is_dev: ${{ steps.env.outputs.is_dev }}"
+          echo "is_prod: ${{ steps.env.outputs.is_prod }}"
+          echo "release_tag: ${{ steps.env.outputs.release_tag }}"
 
   deploy-dev:
     runs-on: ubuntu-latest
