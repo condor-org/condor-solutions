@@ -20,9 +20,36 @@ from django.db import models,transaction
 from apps.turnos_padel.models import TipoClasePadel
 
 import logging
+from datetime import time
+
 logger = logging.getLogger(__name__)
 
 Usuario = get_user_model()
+
+# ------------------------------------------------------------------------------
+# Helpers para validación de solapamiento de horarios
+# ------------------------------------------------------------------------------
+
+def _to_time(v):
+    """Acepta time, 'HH:MM' o 'HH:MM:SS' y devuelve datetime.time."""
+    if isinstance(v, time):
+        return v
+    if not v:
+        raise DRFValidationError("Hora inválida")
+    s = str(v)
+    if len(s) == 5:  # HH:MM
+        s = s + ":00"
+    try:
+        hh, mm, ss = map(int, s.split(":"))
+        return time(hh, mm, ss)
+    except Exception:
+        raise DRFValidationError(f"Hora inválida: {v!r}")
+
+def _rango_solapa(inicio1, fin1, inicio2, fin2):
+    """Verifica si dos rangos [ini, fin) se solapan. Usa datetime.time."""
+    i1, f1 = _to_time(inicio1), _to_time(fin1)
+    i2, f2 = _to_time(inicio2), _to_time(fin2)
+    return i1 < f2 and i2 < f1
 
 
 # ------------------------------------------------------------------------------
@@ -296,6 +323,7 @@ class DisponibilidadSerializer(LoggedModelSerializer):
         read_only_fields = ["id", "lugar_nombre"]
 
     def validate(self, attrs):
+        # Validar duplicados exactos
         qs = Disponibilidad.objects.filter(
             prestador=attrs["prestador"],
             lugar=attrs["lugar"],
@@ -307,7 +335,42 @@ class DisponibilidadSerializer(LoggedModelSerializer):
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():
             raise DRFValidationError("Ya existe una disponibilidad con los mismos datos.")
+        
+        # Validar overlap de horarios
+        self._validar_overlap(attrs)
         return attrs
+    
+    def _validar_overlap(self, attrs):
+        """Valida que no haya solapamiento de horarios para el mismo prestador, lugar y día."""
+        prestador = attrs["prestador"]
+        lugar = attrs["lugar"]
+        dia_semana = attrs["dia_semana"]
+        hora_inicio = attrs["hora_inicio"]
+        hora_fin = attrs["hora_fin"]
+        
+        # Buscar disponibilidades existentes que puedan solaparse
+        disponibilidades_existentes = Disponibilidad.objects.filter(
+            prestador=prestador,
+            lugar=lugar,
+            dia_semana=dia_semana,
+            activo=True
+        )
+        
+        if self.instance:
+            disponibilidades_existentes = disponibilidades_existentes.exclude(pk=self.instance.pk)
+        
+        for disp in disponibilidades_existentes:
+            if self._hay_solapamiento(hora_inicio, hora_fin, disp.hora_inicio, disp.hora_fin):
+                raise DRFValidationError(
+                    f"Ya existe una disponibilidad para {prestador.nombre_publico} en {lugar.nombre} "
+                    f"los {disp.get_dia_semana_display()} que se solapa con el horario "
+                    f"{disp.hora_inicio} - {disp.hora_fin}. "
+                    f"El prestador no puede tener turnos solapados."
+                )
+    
+    def _hay_solapamiento(self, inicio1, fin1, inicio2, fin2):
+        """Verifica si dos rangos de tiempo se solapan."""
+        return _rango_solapa(inicio1, fin1, inicio2, fin2)
 
 # ------------------------------------------------------------------------------
 # PrestadorDetailSerializer
@@ -365,6 +428,7 @@ class PrestadorConUsuarioSerializer(LoggedModelSerializer):
     especialidad = serializers.CharField(required=False, allow_blank=True)
     nombre_publico = serializers.CharField(required=False, allow_blank=True)
     activo = serializers.BooleanField(default=True)
+    
 
     class Meta:
         model = Prestador
@@ -374,6 +438,7 @@ class PrestadorConUsuarioSerializer(LoggedModelSerializer):
             "especialidad", "foto", "activo", "nombre_publico"       # prestador
         ]
         read_only_fields = ["id"]
+
 
     def create(self, validated_data):
         request = self.context["request"]
@@ -415,6 +480,9 @@ class PrestadorConUsuarioSerializer(LoggedModelSerializer):
         # Crear disponibilidades iniciales si llegan en el payload
         disponibilidades_data = self.initial_data.get("disponibilidades", [])
         if disponibilidades_data:
+            # Validar overlap solo entre las nuevas disponibilidades
+            self._validar_overlap_nuevas_disponibilidades(disponibilidades_data)
+            
             nuevas = []
             for d in disponibilidades_data:
                 nuevas.append(Disponibilidad(
@@ -460,6 +528,9 @@ class PrestadorConUsuarioSerializer(LoggedModelSerializer):
         # --- Reemplazar Disponibilidades (si llegan) ---
         disponibilidades_data = self.initial_data.get("disponibilidades", [])
         if disponibilidades_data:
+            # Validar overlap solo entre las nuevas disponibilidades
+            self._validar_overlap_nuevas_disponibilidades(disponibilidades_data)
+            
             instance.disponibilidades.all().delete()
             from apps.turnos_core.models import Disponibilidad  # inline para evitar ciclos
             nuevas = []
@@ -475,6 +546,92 @@ class PrestadorConUsuarioSerializer(LoggedModelSerializer):
             Disponibilidad.objects.bulk_create(nuevas)
 
         return instance
+
+    def _validar_overlap_nuevas_disponibilidades(self, disponibilidades_data):
+        """Valida que no haya solapamiento entre las nuevas disponibilidades del MISMO prestador."""
+        from apps.turnos_core.models import Lugar
+        
+        # Validar overlap entre las nuevas disponibilidades
+        for i, disp1 in enumerate(disponibilidades_data):
+            for j, disp2 in enumerate(disponibilidades_data[i+1:], i+1):
+                # Validar solapamiento en el mismo día (sin importar la sede)
+                if disp1["dia_semana"] == disp2["dia_semana"]:
+                    
+                    # Verificar solapamiento
+                    if self._hay_solapamiento_disponibilidades(disp1, disp2):
+                        lugar1 = Lugar.objects.get(id=disp1["lugar"])
+                        lugar2 = Lugar.objects.get(id=disp2["lugar"])
+                        dia_nombre = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"][disp1["dia_semana"]]
+                        raise DRFValidationError(
+                            f"El prestador no puede tener turnos solapados en {dia_nombre}. "
+                            f"Los horarios {disp1['hora_inicio']}-{disp1['hora_fin']} en {lugar1.nombre} y "
+                            f"{disp2['hora_inicio']}-{disp2['hora_fin']} en {lugar2.nombre} se superponen."
+                        )
+
+    def _validar_overlap_disponibilidades(self, prestador, disponibilidades_data):
+        """Valida que no haya solapamiento entre las nuevas disponibilidades del MISMO prestador."""
+        from apps.turnos_core.models import Lugar, Disponibilidad
+        
+        # 1. Validar overlap entre las nuevas disponibilidades
+        for i, disp1 in enumerate(disponibilidades_data):
+            for j, disp2 in enumerate(disponibilidades_data[i+1:], i+1):
+                # Validar solapamiento en el mismo día (sin importar la sede)
+                if disp1["dia_semana"] == disp2["dia_semana"]:
+                    
+                    # Verificar solapamiento
+                    if self._hay_solapamiento_disponibilidades(disp1, disp2):
+                        lugar1 = Lugar.objects.get(id=disp1["lugar"])
+                        lugar2 = Lugar.objects.get(id=disp2["lugar"])
+                        dia_nombre = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"][disp1["dia_semana"]]
+                        raise DRFValidationError(
+                            f"El prestador no puede tener turnos solapados en {dia_nombre}. "
+                            f"Los horarios {disp1['hora_inicio']}-{disp1['hora_fin']} en {lugar1.nombre} y "
+                            f"{disp2['hora_inicio']}-{disp2['hora_fin']} en {lugar2.nombre} se superponen."
+                        )
+        
+        # 2. Validar overlap con disponibilidades existentes del MISMO prestador (solo si es update)
+        if prestador and hasattr(prestador, 'id') and prestador.id:
+            for disp_nueva in disponibilidades_data:
+                # Validar rango válido
+                i = _to_time(disp_nueva["hora_inicio"])
+                f = _to_time(disp_nueva["hora_fin"])
+                if not i < f:
+                    raise DRFValidationError(
+                        f"Rango inválido {disp_nueva['hora_inicio']}-{disp_nueva['hora_fin']}: "
+                        "hora_inicio debe ser menor que hora_fin."
+                    )
+                
+                # Buscar disponibilidades existentes del MISMO prestador, mismo día (sin importar sede)
+                disponibilidades_existentes = Disponibilidad.objects.filter(
+                    prestador=prestador,
+                    dia_semana=disp_nueva["dia_semana"],
+                    activo=True
+                )
+                
+                for disp_existente in disponibilidades_existentes:
+                    if self._hay_solapamiento_horarios(
+                        disp_nueva["hora_inicio"], disp_nueva["hora_fin"],
+                        disp_existente.hora_inicio, disp_existente.hora_fin
+                    ):
+                        lugar_nueva = Lugar.objects.get(id=disp_nueva["lugar"])
+                        lugar_existente = Lugar.objects.get(id=disp_existente.lugar_id)
+                        dia_nombre = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"][disp_nueva["dia_semana"]]
+                        raise DRFValidationError(
+                            f"El prestador ya tiene una disponibilidad en {dia_nombre} "
+                            f"que se solapa con el horario {disp_nueva['hora_inicio']}-{disp_nueva['hora_fin']} en {lugar_nueva.nombre}. "
+                            f"Horario existente: {disp_existente.hora_inicio}-{disp_existente.hora_fin} en {lugar_existente.nombre}"
+                        )
+
+    def _hay_solapamiento_disponibilidades(self, disp1, disp2):
+        """Verifica si dos disponibilidades se solapan (payload vs payload)."""
+        return _rango_solapa(
+            disp1["hora_inicio"], disp1["hora_fin"],
+            disp2["hora_inicio"], disp2["hora_fin"],
+        )
+
+    def _hay_solapamiento_horarios(self, inicio1, fin1, inicio2, fin2):
+        """Verifica si dos rangos de tiempo se solapan (payload vs BD)."""
+        return _rango_solapa(inicio1, fin1, inicio2, fin2)
 
 
 # ------------------------------------------------------------------------------
