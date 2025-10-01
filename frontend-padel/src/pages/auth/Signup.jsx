@@ -84,7 +84,7 @@ const Signup = () => {
 
         <Input label="Nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} required />
         <Input label="Apellido" value={apellido} onChange={(e) => setApellido(e.target.value)} required />
-        <Input label="Teléfono (opcional)" value={telefono} onChange={(e) => setTelefono(e.target.value)} />
+        <Input label="Teléfono" value={telefono} onChange={(e) => setTelefono(e.target.value)} />
 
         <VStack align="start" spacing={3} mt={3}>
           <Checkbox isChecked={aceptaTos} onChange={(e) => setAceptaTos(e.target.checked)}>

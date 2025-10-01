@@ -683,49 +683,61 @@ const ReservarAbonoAdmin = () => {
                   {configuracionPersonalizada.map((config, index) => {
                     const tipoClase = tiposClase.find(tc => tc.id === config.tipo_clase_id);
                     return (
-                      <HStack key={index} spacing={3} align="end">
-                        <FormControl flex={2}>
-                          <FormLabel fontSize="sm">Tipo de Clase</FormLabel>
-                          <Select
-                            value={config.tipo_clase_id}
-                            onChange={(e) => actualizarTipoClase(index, 'tipo_clase_id', Number(e.target.value))}
-                            bg={input.bg}
-                            borderColor={input.border}
-                            size="sm"
-                          >
-                          {tiposClase.map(tc => (
-                            <option key={tc.id} value={tc.id}>
-                              {tc.nombre || LABELS[tc.codigo]}
-                            </option>
-                          ))}
-                          </Select>
-                        </FormControl>
-                        
-                        <FormControl flex={1}>
-                          <FormLabel fontSize="sm">Cantidad de clases de este tipo</FormLabel>
-                          <Select
-                            value={config.cantidad}
-                            onChange={(e) => actualizarTipoClase(index, 'cantidad', Number(e.target.value))}
-                            bg={input.bg}
-                            borderColor={input.border}
-                            size="sm"
-                          >
-                            {Array.from({ length: Math.min(config.cantidad + calcularTurnosRestantes(), calcularMaximoTurnos()) }, (_, i) => i + 1).map(num => (
-                              <option key={num} value={num}>
-                                {num} {num === 1 ? 'clase' : 'clases'}
+                      <Box
+                        key={index}
+                        p={3}
+                        bg={card.bg}
+                        rounded="md"
+                        borderWidth="1px"
+                        borderColor={input.border}
+                      >
+                        <Stack
+                          direction={{ base: "column", md: "row" }}
+                          spacing={3}
+                          align={{ base: "stretch", md: "end" }}
+                        >
+                          <FormControl flex={{ base: 1, md: 2 }}>
+                            <FormLabel fontSize="sm">Tipo de Clase</FormLabel>
+                            <Select
+                              value={config.tipo_clase_id}
+                              onChange={(e) => actualizarTipoClase(index, 'tipo_clase_id', Number(e.target.value))}
+                              bg={input.bg}
+                              borderColor={input.border}
+                              size="sm"
+                            >
+                            {tiposClase.map(tc => (
+                              <option key={tc.id} value={tc.id}>
+                                {tc.nombre || LABELS[tc.codigo]}
                               </option>
                             ))}
-                          </Select>
-                        </FormControl>
-                        
-                      <Box flex={1}>
-                        <Text fontSize="sm" color={muted}>Cantidad</Text>
-                        <Text fontWeight="semibold">
-                          {config.cantidad} {config.cantidad === 1 ? 'clase' : 'clases'}
-                        </Text>
+                            </Select>
+                          </FormControl>
+                          
+                          <FormControl flex={{ base: 1, md: 1 }}>
+                            <FormLabel fontSize="sm">Cantidad de clases de este tipo</FormLabel>
+                            <Select
+                              value={config.cantidad}
+                              onChange={(e) => actualizarTipoClase(index, 'cantidad', Number(e.target.value))}
+                              bg={input.bg}
+                              borderColor={input.border}
+                              size="sm"
+                            >
+                              {Array.from({ length: Math.min(config.cantidad + calcularTurnosRestantes(), calcularMaximoTurnos()) }, (_, i) => i + 1).map(num => (
+                                <option key={num} value={num}>
+                                  {num} {num === 1 ? 'clase' : 'clases'}
+                                </option>
+                              ))}
+                            </Select>
+                          </FormControl>
+                          
+                          <Box flex={{ base: 1, md: 1 }} textAlign={{ base: "left", md: "center" }}>
+                            <Text fontSize="sm" color={muted}>Cantidad</Text>
+                            <Text fontWeight="semibold">
+                              {config.cantidad} {config.cantidad === 1 ? 'clase' : 'clases'}
+                            </Text>
+                          </Box>
+                        </Stack>
                       </Box>
-                        
-                      </HStack>
                     );
                   })}
                   
@@ -782,18 +794,24 @@ const ReservarAbonoAdmin = () => {
                   _hover={{ boxShadow: "lg", cursor: usuarioId ? "pointer" : "not-allowed", bg: hoverBg }}
                   onClick={() => handleClickAbono({ hora: horaFiltro || "Personalizado" })}
                 >
-                  <HStack justify="space-between" align="center">
-                    <Box>
+                  <Stack
+                    direction={{ base: "column", md: "row" }}
+                    justify="space-between"
+                    align={{ base: "stretch", md: "center" }}
+                    spacing={3}
+                  >
+                    <Box flex="1">
                       <Text fontWeight="semibold">
                         {DIAS.find(d => String(d.value) === String(diaSemana))?.label} · {horaFiltro ? horaFiltro.slice(0, 5) : "Personalizado"} hs
                       </Text>
-                      <HStack mt={1} spacing={2}>
+                      <HStack mt={1} spacing={2} wrap="wrap">
                         <Badge colorScheme="purple">Personalizado</Badge>
                         <Badge colorScheme="blue">Asignación gratuita</Badge>
                       </HStack>
                     </Box>
                     <Button
-                      variant="primary" 
+                      variant="primary"
+                      w={{ base: "100%", md: "auto" }}
                       isDisabled={
                         !usuarioId || 
                         configuracionPersonalizada.length === 0 ||
@@ -802,7 +820,7 @@ const ReservarAbonoAdmin = () => {
                     >
                       Asignar
                     </Button>
-                  </HStack>
+                  </Stack>
                 </Box>
               ) : (
                 // Para abonos normales, mostrar todos los disponibles
@@ -823,12 +841,17 @@ const ReservarAbonoAdmin = () => {
                       _hover={{ boxShadow: "lg", cursor: usuarioId ? "pointer" : "not-allowed", bg: hoverBg }}
                       onClick={() => handleClickAbono(item)}
                     >
-                      <HStack justify="space-between" align="center">
-                        <Box>
+                      <Stack
+                        direction={{ base: "column", md: "row" }}
+                        justify="space-between"
+                        align={{ base: "stretch", md: "center" }}
+                        spacing={3}
+                      >
+                        <Box flex="1">
                           <Text fontWeight="semibold">
                             {DIAS.find(d => String(d.value) === String(diaSemana))?.label} · {item?.hora?.slice(0,5)} hs
                           </Text>
-                          <HStack mt={1} spacing={2}>
+                          <HStack mt={1} spacing={2} wrap="wrap">
                             <Badge variant="outline">
                               {item?.tipo_clase?.nombre || LABELS[item?.tipo_clase?.codigo] || "Tipo"}
                             </Badge>
@@ -838,12 +861,13 @@ const ReservarAbonoAdmin = () => {
                           </HStack>
                         </Box>
                         <Button
-                          variant="primary" 
+                          variant="primary"
+                          w={{ base: "100%", md: "auto" }}
                           isDisabled={!usuarioId}
                         >
                           Asignar
                         </Button>
-                      </HStack>
+                      </Stack>
                     </Box>
                   );
                 })
