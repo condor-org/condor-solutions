@@ -190,10 +190,17 @@ const PagosPreaprobadosPage = () => {
     }
   };
 
-  const verComprobante = async (id) => {
+  const verComprobante = async (pago) => {
     const api = axiosAuth(accessToken);
     try {
-      const response = await api.get(`pagos/comprobantes/${id}/descargar/`, {
+      let url;
+      if (pago.tipo === "abono") {
+        url = `pagos/comprobantes-abono/${pago.id}/descargar/`;
+      } else {
+        url = `pagos/comprobantes/${pago.id}/descargar/`;
+      }
+      
+      const response = await api.get(url, {
         responseType: "blob",
       });
       const fileURL = URL.createObjectURL(response.data);
@@ -387,7 +394,7 @@ const PagosPreaprobadosPage = () => {
               size={{ base: "sm", md: "sm" }}
               variant="outline"
               mt={2}
-              onClick={() => verComprobante(p.id)}
+              onClick={() => verComprobante(p)}
               w={{ base: "100%", md: "auto" }}
             >
               Ver comprobante
@@ -559,7 +566,7 @@ const PagosPreaprobadosPage = () => {
               size={{ base: "sm", md: "sm" }}
               variant="outline"
               mt={2}
-              onClick={() => verComprobante(p.id)}
+              onClick={() => verComprobante(p)}
               w={{ base: "100%", md: "auto" }}
             >
               Ver comprobante

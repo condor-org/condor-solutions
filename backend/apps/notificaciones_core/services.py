@@ -41,6 +41,7 @@ SES_CONFIGURATION_SET = getattr(settings, "SES_CONFIGURATION_SET", None)  # opci
 TYPE_CANCELACIONES_TURNOS = "CANCELACIONES_TURNOS"
 TYPE_RESERVA_TURNO = "RESERVA_TURNO"
 TYPE_RESERVA_ABONO = "RESERVA_ABONO"
+TYPE_RESERVA_ABONO_USER = "RESERVA_ABONO_USER"
 TYPE_CANCELACION_TURNO = "CANCELACION_TURNO"
 TYPE_ABONO_RENOVADO = "ABONO_RENOVADO"
 TYPE_BONIFICACION_CREADA = "BONIFICACION_CREADA"
@@ -156,6 +157,7 @@ def _template_base_name_for(notif_type: str) -> str:
         TYPE_RESERVA_TURNO: "reserva_turno",
         TYPE_CANCELACION_TURNO: "cancelacion_turno",
         TYPE_RESERVA_ABONO: "reserva_abono",
+        TYPE_RESERVA_ABONO_USER: "reserva_abono_user",
         TYPE_ABONO_RENOVADO: "abono_renovado",
         TYPE_BONIFICACION_CREADA: "bonificacion_creada",
         TYPE_CANCELACIONES_TURNOS: "cancelaciones_turnos",
@@ -443,6 +445,34 @@ def _render_inapp_copy(notif_type: str, ctx: dict) -> tuple[str, str, str]:
         else:
             body = f"{usuario} confirmó un abono. Ver detalle."
         deeplink = f"/admin/abonos/{abono_id}" if abono_id else "/admin/abonos"
+        return title, body, deeplink
+
+    if notif_type == TYPE_RESERVA_ABONO_USER:
+        tipo = _human_tipo_clase(ctx.get("tipo") or "")
+        sede = ctx.get("sede_nombre")
+        prestador = ctx.get("prestador")
+        hora = ctx.get("hora")
+        dia_semana_text = ctx.get("dia_semana_text")
+        mes_anio = ctx.get("mes_anio")
+
+        title = f"¡Abono {tipo} confirmado!".strip()
+        if sede or prestador or hora or dia_semana_text:
+            partes = []
+            if sede:
+                partes.append(f"en {sede}")
+            if prestador:
+                partes.append(f"con {prestador}")
+            if hora:
+                partes.append(f"a las {hora}")
+            if dia_semana_text:
+                partes.append(f"({dia_semana_text})")
+            if mes_anio:
+                partes.append(f"para {mes_anio}")
+            detalles = " ".join(partes)
+            body = f"Tu abono {tipo} {detalles} fue confirmado exitosamente."
+        else:
+            body = f"Tu abono {tipo} fue confirmado exitosamente."
+        deeplink = "/"
         return title, body, deeplink
 
     if notif_type == TYPE_ABONO_RENOVADO:
