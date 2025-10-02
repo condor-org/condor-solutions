@@ -6,7 +6,8 @@ import {
   Box, Text, HStack, VStack, Select, useToast, Badge, Divider, useDisclosure,
   FormControl, FormLabel, Stack, InputGroup, InputLeftElement, useColorModeValue,
   AlertDialog, AlertDialogOverlay, AlertDialogContent, AlertDialogHeader,
-  AlertDialogBody, AlertDialogFooter
+  AlertDialogBody, AlertDialogFooter, Modal, ModalOverlay, ModalContent,
+  ModalHeader, ModalBody, ModalFooter, ModalCloseButton, Button as ChakraButton
 } from "@chakra-ui/react";
 import { SearchIcon, CheckIcon } from "@chakra-ui/icons";
 import { Input as ChakraInput } from "@chakra-ui/react";
@@ -21,6 +22,13 @@ const DIAS = [
   { value: 3, label: "Jueves" }, { value: 4, label: "Viernes" }, { value: 5, label: "Sábado" }, { value: 6, label: "Domingo" },
 ];
 const LABELS = { x1: "Individual", x2: "2 Personas", x3: "3 Personas", x4: "4 Personas" };
+
+// Función para obtener el nombre legible de un tipo de clase
+const getNombreTipoClase = (tipoClase) => {
+  if (tipoClase?.nombre) return tipoClase.nombre;
+  if (tipoClase?.codigo && LABELS[tipoClase.codigo]) return LABELS[tipoClase.codigo];
+  return tipoClase?.codigo || "Sin nombre";
+};
 const ABONO_OPCIONES = [
   { codigo: "x1", nombre: "Individual" },
   { codigo: "x2", nombre: "2 Personas" },
@@ -71,6 +79,11 @@ const ReservarAbonoAdmin = () => {
   const cancelRef = useRef(null);
   const [abonoSeleccionado, setAbonoSeleccionado] = useState(null);
   const [enviando, setEnviando] = useState(false);
+
+  // modal de configuración personalizada
+  const configDisc = useDisclosure();
+  const [modoRenovacion, setModoRenovacion] = useState(false);
+  const [abonoExistente, setAbonoExistente] = useState(null);
 
   // fecha actual
   const now = new Date();
@@ -151,21 +164,17 @@ const ReservarAbonoAdmin = () => {
 
   useEffect(() => {
     if (!api || !sedeId) { 
-      console.log('🔍 DEBUG tiposClase - No hay api o sedeId:', { api: !!api, sedeId });
       setTiposClase([]); 
       return; 
     }
     
-    console.log('🔍 DEBUG tiposClase - Cargando tipos de clase para sede:', sedeId);
-    
     api.get(`padel/tipos-clase/?sede_id=${sedeId}`)
       .then(res => {
         const data = res?.data?.results ?? res?.data ?? [];
-        console.log('🔍 DEBUG tiposClase - Respuesta del backend:', data);
         setTiposClase(data);
       })
       .catch(e => { 
-        console.error("🚨 DEBUG tiposClase - Error:", e); 
+        console.error("Error cargando tipos de clase:", e); 
         setTiposClase([]); 
       });
   }, [api, sedeId]);
@@ -190,7 +199,11 @@ const ReservarAbonoAdmin = () => {
     // Ya no necesitamos tipo_codigo para obtener disponibilidad
     // El backend calculará precios dinámicamente
     
-    if (horaFiltro) params.append("hora", horaFiltro);
+    // Para abonos personalizados, no requerir hora para listar todos
+    // Para otros tipos, usar hora si está seleccionada
+    if (horaFiltro && tipoAbono !== "personalizado") {
+      params.append("hora", horaFiltro);
+    }
 
     setLoadingDisponibles(true);
     api.get(`padel/abonos/disponibles/?${params.toString()}`)
@@ -246,51 +259,10 @@ const ReservarAbonoAdmin = () => {
     [usuarios, usuarioId]
   );
 
-  // ======= CONFIGURACIÓN PERSONALIZADA =======
-  const agregarTipoClase = () => {
-    console.log('🔍 DEBUG agregarTipoClase - tiposClase.length:', tiposClase.length);
-    console.log('🔍 DEBUG agregarTipoClase - tiposClase:', tiposClase);
-    
-    if (tiposClase.length === 0) {
-      console.log('🚨 DEBUG agregarTipoClase - No hay tipos de clase disponibles');
-      return;
-    }
-    
-    const nuevoTipo = {
-      tipo_clase_id: tiposClase[0].id,
-      cantidad: 1,
-      codigo: tiposClase[0].codigo
-    };
-    
-    console.log('🔍 DEBUG agregarTipoClase - nuevoTipo:', nuevoTipo);
-    console.log('🔍 DEBUG agregarTipoClase - configuracionPersonalizada actual:', configuracionPersonalizada);
-    
-    setConfiguracionPersonalizada([...configuracionPersonalizada, nuevoTipo]);
-  };
-
-  const removerTipoClase = (index) => {
-    const nuevaConfig = configuracionPersonalizada.filter((_, i) => i !== index);
-    setConfiguracionPersonalizada(nuevaConfig);
-  };
-
-  const actualizarTipoClase = (index, campo, valor) => {
-    const nuevaConfig = [...configuracionPersonalizada];
-    nuevaConfig[index] = { ...nuevaConfig[index], [campo]: valor };
-    
-    // Si se cambia el tipo_clase_id, actualizar también el codigo
-    if (campo === 'tipo_clase_id') {
-      const tipoClase = tiposClase.find(tc => tc.id === valor);
-      if (tipoClase) {
-        nuevaConfig[index].codigo = tipoClase.codigo;
-      }
-    }
-    
-    setConfiguracionPersonalizada(nuevaConfig);
-  };
 
   const calcularMontoPersonalizado = () => {
     return configuracionPersonalizada.reduce((total, config) => {
-      const tipoClase = tiposClase.find(tc => tc.id === config.tipo_clase_id);
+      const tipoClase = tiposClase.find(tc => String(tc.id) === String(config.tipo_clase_id));
       if (tipoClase) {
         return total + (Number(tipoClase.precio) * config.cantidad);
       }
@@ -372,35 +344,22 @@ const ReservarAbonoAdmin = () => {
       fd.append("usuario_id", String(usuarioId));
       fd.append("forzar_admin", "true");
 
-      if (tipoAbono === "personalizado") {
-        // Para abonos personalizados
-        console.log('🔍 DEBUG abono personalizado - configuracionPersonalizada:', configuracionPersonalizada);
-        console.log('🔍 DEBUG abono personalizado - tiposClase:', tiposClase);
-        console.log('🔍 DEBUG abono personalizado - calcularMaximoTurnos:', calcularMaximoTurnos());
+      if (tipoAbono === "personalizado" || abonoSeleccionado?.configuracion_personalizada) {
+        // Para abonos personalizados - igual que el usuario
+        const configuracion = abonoSeleccionado?.configuracion_personalizada || configuracionPersonalizada;
         
-        const monto = calcularMontoPersonalizado();
-        console.log('🔍 DEBUG abono personalizado - monto calculado:', monto);
-        
-        fd.append("monto", String(monto));
-        fd.append("monto_esperado", String(monto));
-        fd.append("configuracion_personalizada", JSON.stringify(configuracionPersonalizada));
+        fd.append("configuracion_personalizada", JSON.stringify(configuracion));
+        fd.append("tipo_clase", ""); // Vacío para personalizados (igual que el usuario)
       } else {
         // Para abonos normales
         const tipoClaseId = mapearTipoAbonoATipoClase(tipoAbono);
-        console.log('🔍 DEBUG abono normal - tipoAbono:', tipoAbono, 'tipoClaseId:', tipoClaseId);
         
         if (!tipoClaseId) {
           throw new Error(`No se encontró tipo de clase para: ${tipoAbono}`);
         }
         
-        const tipoClase = tiposClase.find(tc => tc.id === tipoClaseId);
-        const monto = tipoClase ? Number(tipoClase.precio) * calcularMaximoTurnos() : 0;
-        
-        console.log('🔍 DEBUG abono normal - monto calculado:', monto);
-        
         fd.append("tipo_clase", tipoClaseId);
-        fd.append("monto", String(monto));
-        fd.append("monto_esperado", String(monto));
+        fd.append("configuracion_personalizada", "[]"); // Vacío para normales (igual que el usuario)
       }
 
       await api.post("padel/abonos/reservar/", fd, { headers: { "Content-Type": "multipart/form-data" } });
@@ -421,6 +380,40 @@ const ReservarAbonoAdmin = () => {
     } finally {
       setEnviando(false);
     }
+  };
+
+  // ======= FUNCIONES DEL MODAL DE CONFIGURACIÓN =======
+  const abrirModalConfiguracion = () => {
+    setModoRenovacion(false);
+    setAbonoExistente(null);
+    
+    // Inicializar configuración personalizada con los turnos del mes
+    // Usar el primer tipo de clase disponible como valor por defecto (igual que el usuario)
+    const turnosDelMes = calcularMaximoTurnos();
+    const nuevaConfig = Array.from({ length: turnosDelMes }, (_, index) => ({
+      turno: index + 1,
+      tipo_clase_id: tiposClase.length > 0 ? Number(tiposClase[0].id) : null,
+      cantidad: 1, // Campo requerido por el backend
+      codigo: tiposClase.length > 0 ? tiposClase[0].codigo : null
+    }));
+    setConfiguracionPersonalizada(nuevaConfig);
+    
+    configDisc.onOpen();
+  };
+
+  const procederAAsignacion = () => {
+    // Cerrar modal de configuración y abrir modal de confirmación
+    configDisc.onClose();
+    
+    // Crear un objeto simulado para el modal de confirmación
+    const abonoSimulado = {
+      hora: abonoSeleccionado?.hora,
+      tipo_clase: null, // Para personalizado
+      configuracion_personalizada: configuracionPersonalizada
+    };
+    
+    setAbonoSeleccionado(abonoSimulado);
+    confirmDisc.onOpen();
   };
 
   // ---------- UI ----------
@@ -645,127 +638,6 @@ const ReservarAbonoAdmin = () => {
 
           <Divider my={2} />
 
-          {/* Configuración personalizada */}
-          {tipoAbono === "personalizado" && (
-            <Box mb={6} p={4} bg={card.bg} rounded="lg" borderWidth="1px" borderColor={input.border}>
-              <HStack justify="space-between" mb={3}>
-                <VStack align="start" spacing={1}>
-                  <Text fontWeight="semibold">Configuración del Abono Personalizado</Text>
-                  <Text fontSize="sm" color={muted}>
-                    Total de turnos disponibles: {calcularMaximoTurnos()} | 
-                    Turnos asignados: {calcularTurnosAsignados()} | 
-                    Restantes: {calcularTurnosRestantes()}
-                  </Text>
-                </VStack>
-                <Button
-                  size="sm"
-                  onClick={agregarTipoClase}
-                  isDisabled={
-                    tiposClase.length === 0 || 
-                    calcularTurnosRestantes() <= 0 ||
-                    (tipoAbono === "personalizado" && !horaFiltro)
-                  }
-                >
-                  Agregar Tipo de Clase
-                </Button>
-              </HStack>
-              
-              {!horaFiltro && tipoAbono === "personalizado" ? (
-                <Text color="orange.500" textAlign="center" py={4}>
-                  ⚠️ Seleccioná una hora específica para configurar el abono personalizado.
-                </Text>
-              ) : configuracionPersonalizada.length === 0 ? (
-                <Text color={muted} textAlign="center" py={4}>
-                  No hay tipos de clase configurados. Agregá al menos uno para continuar.
-                </Text>
-              ) : (
-                <VStack align="stretch" spacing={3}>
-                  {configuracionPersonalizada.map((config, index) => {
-                    const tipoClase = tiposClase.find(tc => tc.id === config.tipo_clase_id);
-                    return (
-                      <Box
-                        key={index}
-                        p={3}
-                        bg={card.bg}
-                        rounded="md"
-                        borderWidth="1px"
-                        borderColor={input.border}
-                      >
-                        <Stack
-                          direction={{ base: "column", md: "row" }}
-                          spacing={3}
-                          align={{ base: "stretch", md: "end" }}
-                        >
-                          <FormControl flex={{ base: 1, md: 2 }}>
-                            <FormLabel fontSize="sm">Tipo de Clase</FormLabel>
-                            <Select
-                              value={config.tipo_clase_id}
-                              onChange={(e) => actualizarTipoClase(index, 'tipo_clase_id', Number(e.target.value))}
-                              bg={input.bg}
-                              borderColor={input.border}
-                              size="sm"
-                            >
-                            {tiposClase.map(tc => (
-                              <option key={tc.id} value={tc.id}>
-                                {tc.nombre || LABELS[tc.codigo]}
-                              </option>
-                            ))}
-                            </Select>
-                          </FormControl>
-                          
-                          <FormControl flex={{ base: 1, md: 1 }}>
-                            <FormLabel fontSize="sm">Cantidad de clases de este tipo</FormLabel>
-                            <Select
-                              value={config.cantidad}
-                              onChange={(e) => actualizarTipoClase(index, 'cantidad', Number(e.target.value))}
-                              bg={input.bg}
-                              borderColor={input.border}
-                              size="sm"
-                            >
-                              {Array.from({ length: Math.min(config.cantidad + calcularTurnosRestantes(), calcularMaximoTurnos()) }, (_, i) => i + 1).map(num => (
-                                <option key={num} value={num}>
-                                  {num} {num === 1 ? 'clase' : 'clases'}
-                                </option>
-                              ))}
-                            </Select>
-                          </FormControl>
-                          
-                          <Box flex={{ base: 1, md: 1 }} textAlign={{ base: "left", md: "center" }}>
-                            <Text fontSize="sm" color={muted}>Cantidad</Text>
-                            <Text fontWeight="semibold">
-                              {config.cantidad} {config.cantidad === 1 ? 'clase' : 'clases'}
-                            </Text>
-                          </Box>
-                        </Stack>
-                      </Box>
-                    );
-                  })}
-                  
-                  <Divider />
-                  
-                <HStack justify="space-between" align="center">
-                  <VStack align="start" spacing={1}>
-                    <Text fontWeight="bold" fontSize="lg">Configuración del Abono:</Text>
-                    {calcularTurnosAsignados() > calcularMaximoTurnos() && (
-                      <Text fontSize="sm" color="red.500">
-                        ⚠️ Excede el límite de turnos disponibles
-                      </Text>
-                    )}
-                  </VStack>
-                  <VStack align="end" spacing={1}>
-                    <Text fontWeight="bold" fontSize="lg" color={calcularTurnosAsignados() > calcularMaximoTurnos() ? "red.500" : "blue.500"}>
-                      {configuracionPersonalizada.reduce((total, config) => total + config.cantidad, 0)} turnos configurados
-                    </Text>
-                    <Text fontSize="sm" color={muted}>
-                      de {calcularMaximoTurnos()} disponibles
-                    </Text>
-                  </VStack>
-                </HStack>
-                </VStack>
-              )}
-            </Box>
-          )}
-
           {/* Abonos libres */}
           <Box>
             <Text fontWeight="semibold" mb={2}>
@@ -774,54 +646,56 @@ const ReservarAbonoAdmin = () => {
             {(sedeId && profesorId && diaSemana !== "" && !tipoAbono) && (
               <Text color={muted} mb={2}>Elegí un tipo de abono para ver disponibilidad.</Text>
             )}
-            {tipoAbono === "personalizado" && configuracionPersonalizada.length === 0 && (
-              <Text color={muted} mb={2}>Configurá al menos un tipo de clase para continuar.</Text>
-            )}
             {!loadingDisponibles && abonosLibres.length === 0 && (sedeId && profesorId && diaSemana !== "") ? (
               <Text color={muted}>No hay abonos libres para los filtros seleccionados.</Text>
             ) : null}
 
             <VStack align="stretch" spacing={3}>
               {tipoAbono === "personalizado" ? (
-                // Para abonos personalizados, mostrar solo 1 elemento
-                <Box
-                  key="personalizado"
-                  p={3}
-                  bg={card.bg}
-                  rounded="md"
-                  borderWidth="1px"
-                  borderColor={input.border}
-                  _hover={{ boxShadow: "lg", cursor: usuarioId ? "pointer" : "not-allowed", bg: hoverBg }}
-                  onClick={() => handleClickAbono({ hora: horaFiltro || "Personalizado" })}
-                >
-                  <Stack
-                    direction={{ base: "column", md: "row" }}
-                    justify="space-between"
-                    align={{ base: "stretch", md: "center" }}
-                    spacing={3}
-                  >
-                    <Box flex="1">
-                      <Text fontWeight="semibold">
-                        {DIAS.find(d => String(d.value) === String(diaSemana))?.label} · {horaFiltro ? horaFiltro.slice(0, 5) : "Personalizado"} hs
-                      </Text>
-                      <HStack mt={1} spacing={2} wrap="wrap">
-                        <Badge colorScheme="purple">Personalizado</Badge>
-                        <Badge colorScheme="blue">Asignación gratuita</Badge>
-                      </HStack>
-                    </Box>
-                    <Button
-                      variant="primary"
-                      w={{ base: "100%", md: "auto" }}
-                      isDisabled={
-                        !usuarioId || 
-                        configuracionPersonalizada.length === 0 ||
-                        calcularTurnosAsignados() > calcularMaximoTurnos()
-                      }
+                // Para abonos personalizados, mostrar solo si hay turnos disponibles
+                abonosLibres.length > 0 ? (
+                  abonosLibres.map((item, idx) => (
+                    <Box
+                      key={`personalizado-${idx}`}
+                      p={3}
+                      bg={card.bg}
+                      rounded="md"
+                      borderWidth="1px"
+                      borderColor={input.border}
+                      _hover={{ boxShadow: "lg", cursor: usuarioId ? "pointer" : "not-allowed", bg: hoverBg }}
+                      onClick={() => handleClickAbono({ hora: item.hora || "Personalizado" })}
                     >
-                      Asignar
-                    </Button>
-                  </Stack>
-                </Box>
+                      <Stack
+                        direction={{ base: "column", md: "row" }}
+                        justify="space-between"
+                        align={{ base: "stretch", md: "center" }}
+                        spacing={3}
+                      >
+                        <Box flex="1">
+                          <Text fontWeight="semibold">
+                            {DIAS.find(d => String(d.value) === String(diaSemana))?.label} · {item.hora ? item.hora.slice(0, 5) : "Personalizado"} hs
+                          </Text>
+                          <HStack mt={1} spacing={2} wrap="wrap">
+                            <Badge colorScheme="purple">Personalizado</Badge>
+                            <Badge colorScheme="blue">Asignación gratuita</Badge>
+                          </HStack>
+                        </Box>
+                        <Button
+                          variant="primary"
+                          w={{ base: "100%", md: "auto" }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleClickAbono({ hora: item.hora });
+                            abrirModalConfiguracion();
+                          }}
+                          isDisabled={!usuarioId}
+                        >
+                          Configurar
+                        </Button>
+                      </Stack>
+                    </Box>
+                  ))
+                ) : null
               ) : (
                 // Para abonos normales, mostrar todos los disponibles
                 abonosLibres.map((item, idx) => {
@@ -901,19 +775,19 @@ const ReservarAbonoAdmin = () => {
             <Text>
               {`Día: ${DIAS.find(d => String(d.value) === String(diaSemana))?.label || "-"}`} · {`Hora: ${abonoSeleccionado?.hora?.slice(0,5) || "-"}`}
             </Text>
-            {tipoAbono === "personalizado" ? (
+            {tipoAbono === "personalizado" || abonoSeleccionado?.configuracion_personalizada ? (
               <>
                 <Text fontWeight="semibold" mt={2}>Configuración personalizada:</Text>
-                {configuracionPersonalizada.map((config, index) => {
-                  const tipoClase = tiposClase.find(tc => tc.id === config.tipo_clase_id);
+                {(abonoSeleccionado?.configuracion_personalizada || configuracionPersonalizada).map((config, index) => {
+                  const tipoClase = tiposClase.find(tc => String(tc.id) === String(config.tipo_clase_id));
                   return (
                     <Text key={index} fontSize="sm" ml={2}>
-                      • {tipoClase?.nombre || LABELS[tipoClase?.codigo]} x{config.cantidad} clases
+                      • Turno {index + 1}: {tipoClase ? getNombreTipoClase(tipoClase) : "Sin seleccionar"}
                     </Text>
                   );
                 })}
                 <Text fontWeight="bold" mt={2}>
-                  Total: {configuracionPersonalizada.reduce((total, config) => total + config.cantidad, 0)} turnos
+                  Total: {(abonoSeleccionado?.configuracion_personalizada || configuracionPersonalizada).length} turnos
                 </Text>
               </>
             ) : (
@@ -935,6 +809,121 @@ const ReservarAbonoAdmin = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Modal de Configuración Personalizada */}
+      <Modal isOpen={configDisc.isOpen} onClose={configDisc.onClose} isCentered size={{ base: "full", md: "xl" }}>
+        <ModalOverlay />
+        <ModalContent maxH={{ base: "100vh", md: "90vh" }} m={{ base: 0, md: 4 }}>
+          <ModalHeader fontSize={{ base: "lg", md: "xl" }}>Configurar Abono Personalizado</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={6} overflowY="auto" maxH={{ base: "calc(100vh - 120px)", md: "calc(90vh - 120px)" }}>
+            <VStack spacing={4} align="stretch">
+              {/* Información del abono */}
+              <Box p={{ base: 3, md: 4 }} bg="gray.50" rounded="md">
+                <Text fontWeight="semibold" mb={2} fontSize={{ base: "sm", md: "md" }}>Información del Abono</Text>
+                <VStack spacing={1} align="start">
+                  <Text fontSize={{ base: "xs", md: "sm" }}>
+                    <strong>Día:</strong> {DIAS.find(d => String(d.value) === String(diaSemana))?.label}
+                  </Text>
+                  <Text fontSize={{ base: "xs", md: "sm" }}>
+                    <strong>Hora:</strong> {abonoSeleccionado?.hora ? abonoSeleccionado.hora.slice(0, 5) : (horaFiltro ? horaFiltro.slice(0, 5) : "-")}
+                  </Text>
+                  <Text fontSize={{ base: "xs", md: "sm" }}>
+                    <strong>Profesor:</strong> {profesores.find(p => String(p.id) === String(profesorId))?.nombre || "-"}
+                  </Text>
+                  <Text fontSize={{ base: "xs", md: "sm" }}>
+                    <strong>Mes:</strong> {mesActual}/{anioActual}
+                  </Text>
+                  <Text fontSize={{ base: "xs", md: "sm" }}>
+                    <strong>Turnos disponibles:</strong> {calcularMaximoTurnos()}
+                  </Text>
+                </VStack>
+              </Box>
+
+              {/* Configuración de turnos */}
+              <Box>
+                <Text fontWeight="semibold" mb={3} fontSize={{ base: "sm", md: "md" }}>Configurar Turnos del Mes</Text>
+                <VStack spacing={3} align="stretch">
+                  {Array.from({ length: calcularMaximoTurnos() }, (_, index) => (
+                    <Box key={index} p={{ base: 2, md: 3 }} bg="gray.50" rounded="md">
+                      <Stack direction={{ base: "column", sm: "row" }} spacing={3} align={{ base: "stretch", sm: "center" }}>
+                        <Text minW={{ base: "auto", sm: "80px" }} fontSize={{ base: "xs", md: "sm" }} fontWeight="medium">
+                          Turno {index + 1}:
+                        </Text>
+                        <Select
+                          placeholder="Seleccionar tipo de clase"
+                          value={configuracionPersonalizada[index]?.tipo_clase_id || ""}
+                          size={{ base: "sm", md: "md" }}
+                          onChange={(e) => {
+                            const nuevaConfig = [...configuracionPersonalizada];
+                            if (nuevaConfig[index]) {
+                              nuevaConfig[index].tipo_clase_id = Number(e.target.value);
+                              const tipoClase = tiposClase.find(tc => tc.id === Number(e.target.value));
+                              if (tipoClase) {
+                                nuevaConfig[index].codigo = tipoClase.codigo;
+                              }
+                            } else {
+                              const tipoClase = tiposClase.find(tc => tc.id === Number(e.target.value));
+                              nuevaConfig[index] = {
+                                tipo_clase_id: Number(e.target.value),
+                                cantidad: 1,
+                                codigo: tipoClase?.codigo || ""
+                              };
+                            }
+                            setConfiguracionPersonalizada(nuevaConfig);
+                          }}
+                        >
+                          {tiposClase.map((tipo) => (
+                            <option key={tipo.id} value={tipo.id}>
+                              {getNombreTipoClase(tipo)}
+                            </option>
+                          ))}
+                        </Select>
+                      </Stack>
+                    </Box>
+                  ))}
+                </VStack>
+              </Box>
+
+              {/* Resumen simple */}
+              {configuracionPersonalizada.some(config => config.tipo_clase_id) && (
+                <Box p={{ base: 3, md: 4 }} bg="blue.50" rounded="md">
+                  <Text fontWeight="semibold" mb={2} fontSize={{ base: "sm", md: "md" }}>Resumen de la Configuración</Text>
+                  <VStack spacing={1} align="start">
+                    {configuracionPersonalizada.map((config, index) => {
+                      const tipoClase = tiposClase.find(tc => String(tc.id) === String(config.tipo_clase_id));
+                      return tipoClase ? (
+                        <Text key={index} fontSize={{ base: "xs", md: "sm" }}>
+                          Turno {index + 1}: {getNombreTipoClase(tipoClase)}
+                        </Text>
+                      ) : null;
+                    })}
+                  </VStack>
+                </Box>
+              )}
+            </VStack>
+          </ModalBody>
+          <ModalFooter flexDirection={{ base: "column", sm: "row" }} gap={2}>
+            <ChakraButton 
+              variant="ghost" 
+              onClick={configDisc.onClose} 
+              w={{ base: "100%", sm: "auto" }}
+              mr={{ base: 0, sm: 3 }}
+            >
+              Cancelar
+            </ChakraButton>
+            <ChakraButton
+              colorScheme="blue"
+              onClick={procederAAsignacion}
+              isDisabled={configuracionPersonalizada.some(config => !config.tipo_clase_id)}
+              isLoading={enviando}
+              w={{ base: "100%", sm: "auto" }}
+            >
+              Asignar Abono
+            </ChakraButton>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </PageWrapper>
   );
 };
