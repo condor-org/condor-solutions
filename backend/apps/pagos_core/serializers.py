@@ -87,6 +87,8 @@ class ComprobantePagoSerializer(LoggedModelSerializer):
     cliente_nombre = serializers.SerializerMethodField()
     tipo = serializers.SerializerMethodField()
     tipo_display = serializers.SerializerMethodField()
+    estado_pago = serializers.SerializerMethodField()
+    monto = serializers.SerializerMethodField()
 
     class Meta:
         model = ComprobantePago
@@ -105,6 +107,8 @@ class ComprobantePagoSerializer(LoggedModelSerializer):
             "cliente_nombre",
             "tipo",
             "tipo_display",
+            "estado_pago",
+            "monto",
         ]
 
     # ⚠️ En estos getters se usa print() para logs de error.
@@ -112,58 +116,126 @@ class ComprobantePagoSerializer(LoggedModelSerializer):
 
     def get_usuario_nombre(self, obj):
         try:
-            return (
-                obj.turno.usuario.get_full_name()
-                or obj.turno.usuario.username
-                or obj.turno.usuario.email
-            )
+            # Si tiene turno, usar la información del turno
+            if obj.turno and obj.turno.usuario:
+                return (
+                    obj.turno.usuario.get_full_name()
+                    or obj.turno.usuario.username
+                    or obj.turno.usuario.email
+                )
+            # Si no tiene turno (rechazado), buscar en PagoIntento
+            else:
+                from django.contrib.contenttypes.models import ContentType
+                from apps.pagos_core.models import PagoIntento
+                ct = ContentType.objects.get_for_model(ComprobantePago)
+                pago_intento = PagoIntento.objects.filter(
+                    content_type=ct,
+                    object_id=obj.id
+                ).first()
+                if pago_intento:
+                    return (
+                        pago_intento.usuario.get_full_name()
+                        or pago_intento.usuario.username
+                        or pago_intento.usuario.email
+                    )
+            return ""
         except Exception as e:
             print(f"[DEBUG] usuario_nombre ERROR comprobante {obj.id}: {e}")
             return ""
 
     def get_usuario_email(self, obj):
         try:
-            return obj.turno.usuario.email
+            # Si tiene turno, usar la información del turno
+            if obj.turno and obj.turno.usuario:
+                return obj.turno.usuario.email
+            # Si no tiene turno (rechazado), buscar en PagoIntento
+            else:
+                from django.contrib.contenttypes.models import ContentType
+                from apps.pagos_core.models import PagoIntento
+                ct = ContentType.objects.get_for_model(ComprobantePago)
+                pago_intento = PagoIntento.objects.filter(
+                    content_type=ct,
+                    object_id=obj.id
+                ).first()
+                if pago_intento:
+                    return pago_intento.usuario.email
+            return ""
         except Exception as e:
             print(f"[DEBUG] usuario_email ERROR comprobante {obj.id}: {e}")
             return ""
 
     def get_turno_hora(self, obj):
         try:
-            return obj.turno.hora.strftime("%H:%M")
+            # Si tiene turno, usar la información del turno
+            if obj.turno:
+                return obj.turno.hora.strftime("%H:%M")
+            # Si no tiene turno (rechazado), mostrar información del comprobante
+            else:
+                datos = obj.datos_extraidos or {}
+                fecha_detectada = datos.get('fecha_detectada')
+                if fecha_detectada:
+                    from datetime import datetime
+                    try:
+                        dt = datetime.fromisoformat(fecha_detectada.replace('Z', '+00:00'))
+                        return dt.strftime("%H:%M")
+                    except:
+                        pass
+            return None
         except Exception as e:
             print(f"[DEBUG] turno_hora ERROR comprobante {obj.id}: {e}")
             return None
 
     def get_profesor_nombre(self, obj):
         try:
-            recurso = obj.turno.recurso
-            if hasattr(recurso, "nombre_publico"):
-                return recurso.nombre_publico
-            return str(recurso)
+            # Si tiene turno, usar la información del turno
+            if obj.turno:
+                recurso = obj.turno.recurso
+                if hasattr(recurso, "nombre_publico"):
+                    return recurso.nombre_publico
+                return str(recurso)
+            # Si no tiene turno (rechazado), mostrar información del comprobante
+            else:
+                datos = obj.datos_extraidos or {}
+                return datos.get('nombre_destinatario', '')
         except Exception as e:
             print(f"[DEBUG] profesor_nombre ERROR comprobante {obj.id}: {e}")
             return ""
 
     def get_sede_nombre(self, obj):
         try:
-            return obj.turno.lugar.nombre
+            # Si tiene turno, usar la información del turno
+            if obj.turno:
+                return obj.turno.lugar.nombre
+            # Si no tiene turno (rechazado), usar información del cliente
+            else:
+                return obj.cliente.nombre
         except Exception as e:
             print(f"[DEBUG] sede_nombre ERROR comprobante {obj.id}: {e}")
             return ""
 
     def get_cliente_nombre(self, obj):
         try:
-            return obj.turno.lugar.cliente.nombre
+            # Si tiene turno, usar la información del turno
+            if obj.turno:
+                return obj.turno.lugar.cliente.nombre
+            # Si no tiene turno (rechazado), usar información directa del cliente
+            else:
+                return obj.cliente.nombre
         except Exception as e:
             print(f"[DEBUG] cliente_nombre ERROR comprobante {obj.id}: {e}")
             return ""
 
     def get_especialidad_nombre(self, obj):
         try:
-            recurso = obj.turno.recurso
-            if hasattr(recurso, "especialidad"):
-                return recurso.especialidad
+            # Si tiene turno, usar la información del turno
+            if obj.turno:
+                recurso = obj.turno.recurso
+                if hasattr(recurso, "especialidad"):
+                    return recurso.especialidad
+            # Si no tiene turno (rechazado), mostrar información del comprobante
+            else:
+                datos = obj.datos_extraidos or {}
+                return datos.get('motivo_cancelacion', '')
             return ""
         except Exception as e:
             print(f"[DEBUG] especialidad_nombre ERROR comprobante {obj.id}: {e}")
@@ -176,6 +248,54 @@ class ComprobantePagoSerializer(LoggedModelSerializer):
     def get_tipo_display(self, obj):
         """Obtener el nombre legible del tipo"""
         return getattr(obj, 'tipo_display', 'Clase Individual')
+
+    def get_estado_pago(self, obj):
+        """Determina el estado del pago basándose en el PagoIntento asociado"""
+        try:
+            from django.contrib.contenttypes.models import ContentType
+            from apps.pagos_core.models import PagoIntento
+            
+            ct = ContentType.objects.get_for_model(ComprobantePago)
+            pago_intento = PagoIntento.objects.filter(
+                content_type=ct,
+                object_id=obj.id
+            ).first()
+            
+            if pago_intento:
+                return pago_intento.estado
+            else:
+                # Si no hay PagoIntento, asumir pendiente
+                return "pendiente"
+        except Exception as e:
+            print(f"[DEBUG] estado_pago ERROR comprobante {obj.id}: {e}")
+            return "pendiente"
+
+    def get_monto(self, obj):
+        """Obtiene el monto del comprobante desde datos_extraidos o PagoIntento"""
+        try:
+            # Primero intentar desde datos_extraidos
+            datos = obj.datos_extraidos or {}
+            monto = datos.get('monto')
+            if monto is not None:
+                return float(monto)
+            
+            # Si no hay monto en datos_extraidos, buscar en PagoIntento
+            from django.contrib.contenttypes.models import ContentType
+            from apps.pagos_core.models import PagoIntento
+            
+            ct = ContentType.objects.get_for_model(ComprobantePago)
+            pago_intento = PagoIntento.objects.filter(
+                content_type=ct,
+                object_id=obj.id
+            ).first()
+            
+            if pago_intento:
+                return float(pago_intento.monto_esperado)
+            
+            return 0.0
+        except Exception as e:
+            print(f"[DEBUG] monto ERROR comprobante {obj.id}: {e}")
+            return 0.0
 
 
 class ComprobanteUnificadoSerializer(serializers.Serializer):
@@ -309,6 +429,8 @@ class ComprobanteAbonoSerializer(LoggedModelSerializer):
     tipo = serializers.SerializerMethodField()
     tipo_display = serializers.SerializerMethodField()
     es_renovacion = serializers.SerializerMethodField()
+    estado_pago = serializers.SerializerMethodField()
+    monto = serializers.SerializerMethodField()
 
     class Meta:
         model = ComprobanteAbono
@@ -330,6 +452,8 @@ class ComprobanteAbonoSerializer(LoggedModelSerializer):
             "tipo",
             "tipo_display",
             "es_renovacion",
+            "estado_pago",
+            "monto",
         ]
 
     def get_tipo(self, obj):
@@ -348,6 +472,58 @@ class ComprobanteAbonoSerializer(LoggedModelSerializer):
         # 1. El abono está marcado como renovado, O
         # 2. Tiene fecha límite de renovación (indica que es renovación)
         return abono.renovado or bool(abono.fecha_limite_renovacion)
+
+    def get_estado_pago(self, obj):
+        """Determina el estado del pago basándose en el PagoIntento asociado"""
+        try:
+            from django.contrib.contenttypes.models import ContentType
+            from apps.pagos_core.models import PagoIntento
+            
+            ct = ContentType.objects.get_for_model(ComprobanteAbono)
+            pago_intento = PagoIntento.objects.filter(
+                content_type=ct,
+                object_id=obj.id
+            ).first()
+            
+            if pago_intento:
+                return pago_intento.estado
+            else:
+                # Si no hay PagoIntento, asumir pendiente
+                return "pendiente"
+        except Exception as e:
+            print(f"[DEBUG] estado_pago ERROR comprobante abono {obj.id}: {e}")
+            return "pendiente"
+
+    def get_monto(self, obj):
+        """Obtiene el monto del comprobante desde datos_extraidos o PagoIntento"""
+        try:
+            # Primero intentar desde datos_extraidos
+            datos = obj.datos_extraidos or {}
+            monto = datos.get('monto')
+            if monto is not None:
+                return float(monto)
+            
+            # Si no hay monto en datos_extraidos, buscar en PagoIntento
+            from django.contrib.contenttypes.models import ContentType
+            from apps.pagos_core.models import PagoIntento
+            
+            ct = ContentType.objects.get_for_model(ComprobanteAbono)
+            pago_intento = PagoIntento.objects.filter(
+                content_type=ct,
+                object_id=obj.id
+            ).first()
+            
+            if pago_intento:
+                return float(pago_intento.monto_esperado)
+            
+            # Si no hay PagoIntento, usar el precio del abono
+            if obj.abono_mes:
+                return float(obj.abono_mes.precio)
+            
+            return 0.0
+        except Exception as e:
+            print(f"[DEBUG] monto ERROR comprobante abono {obj.id}: {e}")
+            return 0.0
 
 
 class ComprobanteAbonoUploadSerializer(serializers.Serializer):

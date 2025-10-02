@@ -53,8 +53,10 @@ const AgendaAdmin = () => {
 
   const diaNombreFromISO = (iso) => {
     if (!iso) return "";
-    const d = new Date(`${iso}T00:00:00`);
-    return DSEM_JS[d.getDay()] || "";
+    const [y, m, d] = iso.split("-").map(Number);
+    const dt = new Date(y, m - 1, d); // siempre local, sin sorpresas de TZ
+    const DSEM_JS = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+    return DSEM_JS[dt.getDay()] || "";
   };
 
   const { accessToken, logout, user: authUser } = useContext(AuthContext);
@@ -640,7 +642,7 @@ const HeaderFiltros = (
           sedeId
             ? loadingPrestadores
               ? "Cargando profesores..."
-              : "Profesor (opcional)"
+              : "Profesor"
             : "Elegí una sede primero"
         }
         value={prestadorId}
@@ -804,90 +806,86 @@ const SlotRow = ({ slot }) => {
     );
   };
   const ListadoMes = () => {
-  const dias = Object.keys(agendaMes).sort();
-  if (!dias.length) return <Text color={muted}>{loadingMes ? "Cargando…" : "No hay turnos para este mes."}</Text>;
-
-  // armar semanas (7 columnas, Lunes a Domingo)
-  const byWeeks = [];
-  let week = [];
-  const first = new Date(dias[0]);
-  const padStart = (first.getDay() + 6) % 7; // Lunes=0..Domingo=6
-  for (let i = 0; i < padStart; i++) week.push(null);
-  dias.forEach(d => {
-    week.push(d);
-    if (week.length === 7) { byWeeks.push(week); week = []; }
-  });
-  if (week.length) while (week.length < 7) week.push(null);
-  if (week.length) byWeeks.push(week);
+  // Obtener el mes y año de la fecha seleccionada (parsear correctamente)
+  const [año, mes, dia] = selectedDate.split('-').map(Number);
+  const fechaSeleccionada = new Date(año, mes - 1, dia);
+  const nombreMes = fechaSeleccionada.toLocaleDateString('es-ES', { month: 'long' });
+  
+  // Usar directamente los días que vienen del backend
+  const diasConTurnos = Object.keys(agendaMes).sort();
+  
+  if (!diasConTurnos.length) return <Text color={muted}>{loadingMes ? "Cargando…" : "No hay turnos para este mes."}</Text>;
+  
+  // Función para obtener el nombre del día de la semana
+  const obtenerDiaSemana = (fecha) => {
+    // Parsear la fecha correctamente para evitar problemas de zona horaria
+    const [año, mes, dia] = fecha.split('-').map(Number);
+    const fechaObj = new Date(año, mes - 1, dia); // mes - 1 porque Date usa 0-11
+    return fechaObj.toLocaleDateString('es-ES', { weekday: 'long' });
+  };
 
   return (
     <VStack align="stretch" spacing={3}>
-      {/* encabezado de días */}
-      <HStack fontSize="sm" color={muted} justify="space-between">
-        {["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"].map((d) => (
-          <Box key={d} flex="1" textAlign="center">{d}</Box>
-        ))}
-      </HStack>
+      {/* Título del mes */}
+      <Box textAlign="center" mb={4}>
+        <Text fontSize="lg" fontWeight="bold" color={card.color}>
+          {nombreMes.charAt(0).toUpperCase() + nombreMes.slice(1)} {año}
+        </Text>
+      </Box>
 
-      {/* grilla mensual compacta */}
-      {byWeeks.map((w, wi) => (
-        <HStack key={wi} align="stretch" spacing={3}>
-          {w.map((day, di) => {
-            if (!day) return (
-              <Box key={`${wi}-${di}`} flex="1" minH="110px" bg={card.bg} rounded="lg" borderWidth="1px" borderColor={input.border} />
-            );
-
-            const slots = agendaMes[day] || [];
-            const { total, reservados, disponibles, soloAbonoDisp } = resumenDia(slots);
-
-            return (
-              <Box
-                key={`${wi}-${di}`}
-                flex="1"
-                minH="110px"
-                bg={card.bg}
-                rounded="lg"
-                borderWidth="1px"
-                borderColor={input.border}
-                p={2}
-                _hover={{ bg: hoverBg, cursor: "pointer" }}
-                onClick={() => { setRangeType("day"); setSelectedDate(day); }}
-              >
-                <HStack justify="space-between" mb={2}>
-                  <Text fontSize="sm" fontWeight="bold">{day.slice(-2)}</Text>
-                  <Badge variant="outline">{total}</Badge>
+      {/* Lista de días */}
+      <VStack align="stretch" spacing={2}>
+        {diasConTurnos.map((dia) => {
+          const turnos = agendaMes[dia] || [];
+          const total = turnos.length;
+          const disponibles = turnos.filter(t => t.estado === 'disponible').length;
+          const reservados = turnos.filter(t => t.estado === 'reservado').length;
+          const diaSemana = obtenerDiaSemana(dia);
+          const [año, mes, diaNum] = dia.split('-').map(Number);
+          const numeroDia = diaNum;
+          
+          return (
+            <Box
+              key={dia}
+              p={3}
+              bg={card.bg}
+              rounded="md"
+              borderWidth="1px"
+              borderColor={input.border}
+              _hover={{ bg: hoverBg, cursor: "pointer" }}
+              onClick={() => { setRangeType("day"); setSelectedDate(dia); }}
+            >
+              <HStack justify="space-between" align="center">
+                <HStack spacing={3} align="center">
+                  <Box>
+                    <Text fontSize="lg" fontWeight="bold" color={card.color}>
+                      {numeroDia}
+                    </Text>
+                    <Text fontSize="sm" color={muted} textTransform="capitalize">
+                      {diaSemana}
+                    </Text>
+                  </Box>
                 </HStack>
-
-                {/* resumen compacto (sin botones, sin listas) */}
-                <VStack align="stretch" spacing={1}>
-                  <HStack justify="space-between">
+                
+                <HStack spacing={4}>
+                  <VStack spacing={1} align="center">
                     <Text fontSize="xs" color={muted}>Disponibles</Text>
-                    <Badge colorScheme="green">{disponibles}</Badge>
-                  </HStack>
-                  <HStack justify="space-between">
+                    <Badge size="sm" colorScheme="green">{disponibles}</Badge>
+                  </VStack>
+                  <VStack spacing={1} align="center">
                     <Text fontSize="xs" color={muted}>Reservados</Text>
-                    <Badge colorScheme="red">{reservados}</Badge>
-                  </HStack>
-                  {soloAbonoDisp > 0 && (
-                    <HStack justify="space-between">
-                      <Text fontSize="xs" color={muted}>Solo abono</Text>
-                      <Badge variant="outline">{soloAbonoDisp}</Badge>
-                    </HStack>
-                  )}
-                </VStack>
-              </Box>
-            );
-          })}
-        </HStack>
-      ))}
-
-      {/* leyenda opcional */}
-      <HStack pt={1} spacing={4} color={muted} fontSize="xs">
-        <HStack><Badge variant="outline">N</Badge><Text>Total</Text></HStack>
-        <HStack><Badge colorScheme="green">N</Badge><Text>Disponibles</Text></HStack>
-        <HStack><Badge colorScheme="red">N</Badge><Text>Reservados</Text></HStack>
-        <HStack><Badge variant="outline">N</Badge><Text>Solo abono (disp.)</Text></HStack>
-      </HStack>
+                    <Badge size="sm" colorScheme="red">{reservados}</Badge>
+                  </VStack>
+                  <VStack spacing={1} align="center">
+                    <Text fontSize="xs" color={muted}>Total</Text>
+                    <Badge size="sm" colorScheme="gray">{total}</Badge>
+                  </VStack>
+                </HStack>
+              </HStack>
+            </Box>
+          );
+        })}
+      </VStack>
     </VStack>
   );
 };

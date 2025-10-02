@@ -400,8 +400,10 @@ class AbonoMesSerializer(serializers.ModelSerializer):
         
         # Validar que los tipos de clase existan y pertenezcan a la sede
         tipo_clase_ids = [item['tipo_clase_id'] for item in config]
+        # Obtener tipos únicos para validar
+        tipos_clase_unicos = list(set(tipo_clase_ids))
         tipos_clase = TipoClasePadel.objects.filter(
-            id__in=tipo_clase_ids,
+            id__in=tipos_clase_unicos,
             configuracion_sede__sede=sede,
             activo=True
         )
@@ -409,7 +411,7 @@ class AbonoMesSerializer(serializers.ModelSerializer):
         logger.info("[abonos.validate][config_personalizada] tipo_clase_ids=%s sede_id=%s tipos_encontrados=%s", 
                    tipo_clase_ids, sede.id, [t.id for t in tipos_clase])
         
-        if len(tipos_clase) != len(tipo_clase_ids):
+        if len(tipos_clase) != len(tipos_clase_unicos):
             raise serializers.ValidationError("Algunos tipos de clase no existen o no pertenecen a la sede")
         
         # Validar que la suma de cantidades no exceda turnos disponibles

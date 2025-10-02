@@ -40,7 +40,7 @@ const verificarSolapamientoDisponibilidades = (disponibilidades) => {
         // Verificar solapamiento
         if (horaInicio1 < horaFin2 && horaInicio2 < horaFin1) {
           const diaNombre = diasSemana.find(d => d.value === disp1.dia)?.label || "Día";
-          return `Hay solapamiento en ${diaNombre}: ${disp1.hora_inicio}-${disp1.hora_fin} se solapa con ${disp2.hora_inicio}-${disp2.hora_fin}`;
+          return `❌ No se puede guardar: El prestador no puede tener turnos solapados en ${diaNombre}. Los horarios ${disp1.hora_inicio}-${disp1.hora_fin} y ${disp2.hora_inicio}-${disp2.hora_fin} se superponen.`;
         }
       }
     }
@@ -176,6 +176,29 @@ const ProfesoresPage = () => {
       setProfesores(res.data.results || res.data);
     } catch (err) {
       console.error("[PROFESORES] Error guardando:", err.response?.data || err.message);
+      const errorData = err.response?.data;
+      
+      // Manejar errores específicos de solapamiento del backend
+      if (errorData && typeof errorData === 'object') {
+        // Caso 1: Array directo de errores (formato actual del backend)
+        if (Array.isArray(errorData)) {
+          toast.error(errorData[0]);
+          return;
+        }
+        // Caso 2: non_field_errors
+        if (errorData.non_field_errors && Array.isArray(errorData.non_field_errors)) {
+          toast.error(errorData.non_field_errors[0]);
+          return;
+        }
+        // Caso 3: Buscar errores de disponibilidades
+        for (const [field, errors] of Object.entries(errorData)) {
+          if (field.includes('disponibilidad') && Array.isArray(errors)) {
+            toast.error(errors[0]);
+            return;
+          }
+        }
+      }
+      
       toast.error("Error al guardar el prestador");
     }
   };
@@ -389,8 +412,8 @@ const ProfesoresPage = () => {
                   <VStack spacing={3} align="stretch">
                     {disponibilidades.map((d, i) =>
                       isMobile
-                        ? <DisponibilidadCardMobile key={i} d={d} i={i} />
-                        : <DisponibilidadRowDesktop key={i} d={d} i={i} />
+                        ? <DisponibilidadCardMobile key={`mobile-${i}-${d.sede}-${d.dia}-${d.hora_inicio}-${d.hora_fin}`} d={d} i={i} />
+                        : <DisponibilidadRowDesktop key={`desktop-${i}-${d.sede}-${d.dia}-${d.hora_inicio}-${d.hora_fin}`} d={d} i={i} />
                     )}
                   </VStack>
 

@@ -4,6 +4,7 @@ from apps.pagos_core.views import (
     ComprobanteView,
     ComprobanteDownloadView,
     ComprobanteAprobarRechazarView,
+    ComprobanteAprobarLoteView,
     PagosPendientesCountView,
     ComprobanteAbonoView,
 )
@@ -19,6 +20,9 @@ urlpatterns = [
 
     path("comprobantes/<int:pk>/<str:action>/", ComprobanteAprobarRechazarView.as_view(), name="comprobante-aprobar-rechazar"),
     # ➜ Acciones de backoffice: aprobar o rechazar un comprobante (valida/actualiza estado de reserva/pago).
+
+    path("comprobantes/aprobar-lote/", ComprobanteAprobarLoteView.as_view(), name="comprobante-aprobar-lote"),
+    # ➜ Aprobación en lote de múltiples comprobantes.
 
     path("pendientes/", PagosPendientesCountView.as_view(), name="pagos-pendientes"),
     # ➜ Devuelve métricas: cantidad de comprobantes pendientes de revisión para admins.

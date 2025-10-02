@@ -8,6 +8,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.response import Response
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateAPIView
 from rest_framework.filters import OrderingFilter
+from rest_framework.pagination import PageNumberPagination
 
 from django.http import FileResponse
 from django_filters.rest_framework import DjangoFilterBackend
@@ -43,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 
 class ComprobanteView(ListCreateAPIView):
+    pagination_class = PageNumberPagination
     """
     🔹 Listado y carga de comprobantes de pago de turnos individuales.
 
@@ -71,20 +73,39 @@ class ComprobanteView(ListCreateAPIView):
         solo_aprobados = self.request.query_params.get("solo_aprobados", "").lower() in ("1", "true", "t", "yes")
         solo_rechazados = self.request.query_params.get("solo_rechazados", "").lower() in ("1", "true", "t", "yes")
         
+        # 🔎 Filtros por usuario específico
+        usuario_id = self.request.query_params.get("usuario_id")
+        usuario_email = self.request.query_params.get("usuario_email")
+        
+        # Aplicar filtros por usuario si se especifican
+        filtros_usuario = {}
+        if usuario_id:
+            filtros_usuario["turno__usuario__id"] = usuario_id
+        if usuario_email:
+            filtros_usuario["turno__usuario__email__icontains"] = usuario_email
+        
         if solo_preaprobados:
-            # Solo ComprobantePago con PagoIntento pre_aprobado
+            # Solo ComprobantePago con PagoIntento pre_aprobado Y sin otros estados
             ct_pago = ContentType.objects.get_for_model(ComprobantePago)
             intentos_pre_pago = PagoIntento.objects.filter(
                 content_type=ct_pago,
                 object_id=OuterRef("pk"),
                 estado="pre_aprobado",
             )
+            intentos_otros_estados = PagoIntento.objects.filter(
+                content_type=ct_pago,
+                object_id=OuterRef("pk"),
+                estado__in=["confirmado", "rechazado"],
+            )
             
             qs = (
                 ComprobantePago.objects
                 .select_related("turno", "turno__usuario", "turno__lugar", "cliente")
-                .annotate(tiene_preaprobado=Exists(intentos_pre_pago))
-                .filter(tiene_preaprobado=True)
+                .annotate(
+                    tiene_preaprobado=Exists(intentos_pre_pago),
+                    tiene_otros_estados=Exists(intentos_otros_estados)
+                )
+                .filter(tiene_preaprobado=True, tiene_otros_estados=False, **filtros_usuario)
                 .order_by("-created_at")
             )
         elif solo_aprobados:
@@ -100,7 +121,7 @@ class ComprobanteView(ListCreateAPIView):
                 ComprobantePago.objects
                 .select_related("turno", "turno__usuario", "turno__lugar", "cliente")
                 .annotate(tiene_confirmado=Exists(intentos_confirmados))
-                .filter(tiene_confirmado=True)
+                .filter(tiene_confirmado=True, **filtros_usuario)
                 .order_by("-created_at")
             )
         elif solo_rechazados:
@@ -116,7 +137,7 @@ class ComprobanteView(ListCreateAPIView):
                 ComprobantePago.objects
                 .select_related("turno", "turno__usuario", "turno__lugar", "cliente")
                 .annotate(tiene_rechazado=Exists(intentos_rechazados))
-                .filter(tiene_rechazado=True)
+                .filter(tiene_rechazado=True, **filtros_usuario)
                 .order_by("-created_at")
             )
         else:
@@ -124,6 +145,7 @@ class ComprobanteView(ListCreateAPIView):
             qs = (
                 ComprobantePago.objects
                 .select_related("turno", "turno__usuario", "turno__lugar", "cliente")
+                .filter(**filtros_usuario)
                 .order_by("-created_at")
             )
 
@@ -206,7 +228,59 @@ class ComprobanteAprobarRechazarView(APIView):
         # 1) Comprobante de turno individual
         try:
             comprobante = ComprobantePago.objects.get(pk=pk)
-            # ... lógica de aprobar/rechazar, actualiza turno y PagoIntento ...
+            logger.debug("[PATCH] ComprobantePago encontrado: %s", comprobante.id)
+            
+            if action == "aprobar":
+                # Aprobar comprobante
+                comprobante.valido = True
+                comprobante.save(update_fields=["valido"])
+                
+                # Actualizar PagoIntento
+                ct_pago = ContentType.objects.get_for_model(ComprobantePago)
+                pago_intento = PagoIntento.objects.filter(
+                    content_type=ct_pago,
+                    object_id=comprobante.id,
+                    estado="pre_aprobado"
+                ).first()
+                
+                if pago_intento:
+                    pago_intento.estado = "confirmado"
+                    pago_intento.save(update_fields=["estado"])
+                
+                # Actualizar estado del turno
+                if comprobante.turno:
+                    comprobante.turno.estado = "confirmado"
+                    comprobante.turno.save(update_fields=["estado"])
+                
+                logger.info("[PATCH] ComprobantePago %s aprobado exitosamente", comprobante.id)
+                return Response({"message": "Comprobante aprobado exitosamente"}, status=200)
+                
+            elif action == "rechazar":
+                # Rechazar comprobante
+                comprobante.valido = False
+                comprobante.save(update_fields=["valido"])
+                
+                # Actualizar PagoIntento
+                ct_pago = ContentType.objects.get_for_model(ComprobantePago)
+                pago_intento = PagoIntento.objects.filter(
+                    content_type=ct_pago,
+                    object_id=comprobante.id,
+                    estado="pre_aprobado"
+                ).first()
+                
+                if pago_intento:
+                    pago_intento.estado = "rechazado"
+                    pago_intento.save(update_fields=["estado"])
+                
+                # Liberar turno
+                if comprobante.turno:
+                    comprobante.turno.estado = "disponible"
+                    comprobante.turno.usuario = None
+                    comprobante.turno.save(update_fields=["estado", "usuario"])
+                
+                logger.info("[PATCH] ComprobantePago %s rechazado exitosamente", comprobante.id)
+                return Response({"message": "Comprobante rechazado exitosamente"}, status=200)
+                
         except ComprobantePago.DoesNotExist:
             logger.debug("[PATCH] No es ComprobantePago. Probando ComprobanteAbono...")
 
@@ -275,6 +349,95 @@ class ComprobanteAprobarRechazarView(APIView):
             return Response({"error": "No encontrado"}, status=404)
 
 
+class ComprobanteAprobarLoteView(APIView):
+    """
+    🔹 Aprobación en lote de comprobantes (admin/super).
+    
+    - POST /comprobantes/aprobar-lote/
+    - Acepta una lista de IDs de comprobantes para aprobar
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [EsAdminDeSuCliente | EsSuperAdmin]
+
+    @transaction.atomic
+    def post(self, request):
+        comprobante_ids = request.data.get('comprobante_ids', [])
+        if not comprobante_ids:
+            return Response({"error": "No se proporcionaron IDs de comprobantes"}, status=400)
+        
+        aprobados = []
+        errores = []
+        
+        for comprobante_id in comprobante_ids:
+            try:
+                # Intentar con ComprobantePago
+                try:
+                    comprobante = ComprobantePago.objects.get(pk=comprobante_id)
+                    self._aprobar_comprobante_pago(comprobante)
+                    aprobados.append(f"ComprobantePago {comprobante_id}")
+                except ComprobantePago.DoesNotExist:
+                    # Intentar con ComprobanteAbono
+                    try:
+                        comprobante_abono = ComprobanteAbono.objects.get(pk=comprobante_id)
+                        self._aprobar_comprobante_abono(comprobante_abono)
+                        aprobados.append(f"ComprobanteAbono {comprobante_id}")
+                    except ComprobanteAbono.DoesNotExist:
+                        errores.append(f"Comprobante {comprobante_id} no encontrado")
+            except Exception as e:
+                errores.append(f"Error en comprobante {comprobante_id}: {str(e)}")
+        
+        return Response({
+            "aprobados": aprobados,
+            "errores": errores,
+            "total_aprobados": len(aprobados),
+            "total_errores": len(errores)
+        }, status=200)
+    
+    def _aprobar_comprobante_pago(self, comprobante):
+        """Aprobar un ComprobantePago"""
+        comprobante.valido = True
+        comprobante.save(update_fields=["valido"])
+        
+        # Actualizar PagoIntento
+        ct_pago = ContentType.objects.get_for_model(ComprobantePago)
+        pago_intento = PagoIntento.objects.filter(
+            content_type=ct_pago,
+            object_id=comprobante.id,
+            estado="pre_aprobado"
+        ).first()
+        
+        if pago_intento:
+            pago_intento.estado = "confirmado"
+            pago_intento.save(update_fields=["estado"])
+        
+        # Actualizar estado del turno
+        if comprobante.turno:
+            comprobante.turno.estado = "confirmado"
+            comprobante.turno.save(update_fields=["estado"])
+    
+    def _aprobar_comprobante_abono(self, comprobante_abono):
+        """Aprobar un ComprobanteAbono"""
+        comprobante_abono.valido = True
+        comprobante_abono.save(update_fields=["valido"])
+        
+        # Actualizar PagoIntento
+        ct_abono = ContentType.objects.get_for_model(ComprobanteAbono)
+        pago_intento = PagoIntento.objects.filter(
+            content_type=ct_abono,
+            object_id=comprobante_abono.id,
+            estado="pre_aprobado"
+        ).first()
+        
+        if pago_intento:
+            pago_intento.estado = "confirmado"
+            pago_intento.save(update_fields=["estado"])
+        
+        # Actualizar estado del abono
+        abono = comprobante_abono.abono_mes
+        abono.estado = "pagado"
+        abono.save(update_fields=["estado"])
+
+
 class PagosPendientesCountView(APIView):
     """
     🔹 Métrica rápida: cantidad de comprobantes pendientes de validación para el cliente.
@@ -331,6 +494,7 @@ class ComprobanteAbonoView(APIView):
 
 
 class ComprobanteAbonoView(ListCreateAPIView):
+    pagination_class = PageNumberPagination
     """
     🔹 Listado y carga de comprobantes de abonos mensuales.
 
@@ -359,19 +523,27 @@ class ComprobanteAbonoView(ListCreateAPIView):
         solo_rechazados = self.request.query_params.get("solo_rechazados", "").lower() in ("1", "true", "t", "yes")
         
         if solo_preaprobados:
-            # Solo ComprobanteAbono con PagoIntento pre_aprobado
+            # Solo ComprobanteAbono con PagoIntento pre_aprobado Y sin otros estados
             ct_abono = ContentType.objects.get_for_model(ComprobanteAbono)
             intentos_pre_abono = PagoIntento.objects.filter(
                 content_type=ct_abono,
                 object_id=OuterRef("pk"),
                 estado="pre_aprobado",
             )
+            intentos_otros_estados = PagoIntento.objects.filter(
+                content_type=ct_abono,
+                object_id=OuterRef("pk"),
+                estado__in=["confirmado", "rechazado"],
+            )
             
             qs = (
                 ComprobanteAbono.objects
                 .select_related("abono_mes", "abono_mes__usuario", "cliente")
-                .annotate(tiene_preaprobado=Exists(intentos_pre_abono))
-                .filter(tiene_preaprobado=True)
+                .annotate(
+                    tiene_preaprobado=Exists(intentos_pre_abono),
+                    tiene_otros_estados=Exists(intentos_otros_estados)
+                )
+                .filter(tiene_preaprobado=True, tiene_otros_estados=False)
                 .order_by("-created_at")
             )
         elif solo_aprobados:

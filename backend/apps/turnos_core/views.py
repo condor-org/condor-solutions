@@ -690,8 +690,7 @@ class PrestadorViewSet(viewsets.ModelViewSet):
             return PrestadorConUsuarioSerializer
         elif self.action == "retrieve":
             return PrestadorDetailSerializer
-        return PrestadorDetailSerializer  
-
+        return PrestadorDetailSerializer
     
     @transaction.atomic
     def perform_destroy(self, instance):

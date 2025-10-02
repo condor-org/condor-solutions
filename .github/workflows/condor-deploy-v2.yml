@@ -202,6 +202,9 @@ jobs:
             done
             docker image prune -f >/dev/null || true
 
+            echo "[+] Reload nginx proxy para re-resolver upstreams"
+            docker exec proxy_condor nginx -s reload || echo "Proxy no encontrado, continuando..."
+
             echo "[✓] Deploy DEV OK"
 
   deploy-prod:
@@ -354,5 +357,8 @@ jobs:
               docker rmi -f "$IMG" || true
             done
             docker image prune -f >/dev/null || true
+
+            echo "[+] Reload nginx proxy para re-resolver upstreams"
+            docker exec proxy_condor nginx -s reload || echo "Proxy no encontrado, continuando..."
 
             echo "[✓] Deploy PROD OK"
