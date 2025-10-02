@@ -490,10 +490,12 @@ const ReservarAbonoAdmin = () => {
               {usuariosFiltrados.map(u => {
                 const seleccionado = String(usuarioId) === String(u.id);
                 return (
-                  <HStack
+                  <Stack
                     key={u.id}
-                    justify="space-between"
-                    align="center"
+                    direction={{ base: "column", sm: "row" }}
+                    justify={{ base: "flex-start", sm: "space-between" }}
+                    align={{ base: "flex-start", sm: "center" }}
+                    spacing={{ base: 2, sm: 3 }}
                     p={3}
                     bg={seleccionado ? hoverBg : card.bg}
                     borderWidth="1px"
@@ -503,17 +505,19 @@ const ReservarAbonoAdmin = () => {
                     _hover={{ bg: hoverBg, cursor: "pointer" }}
                     onClick={() => setUsuarioId(String(u.id))}
                   >
-                    <Box>
+                    <Box flex="1">
                       <Text fontWeight="semibold">
                         {(`${u.nombre || ""} ${u.apellido || ""}`).trim() || u.email}
                       </Text>
                       <Text fontSize="sm" color={muted}>{u.email}</Text>
                     </Box>
-                    <HStack>
-                      {seleccionado && <Badge colorScheme="green" variant="solid">Seleccionado</Badge>}
-                      {seleccionado && <CheckIcon />}
-                    </HStack>
-                  </HStack>
+                    {seleccionado && (
+                      <HStack spacing={2} flexShrink={0}>
+                        <Badge colorScheme="green" variant="solid" size="sm">Seleccionado</Badge>
+                        <CheckIcon boxSize={4} />
+                      </HStack>
+                    )}
+                  </Stack>
                 );
               })}
             </VStack>
