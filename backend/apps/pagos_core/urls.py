@@ -3,6 +3,7 @@ from django.urls import path
 from apps.pagos_core.views import (
     ComprobanteView,
     ComprobanteDownloadView,
+    ComprobanteAbonoDownloadView,
     ComprobanteAprobarRechazarView,
     ComprobanteAprobarLoteView,
     PagosPendientesCountView,
@@ -17,6 +18,9 @@ urlpatterns = [
 
     path("comprobantes/<int:pk>/descargar/", ComprobanteDownloadView.as_view(), name="comprobante-download"),
     # ➜ Permite descargar el archivo original del comprobante almacenado.
+
+    path("comprobantes-abono/<int:pk>/descargar/", ComprobanteAbonoDownloadView.as_view(), name="comprobante-abono-download"),
+    # ➜ Permite descargar el archivo original del comprobante de abono almacenado.
 
     path("comprobantes/<int:pk>/<str:action>/", ComprobanteAprobarRechazarView.as_view(), name="comprobante-aprobar-rechazar"),
     # ➜ Acciones de backoffice: aprobar o rechazar un comprobante (valida/actualiza estado de reserva/pago).

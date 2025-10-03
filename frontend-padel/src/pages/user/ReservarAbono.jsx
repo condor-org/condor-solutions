@@ -1349,7 +1349,7 @@ const ReservarAbono = ({ onClose }) => {
                     {Array.from({ length: calcularTurnosDelMes(seleccion?.anio, seleccion?.mes, seleccion?.dia_semana, false) }, (_, index) => (
                       <HStack key={index} spacing={3} align="end">
                         <FormControl flex={2}>
-                          <FormLabel fontSize="sm">Turno {index + 1}</FormLabel>
+                          <FormLabel fontSize="sm">Turno {index + 1} - Tipo de Clase</FormLabel>
                           <Select
                             value={configuracionPersonalizada[index]?.tipo_clase_id || ""}
                             onChange={(e) => {
@@ -1390,7 +1390,7 @@ const ReservarAbono = ({ onClose }) => {
                       return (
                         <HStack key={index} spacing={3} align="end">
                           <FormControl flex={2}>
-                            <FormLabel fontSize="sm">Tipo de Clase</FormLabel>
+                            <FormLabel fontSize="sm">Turno {index + 1} - Tipo de Clase</FormLabel>
                             <Select
                               value={config.tipo_clase_id}
                               onChange={(e) => actualizarTipoClase(index, 'tipo_clase_id', Number(e.target.value))}
@@ -1401,23 +1401,6 @@ const ReservarAbono = ({ onClose }) => {
                               {tiposClase.map(tc => (
                                 <option key={tc.id} value={tc.id}>
                                   {tc.nombre || LABELS[tc.codigo]} - ${Number(tc.precio).toLocaleString("es-AR")}
-                                </option>
-                              ))}
-                            </Select>
-                          </FormControl>
-                          
-                          <FormControl flex={1}>
-                            <FormLabel fontSize="sm">Cantidad</FormLabel>
-                            <Select
-                              value={config.cantidad}
-                              onChange={(e) => actualizarTipoClase(index, 'cantidad', Number(e.target.value))}
-                              bg={input.bg}
-                              borderColor={input.border}
-                              size="sm"
-                            >
-                              {Array.from({ length: Math.min(config.cantidad + calcularTurnosRestantes(), calcularMaximoTurnos()) }, (_, i) => i + 1).map(num => (
-                                <option key={num} value={num}>
-                                  {num} {num === 1 ? 'clase' : 'clases'}
                                 </option>
                               ))}
                             </Select>

@@ -362,6 +362,47 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
                 severity="info",
             )
             logger.info("[abonos.notif] create -> admins=%s", admins.count())
+
+            # -------- Notificación al usuario --------
+            from apps.notificaciones_core.services import TYPE_RESERVA_ABONO_USER
+            
+            ev_user = publish_event(
+                topic="abonos.reserva_confirmada.usuario",
+                actor=request.user,
+                cliente_id=cliente_id,
+                metadata={
+                    "abono_id": abono.id,
+                    "usuario": getattr(abono.usuario, "email", None),
+                    "sede_id": getattr(abono.sede, "id", None),
+                    "prestador_id": getattr(abono.prestador, "id", None),
+                    "anio": abono.anio, "mes": abono.mes, "dia_semana": abono.dia_semana,
+                    "hora": hora_txt,
+                    "tipo": getattr(abono.tipo_clase, "codigo", None),
+                    "monto": abono.monto,
+                },
+            )
+
+            ctx_user = {
+                abono.usuario.id: {
+                    "abono_id": abono.id,
+                    "tipo": getattr(abono.tipo_clase, "codigo", None),
+                    "sede_nombre": sede_nombre,
+                    "prestador": prestador_nombre,
+                    "hora": hora_txt,
+                    "dia_semana_text": dia_semana_text,
+                    "mes_anio": f"{str(abono.mes).zfill(2)}/{abono.anio}",
+                }
+            }
+
+            notify_inapp(
+                event=ev_user,
+                recipients=[abono.usuario],
+                notif_type=TYPE_RESERVA_ABONO_USER,
+                context_by_user=ctx_user,
+                severity="info",
+            )
+            logger.info("[abonos.notif] create -> user=%s", abono.usuario.id)
+
         except Exception:
             # 🧯 No rompe la transacción del abono si falla la notificación (log con stack).
             logger.exception("[notif][abono_reserva][fail]")
