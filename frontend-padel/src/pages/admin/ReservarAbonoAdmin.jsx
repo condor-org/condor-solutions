@@ -100,14 +100,40 @@ const ReservarAbonoAdmin = () => {
 
   useEffect(() => {
     if (!api) return;
-    // Traemos todos, y nos quedamos SOLO con usuario_final
-    api.get("auth/usuarios/?ordering=email")
-      .then(res => {
-        const data = res?.data?.results ?? res?.data ?? [];
-        const finales = (Array.isArray(data) ? data : []).filter(u => u?.tipo_usuario === "usuario_final");
+    
+    // Función para obtener todos los usuarios paginados
+    const cargarTodosLosUsuarios = async () => {
+      try {
+        let todosLosUsuarios = [];
+        let url = "auth/usuarios/?ordering=email";
+        
+        while (url) {
+          const response = await api.get(url);
+          const data = response?.data;
+          
+          if (data?.results) {
+            // Respuesta paginada
+            todosLosUsuarios = [...todosLosUsuarios, ...data.results];
+            url = data.next; // URL de la siguiente página
+          } else if (Array.isArray(data)) {
+            // Respuesta no paginada
+            todosLosUsuarios = [...todosLosUsuarios, ...data];
+            url = null;
+          } else {
+            url = null;
+          }
+        }
+        
+        // Filtrar solo usuarios finales
+        const finales = todosLosUsuarios.filter(u => u?.tipo_usuario === "usuario_final");
         setUsuarios(finales);
-      })
-      .catch(e => { console.error("[AbonoAdmin] usuarios error:", e); setUsuarios([]); });
+      } catch (e) {
+        console.error("[AbonoAdmin] usuarios error:", e);
+        setUsuarios([]);
+      }
+    };
+    
+    cargarTodosLosUsuarios();
   }, [api]);
 
   // profesores - cargar todos los profesores de la sede
