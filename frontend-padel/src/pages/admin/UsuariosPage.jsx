@@ -134,11 +134,21 @@ const UsuariosPage = () => {
         const items = Array.isArray(data) ? data : (data.results || []);
         if (Array.isArray(items) && items.length) acumulado.push(...items);
   
-        // next puede ser absoluto o relativo
+        // Procesar URL de paginación (absoluta o relativa)
         let nextUrl = (data.next && String(data.next).trim()) ? String(data.next) : null;
-        const base = api.defaults.baseURL || "";
-        if (nextUrl && base && nextUrl.startsWith(base)) {
-          nextUrl = nextUrl.slice(base.length);
+        if (nextUrl) {
+          // Si es una URL absoluta, extraer solo el path
+          if (nextUrl.startsWith('http://') || nextUrl.startsWith('https://')) {
+            try {
+              const urlObj = new URL(nextUrl);
+              nextUrl = urlObj.pathname + urlObj.search;
+            } catch (e) {
+              // Si falla el parsing, intentar extraer manualmente
+              const match = nextUrl.match(/https?:\/\/[^\/]+(\/.*)/);
+              nextUrl = match ? match[1] : nextUrl;
+            }
+          }
+          // Si ya es relativa, usarla tal como está
         }
         url = nextUrl;
         safety += 1;

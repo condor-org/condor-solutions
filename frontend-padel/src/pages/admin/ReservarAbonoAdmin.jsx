@@ -114,7 +114,24 @@ const ReservarAbonoAdmin = () => {
           if (data?.results) {
             // Respuesta paginada
             todosLosUsuarios = [...todosLosUsuarios, ...data.results];
-            url = data.next; // URL de la siguiente página
+            
+            // Procesar URL de paginación (absoluta o relativa)
+            let nextUrl = data.next;
+            if (nextUrl) {
+              // Si es una URL absoluta, extraer solo el path
+              if (nextUrl.startsWith('http://') || nextUrl.startsWith('https://')) {
+                try {
+                  const urlObj = new URL(nextUrl);
+                  nextUrl = urlObj.pathname + urlObj.search;
+                } catch (e) {
+                  // Si falla el parsing, intentar extraer manualmente
+                  const match = nextUrl.match(/https?:\/\/[^\/]+(\/.*)/);
+                  nextUrl = match ? match[1] : nextUrl;
+                }
+              }
+              // Si ya es relativa, usarla tal como está
+            }
+            url = nextUrl;
           } else if (Array.isArray(data)) {
             // Respuesta no paginada
             todosLosUsuarios = [...todosLosUsuarios, ...data];
