@@ -122,11 +122,16 @@ const ReservarAbonoAdmin = () => {
               if (nextUrl.startsWith('http://') || nextUrl.startsWith('https://')) {
                 try {
                   const urlObj = new URL(nextUrl);
-                  nextUrl = urlObj.pathname + urlObj.search;
+                  const fullPath = urlObj.pathname + urlObj.search;
+                  // Remover el prefijo /api si existe para evitar /api/api/
+                  nextUrl = fullPath.startsWith('/api/') ? fullPath.slice(4) : fullPath;
                 } catch (e) {
                   // Si falla el parsing, intentar extraer manualmente
                   const match = nextUrl.match(/https?:\/\/[^\/]+(\/.*)/);
-                  nextUrl = match ? match[1] : nextUrl;
+                  if (match) {
+                    const fullPath = match[1];
+                    nextUrl = fullPath.startsWith('/api/') ? fullPath.slice(4) : fullPath;
+                  }
                 }
               }
               // Si ya es relativa, usarla tal como está
