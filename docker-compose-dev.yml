@@ -10,6 +10,8 @@ volumes:
     name: condor_postgres_data_dev
   redis_data_dev:
     name: condor_redis_data_dev
+  media_data_dev:
+    name: condor_media_data_dev
 
 services:
   backend_dev:
@@ -31,6 +33,8 @@ services:
       timeout: 3s
       retries: 12
       start_period: 20s
+    volumes:
+      - media_data_dev:/app/media
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
