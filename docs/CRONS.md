@@ -11,6 +11,7 @@ Este documento detalla todos los crons automáticos configurados en el sistema, 
 | `generar_turnos_mensuales` | Día 1 de cada mes | 00:00 | Genera turnos del mes actual y siguiente |
 | `abonos_diario` | Diario | 00:05 | Procesa recordatorios y transiciones de abonos |
 | `limpiar_archivos_comprobantes` | Diario | 02:00 | Limpia archivos de comprobantes antiguos |
+| `verificar_memoria` | Diario | 03:00 | Monitorea memoria y disco del sistema |
 
 ---
 
@@ -147,6 +148,76 @@ python manage.py limpiar_archivos_comprobantes --dias 60 --apply
 
 ---
 
+## 📊 4. `verificar_memoria.py`
+
+**Ubicación:**  
+`apps/common/management/commands/verificar_memoria.py`
+
+**Frecuencia:**  
+Todos los días a las 03:00
+
+**Función principal:**  
+Monitorea el uso de memoria, disco y CPU del sistema, alertando si se superan umbrales críticos.
+
+### ¿Qué hace?
+
+#### Métricas monitoreadas:
+- **Memoria RAM**: Total, usada, libre, porcentaje
+- **Disco**: Total, usado, libre, porcentaje  
+- **CPU**: Porcentaje de uso actual
+
+#### Umbrales de alerta:
+- **80%+**: Advertencia (amarillo)
+- **90%+**: Crítico (rojo)
+- **<80%**: OK (verde)
+
+#### Proceso:
+1. **Obtiene** métricas del sistema usando `psutil`
+2. **Calcula** porcentajes y estados
+3. **Evalúa** umbrales de alerta
+4. **Registra** logs detallados
+5. **Alerta** si es necesario (opcional)
+
+### Configuración del cron:
+```bash
+0 3 * * * . /etc/environment; /usr/bin/flock -n /tmp/verificar_memoria.lock -c 'cd /app && python manage.py verificar_memoria --umbral 85' >> /proc/1/fd/1 2>&1
+```
+
+### Parámetros opcionales:
+```bash
+# Umbral personalizado (default: 80%)
+python manage.py verificar_memoria --umbral 90
+
+# Con alertas habilitadas
+python manage.py verificar_memoria --umbral 85 --alertar
+
+# Solo verificar (sin alertas)
+python manage.py verificar_memoria --umbral 80
+```
+
+### Logs:
+- Métricas detalladas de memoria, disco y CPU
+- Estados de cada recurso (OK/advertencia/crítico)
+- Alertas generadas
+- Timestamp de verificación
+
+### Ejemplo de salida:
+```
+📊 MONITOREO DE RECURSOS - 2024-10-05 03:00:00
+💾 MEMORIA:
+   Total: 8.0 GB
+   Usada: 6.4 GB (80.0%)
+   Libre: 1.6 GB
+💿 DISCO:
+   Total: 20.0 GB
+   Usado: 15.2 GB (76.0%)
+   Libre: 4.8 GB
+
+⚠️  MEMORIA: 80.0% (umbral: 85%)
+```
+
+---
+
 ## 🛠️ Configuración Técnica
 
 ### Contenedor Cron:
@@ -159,6 +230,7 @@ python manage.py limpiar_archivos_comprobantes --dias 60 --apply
 - **`/tmp/turnos.lock`**: Evita ejecuciones simultáneas de generación de turnos
 - **`/tmp/abonos_diario.lock`**: Evita ejecuciones simultáneas de abonos
 - **`/tmp/limpiar_comprobantes.lock`**: Evita ejecuciones simultáneas de limpieza
+- **`/tmp/verificar_memoria.lock`**: Evita ejecuciones simultáneas de monitoreo
 
 ### Zona Horaria:
 - **Configurada**: `America/Argentina/Buenos_Aires`
@@ -189,6 +261,64 @@ python manage.py limpiar_archivos_comprobantes --dias 60 --apply
    - Elimina registros huérfanos
    - Libera espacio en disco
 
+3. **03:00** → `verificar_memoria`
+   - Monitorea uso de memoria y disco
+   - Alerta si supera umbrales (80%+)
+   - Registra métricas para análisis
+
+---
+
+## 🌐 Endpoint de Monitoreo
+
+**URL:**  
+`GET /api/monitoreo/recursos/`
+
+**Autenticación:**  
+Solo accesible por `super_admin`
+
+**Función:**  
+Endpoint REST para obtener métricas de recursos del sistema en tiempo real.
+
+### Respuesta de ejemplo:
+```json
+{
+  "timestamp": "2024-10-05T03:00:00Z",
+  "memoria": {
+    "total_gb": 8.0,
+    "usada_gb": 6.4,
+    "libre_gb": 1.6,
+    "porcentaje": 80.0,
+    "estado": "advertencia"
+  },
+  "disco": {
+    "total_gb": 20.0,
+    "usado_gb": 15.2,
+    "libre_gb": 4.8,
+    "porcentaje": 76.0,
+    "estado": "ok"
+  },
+  "cpu": {
+    "porcentaje": 45.2,
+    "estado": "ok"
+  },
+  "alertas": [
+    "Memoria: 80.0% (advertencia)"
+  ]
+}
+```
+
+### Estados:
+- **`ok`**: < 80% de uso
+- **`advertencia`**: 80-89% de uso  
+- **`critico`**: ≥ 90% de uso
+
+### Uso:
+```bash
+# Obtener métricas actuales
+curl -H "Authorization: Bearer <token>" \
+     https://padel-dev.cnd-ia.com/api/monitoreo/recursos/
+```
+
 ---
 
 ## 🔍 Monitoreo y Debugging
@@ -212,6 +342,9 @@ docker exec -it cron_condor python manage.py abonos_diario
 
 # Limpiar comprobantes (dry-run)
 docker exec -it cron_condor python manage.py limpiar_archivos_comprobantes --dias 30
+
+# Verificar memoria
+docker exec -it cron_condor python manage.py verificar_memoria --umbral 85
 ```
 
 ### Verificar locks:

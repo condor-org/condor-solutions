@@ -35,4 +35,5 @@ urlpatterns = [
     path('api/', include('apps.clientes_core.urls')),
     path("api/padel/", include("apps.turnos_padel.urls")),
     path("api/notificaciones/", include("apps.notificaciones_core.urls")),
+    path("api/", include("apps.common.urls")),
 ]
