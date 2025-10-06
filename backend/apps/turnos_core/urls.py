@@ -20,6 +20,9 @@ from apps.turnos_core.views import (
     ReservarTurnoAdminView,
     LiberarTurnoAdminView,
     ToggleReservadoParaAbonoView,
+    eliminar_bonificacion,
+    bonificaciones_usuario,
+    turnos_usuario,
 )
 
 
@@ -71,6 +74,11 @@ urlpatterns = [
     path("admin/liberar/",  LiberarTurnoAdminView.as_view(),  name="turno-admin-liberar"),
     
     path("admin/marcar_reservado_para_abono/", ToggleReservadoParaAbonoView.as_view(), name="toggle-reservado-para-abono"),
+    
+    # Nuevos endpoints para gestión de usuarios
+    path("bonificaciones/<int:bonificacion_id>/", eliminar_bonificacion, name="eliminar-bonificacion"),
+    path("bonificados/usuario/<int:usuario_id>/", bonificaciones_usuario, name="bonificaciones-usuario"),
+    path("usuario/<int:usuario_id>/", turnos_usuario, name="turnos-usuario"),
     
     # Incluye todas las rutas de los ViewSets (sedes, prestadores, disponibilidades)
     path("", include(router.urls)),

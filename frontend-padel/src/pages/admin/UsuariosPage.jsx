@@ -5,7 +5,8 @@ import {
   Box, Flex, Heading, Text, VStack, Modal, ModalOverlay, ModalContent,
   ModalHeader, ModalCloseButton, ModalBody, ModalFooter, useDisclosure,
   IconButton, Switch, Stack, HStack, useBreakpointValue, Divider,
-  useColorModeValue, Select, SimpleGrid, ButtonGroup, InputGroup, InputLeftElement
+  useColorModeValue, Select, SimpleGrid, ButtonGroup, InputGroup, InputLeftElement,
+  Tabs, TabList, Tab, TabPanels, TabPanel, Badge
 } from "@chakra-ui/react";
 import { DeleteIcon, EditIcon, SearchIcon } from "@chakra-ui/icons";
 import Sidebar from "../../components/layout/Sidebar";
@@ -15,6 +16,12 @@ import PageWrapper from "../../components/layout/PageWrapper";
 import { AuthContext } from "../../auth/AuthContext";
 import { axiosAuth } from "../../utils/axiosAuth";
 import { toast } from "react-toastify";
+
+// Componentes del modal mejorado
+import InfoCard from "../../components/ui/InfoCard";
+import BonificacionesList from "../../components/admin/BonificacionesList";
+import AbonosList from "../../components/admin/AbonosList";
+import TurnosSueltosList from "../../components/admin/TurnosSueltosList";
 
 import {
   useBodyBg,
@@ -481,133 +488,217 @@ const UsuariosPage = () => {
           </ModalContent>
         </Modal>
 
-        {/* MODAL detalle usuario */}
-        <Modal isOpen={isOpenDetalle} onClose={onCloseDetalle} isCentered size={isMobile ? "full" : "md"}>
+        {/* MODAL detalle usuario - MEJORADO */}
+        <Modal 
+          isOpen={isOpenDetalle} 
+          onClose={onCloseDetalle} 
+          isCentered 
+          size={isMobile ? "full" : "xl"}
+        >
           <ModalOverlay />
-          <ModalContent bg={modal.bg} color={modal.color}>
-            <ModalHeader>Detalle de Usuario</ModalHeader>
+          <ModalContent bg={modal.bg} color={modal.color} maxH="90vh">
+            <ModalHeader>
+              <Flex align="center" justify="space-between" wrap="wrap" gap={2}>
+                <Text fontSize="xl" fontWeight="bold">
+                  {detalleUsuario?.nombre} {detalleUsuario?.apellido}
+                </Text>
+              </Flex>
+            </ModalHeader>
             <ModalCloseButton />
+            <Box px={6} pb={2}>
+              <Badge 
+                colorScheme={detalleUsuario?.is_active ? "green" : "red"}
+                size="lg"
+              >
+                {detalleUsuario?.is_active ? "Activo" : "Inactivo"}
+              </Badge>
+            </Box>
             <ModalBody maxH="70vh" overflowY="auto">
               {detalleUsuario && (
-                <VStack spacing={2} align="stretch">
-                  <Text fontWeight="bold">Nombre:</Text>
-                  <Text noOfLines={{ base: 1, md: undefined }}>{detalleUsuario.nombre}</Text>
-                  <Text fontWeight="bold">Apellido:</Text>
-                  <Text noOfLines={{ base: 1, md: undefined }}>{detalleUsuario.apellido}</Text>
-                  <Text fontWeight="bold">Teléfono:</Text>
-                  <Text>{detalleUsuario.telefono || "No informado"}</Text>
-                  <Text fontWeight="bold">Tipo de usuario:</Text>
-                  <Text>{detalleUsuario.tipo_usuario || "No informado"}</Text>
-                  <Divider />
-                  <Text fontWeight="bold">Email:</Text>
-                  <Text noOfLines={{ base: 2, md: undefined }}>{detalleUsuario.email}</Text>
-                  <Text fontWeight="bold">Username:</Text>
-                  <Text noOfLines={{ base: 1, md: undefined }}>{detalleUsuario.username}</Text>
-                  <Text fontWeight="bold">Activo:</Text>
-                  <Text color={detalleUsuario.is_active ? "green.400" : "red.400"}>
-                    {detalleUsuario.is_active ? "Sí" : "No"}
-                  </Text>
-                  <Text fontWeight="bold">Es staff:</Text>
-                  <Text color={detalleUsuario.is_staff ? "green.400" : "red.400"}>
-                    {detalleUsuario.is_staff ? "Sí" : "No"}
-                  </Text>
-                </VStack>
-              )}
+                <Tabs variant="enclosed" colorScheme="blue">
+                  <TabList>
+                    <Tab>👤 Información</Tab>
+                    <Tab>🎁 Bonificaciones</Tab>
+                    <Tab>📅 Abonos</Tab>
+                    <Tab>🏓 Clases Sueltas</Tab>
+                  </TabList>
 
-              {detalleUsuario?.tipo_usuario === "usuario_final" && (
-                <Box mt={4} p={4} bg={card.bg} borderRadius="md" borderWidth="1px">
-                  <Text fontWeight="bold" mb={2}>Emitir Bonificación Manual</Text>
-                  <VStack spacing={3} align="stretch">
-                    <ChakraInput
-                      placeholder="Motivo"
-                      value={motivoBonificacion}
-                      onChange={(e) => setMotivoBonificacion(e.target.value)}
-                      size="md"
-                      fontSize={{ base: "16px", md: "inherit" }}
-                    />
+                  <TabPanels>
+                    {/* TAB 1: Información Usuario */}
+                    <TabPanel>
+                      <VStack spacing={4} align="stretch">
+                        <InfoCard 
+                          label="Nombre y Apellido"
+                          value={`${detalleUsuario.nombre} ${detalleUsuario.apellido}`}
+                        />
+                        <InfoCard 
+                          label="Teléfono"
+                          value={detalleUsuario.telefono}
+                          copyButton={true}
+                        />
+                        <InfoCard 
+                          label="Email"
+                          value={detalleUsuario.email}
+                          copyButton={true}
+                        />
+                        <InfoCard 
+                          label="Tipo de Usuario"
+                          value={detalleUsuario.tipo_usuario}
+                        />
+                        <InfoCard 
+                          label="Username"
+                          value={detalleUsuario.username}
+                        />
+                        <InfoCard 
+                          label="Es Staff"
+                          value={detalleUsuario.is_staff ? "Sí" : "No"}
+                        />
+                      </VStack>
+                    </TabPanel>
 
-                    {/* Sede */}
-                    <Select
-                      size={{ base: "sm", md: "md" }}
-                      placeholder="Seleccioná la sede"
-                      value={selectedSedeId}
-                      onChange={(e) => {
-                        setSelectedSedeId(e.target.value);
-                        setSelectedTipoClaseId("");
-                      }}
-                    >
-                      {(sedes || []).map((s) => (
-                        <option key={s.id} value={s.id}>{s.nombre}</option>
-                      ))}
-                    </Select>
-
-                    {/* Tipo de clase (desde configuracion_padel.tipos_clase del detalle) */}
-                    <Select
-                      size={{ base: "sm", md: "md" }}
-                      placeholder={selectedSedeId ? (loadingTipos ? "Cargando tipos..." : "Seleccioná el tipo de clase") : "Elegí una sede primero"}
-                      value={selectedTipoClaseId}
-                      onChange={(e) => setSelectedTipoClaseId(e.target.value)}
-                      isDisabled={!selectedSedeId || loadingTipos}
-                    >
-                      {(tiposClase || []).map((tc) => (
-                        <option key={tc.id} value={tc.id}>
-                          {(LABELS_TIPO[tc.codigo] || tc.codigo)?.toString()} — ${Number(tc.precio).toLocaleString("es-AR")}
-                        </option>
-                      ))}
-                    </Select>
-
-                    <Button
-                      isLoading={cargandoBono}
-                      isDisabled={
-                        !motivoBonificacion.trim() ||
-                        !selectedSedeId ||
-                        !selectedTipoClaseId
-                      }
-                      w={{ base: "100%", md: "auto" }}
-                      onClick={async () => {
-                        if (!motivoBonificacion.trim()) {
-                          toast.error("El motivo es obligatorio");
-                          return;
-                        }
-                        if (!selectedSedeId) {
-                          toast.error("Seleccioná la sede");
-                          return;
-                        }
-                        if (!selectedTipoClaseId) {
-                          toast.error("Seleccioná el tipo de clase");
-                          return;
-                        }
-                        setCargandoBono(true);
+                    {/* TAB 2: Bonificaciones */}
+                    <TabPanel>
+                      <VStack spacing={4} align="stretch">
+                        <BonificacionesList 
+                          usuarioId={detalleUsuario.id}
+                          accessToken={accessToken}
+                          logout={logout}
+                          onRefresh={() => {
+                            // Refrescar datos si es necesario
+                          }}
+                        />
                         
-                        const api = axiosAuth(accessToken, logout);
-                        try {
-                          await api.post("/turnos/bonificaciones/crear-manual/", {
-                            usuario_id: detalleUsuario.id,
-                            sede_id: Number(selectedSedeId),
-                            tipo_clase_id: Number(selectedTipoClaseId),
-                            motivo: motivoBonificacion,
-                          });
-                          toast.success("Bonificación emitida correctamente");
-                          setMotivoBonificacion("");
-                          setSelectedSedeId("");
-                          setSelectedTipoClaseId("");
-                          setTiposClase([]);
-                        } catch (err) {
-                          console.error("Emitir bonificación manual:", err?.response?.data || err?.message);
-                          toast.error("Error al emitir bonificación");
-                        } finally {
-                          setCargandoBono(false);
-                        }
-                      }}
-                    >
-                      Emitir Bono
-                    </Button>
-                  </VStack>
-                </Box>
+                        {/* Formulario para asignar nueva bonificación */}
+                        {detalleUsuario.tipo_usuario === "usuario_final" && (
+                          <Box p={4} bg={card.bg} borderRadius="md" borderWidth="1px">
+                            <Text fontWeight="bold" mb={3}>🎁 Asignar Nueva Bonificación</Text>
+                            <VStack spacing={3} align="stretch">
+                              <ChakraInput
+                                placeholder="Motivo"
+                                value={motivoBonificacion}
+                                onChange={(e) => setMotivoBonificacion(e.target.value)}
+                                size="md"
+                                fontSize={{ base: "16px", md: "inherit" }}
+                              />
+
+                              {/* Sede */}
+                              <Select
+                                size={{ base: "sm", md: "md" }}
+                                placeholder="Seleccioná la sede"
+                                value={selectedSedeId}
+                                onChange={(e) => {
+                                  setSelectedSedeId(e.target.value);
+                                  setSelectedTipoClaseId("");
+                                }}
+                              >
+                                {(sedes || []).map((s) => (
+                                  <option key={s.id} value={s.id}>{s.nombre}</option>
+                                ))}
+                              </Select>
+
+                              {/* Tipo de clase */}
+                              <Select
+                                size={{ base: "sm", md: "md" }}
+                                placeholder={selectedSedeId ? (loadingTipos ? "Cargando tipos..." : "Seleccioná el tipo de clase") : "Elegí una sede primero"}
+                                value={selectedTipoClaseId}
+                                onChange={(e) => setSelectedTipoClaseId(e.target.value)}
+                                isDisabled={!selectedSedeId || loadingTipos}
+                              >
+                                {(tiposClase || []).map((tc) => (
+                                  <option key={tc.id} value={tc.id}>
+                                    {(LABELS_TIPO[tc.codigo] || tc.codigo)?.toString()} — ${Number(tc.precio).toLocaleString("es-AR")}
+                                  </option>
+                                ))}
+                              </Select>
+
+                              <Button
+                                isLoading={cargandoBono}
+                                isDisabled={
+                                  !motivoBonificacion.trim() ||
+                                  !selectedSedeId ||
+                                  !selectedTipoClaseId
+                                }
+                                w={{ base: "100%", md: "auto" }}
+                                onClick={async () => {
+                                  if (!motivoBonificacion.trim()) {
+                                    toast.error("El motivo es obligatorio");
+                                    return;
+                                  }
+                                  if (!selectedSedeId) {
+                                    toast.error("Seleccioná la sede");
+                                    return;
+                                  }
+                                  if (!selectedTipoClaseId) {
+                                    toast.error("Seleccioná el tipo de clase");
+                                    return;
+                                  }
+                                  setCargandoBono(true);
+                                  
+                                  const api = axiosAuth(accessToken, logout);
+                                  try {
+                                    await api.post("/turnos/bonificaciones/crear-manual/", {
+                                      usuario_id: detalleUsuario.id,
+                                      sede_id: Number(selectedSedeId),
+                                      tipo_clase_id: Number(selectedTipoClaseId),
+                                      motivo: motivoBonificacion,
+                                    });
+                                    toast.success("Bonificación emitida correctamente");
+                                    setMotivoBonificacion("");
+                                    setSelectedSedeId("");
+                                    setSelectedTipoClaseId("");
+                                    setTiposClase([]);
+                                  } catch (err) {
+                                    console.error("Emitir bonificación manual:", err?.response?.data || err?.message);
+                                    toast.error("Error al emitir bonificación");
+                                  } finally {
+                                    setCargandoBono(false);
+                                  }
+                                }}
+                              >
+                                Emitir Bono
+                              </Button>
+                            </VStack>
+                          </Box>
+                        )}
+                      </VStack>
+                    </TabPanel>
+
+                    {/* TAB 3: Abonos */}
+                    <TabPanel>
+                      <AbonosList 
+                        usuarioId={detalleUsuario.id}
+                        accessToken={accessToken}
+                        logout={logout}
+                        onRenovar={() => {
+                          // Lógica de renovación si es necesaria
+                        }}
+                        onCancelar={() => {
+                          // Lógica de cancelación si es necesaria
+                        }}
+                      />
+                    </TabPanel>
+
+                    {/* TAB 4: Clases Sueltas */}
+                    <TabPanel>
+                      <TurnosSueltosList 
+                        usuarioId={detalleUsuario.id}
+                        accessToken={accessToken}
+                        logout={logout}
+                        onCancelar={() => {
+                          // Lógica de cancelación si es necesaria
+                        }}
+                      />
+                    </TabPanel>
+                  </TabPanels>
+                </Tabs>
               )}
             </ModalBody>
             <ModalFooter>
-              <Button onClick={onCloseDetalle} size={{ base: "md", md: "lg" }} w={{ base: "100%", md: "auto" }}>
+              <Button 
+                onClick={onCloseDetalle} 
+                size={{ base: "md", md: "lg" }} 
+                w={{ base: "100%", md: "auto" }}
+              >
                 Cerrar
               </Button>
             </ModalFooter>

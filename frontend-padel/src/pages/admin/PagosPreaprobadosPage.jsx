@@ -495,71 +495,64 @@ const PagosPreaprobadosPage = () => {
               )}
             </HStack>
 
-            <HStack spacing={2} wrap="wrap" mb={1}>
-              <Text fontSize="sm">Abono:</Text>
-              <Text fontSize="sm" fontWeight="semibold">
-                {p.abono_mes_id || "?"}
-              </Text>
-              <Text fontSize="sm" color={mutedText}>
-                ({p.abono_mes_anio}-{String(p.abono_mes_mes).padStart(2, "0")})
-              </Text>
-            </HStack>
+            {/* Abono: Lunes 10:00hs */}
+            <Text fontSize="sm" mb={1}>
+              <Text as="span" fontWeight="semibold">Abono:</Text>{" "}
+              {p.abono_mes_dia_semana_label || "Día"} {p.abono_mes_hora_text || "Hora"}
+            </Text>
 
-            {p.es_renovacion && (
-              <HStack spacing={2} wrap="wrap" mb={1}>
-                <Text fontSize="sm" color="orange.500" fontWeight="semibold">
-                  🔄 Renovación de abono
-                </Text>
-                {p.abono_mes_fecha_limite_renovacion && (
-                  <Text fontSize="sm" color={mutedText}>
-                    (Límite:{" "}
-                    {new Date(
-                      p.abono_mes_fecha_limite_renovacion
-                    ).toLocaleDateString()}
-                    )
-                  </Text>
-                )}
-              </HStack>
+            {/* Profesor: Nombre y Apellido */}
+            <Text fontSize="sm" mb={1}>
+              <Text as="span" fontWeight="semibold">Profesor:</Text>{" "}
+              {p.abono_mes_prestador_nombre || "No asignado"}
+            </Text>
+
+            {/* Usuario: Nombre y Apellido */}
+            <Text fontSize="sm" mb={1}>
+              <Text as="span" fontWeight="semibold">Usuario:</Text>{" "}
+              {p.usuario_nombre || "No disponible"}
+            </Text>
+
+            {/* Mes: mes del abono reservado */}
+            <Text fontSize="sm" mb={1}>
+              <Text as="span" fontWeight="semibold">Mes:</Text>{" "}
+              {p.es_renovacion
+                ? getMonthName(
+                    p.abono_mes_mes === 12 ? 1 : p.abono_mes_mes + 1
+                  )
+                : getMonthName(p.abono_mes_mes)}{" "}
+              {p.abono_mes_anio}
+            </Text>
+
+            {/* Monto */}
+            <Text fontSize="sm" mb={1}>
+              <Text as="span" fontWeight="semibold">Monto:</Text>{" "}
+              <Text as="span" color="green.600" fontWeight="bold">
+                ${p.monto ? parseFloat(p.monto).toFixed(2) : "0.00"}
+              </Text>
+            </Text>
+
+            {/* Fecha */}
+            <Text fontSize="sm" mb={1}>
+              <Text as="span" fontWeight="semibold">Fecha:</Text>{" "}
+              {new Date(p.created_at).toLocaleString()}
+            </Text>
+
+            {/* Vence */}
+            {p.abono_mes_fecha_limite_renovacion && (
+              <Text fontSize="sm" mb={1}>
+                <Text as="span" fontWeight="semibold">Vence:</Text>{" "}
+                {new Date(p.abono_mes_fecha_limite_renovacion).toLocaleDateString()}
+              </Text>
             )}
 
-            <Text fontSize="sm" color={mutedText} mb={1}>
-              Fecha: {new Date(p.created_at).toLocaleString()}
-            </Text>
-
-            <HStack spacing={2} wrap="wrap" mb={1}>
-              <Text fontSize="sm">Usuario:</Text>
-              <Text fontSize="sm" fontWeight="semibold">
-                {p.usuario_nombre || "?"}
+            {/* Es renovacion */}
+            <Text fontSize="sm" mb={1}>
+              <Text as="span" fontWeight="semibold">Es renovación:</Text>{" "}
+              <Text as="span" color={p.es_renovacion ? "orange.600" : "gray.600"}>
+                {p.es_renovacion ? "True" : "False"}
               </Text>
-            </HStack>
-
-            <Text fontSize="sm" color={mutedText} mb={1} noOfLines={1}>
-              Email: {p.usuario_email || "?"}
             </Text>
-
-            <Text fontSize="sm" color={mutedText} mb={1}>
-              Mes:{" "}
-              <b>
-                {p.es_renovacion
-                  ? getMonthName(
-                      p.abono_mes_mes === 12 ? 1 : p.abono_mes_mes + 1
-                    )
-                  : getMonthName(p.abono_mes_mes)}{" "}
-                {p.abono_mes_anio}
-              </b>
-            </Text>
-
-            <HStack spacing={2} wrap="wrap" mb={1}>
-              <Text fontSize="sm" fontWeight="bold" color="green.500">
-                Monto: ${p.monto ? parseFloat(p.monto).toFixed(2) : "0.00"}
-              </Text>
-            </HStack>
-
-            {p.abono_mes_precio && (
-              <Text fontSize="sm" color={mutedText} mb={1}>
-                Precio: <b>${p.abono_mes_precio}</b>
-              </Text>
-            )}
 
             <ChakraButton
               colorScheme="blue"
