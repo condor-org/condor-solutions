@@ -3,8 +3,6 @@ name: Condor Deploy
 run-name: Deploy ${{ inputs.environment || 'auto' }} - ${{ inputs.release_tag || github.event.release.tag_name || 'latest' }}
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       environment:

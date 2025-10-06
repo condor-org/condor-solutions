@@ -10,3 +10,6 @@ TZ=America/Argentina/Buenos_Aires
 
 # 02:00 todos los días -> limpiar archivos de comprobantes antiguos
 0 2 * * * . /etc/environment; /usr/bin/flock -n /tmp/limpiar_comprobantes.lock -c 'cd /app && python manage.py limpiar_archivos_comprobantes --dias 30 --apply' >> /proc/1/fd/1 2>&1
+
+# 03:00 todos los días -> verificar memoria y disco
+0 3 * * * . /etc/environment; /usr/bin/flock -n /tmp/verificar_memoria.lock -c 'cd /app && python manage.py verificar_memoria --umbral 85' >> /proc/1/fd/1 2>&1
