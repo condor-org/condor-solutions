@@ -134,13 +134,10 @@ const BonificacionesList = ({ usuarioId, accessToken, logout, onRefresh }) => {
             >
               <VStack align="stretch" spacing={3}>
                 <Flex justify="space-between" align="start" wrap="wrap" gap={2}>
-                  <VStack align="start" spacing={1} flex="1" minW={0}>
-                    <HStack spacing={2} wrap="wrap">
+                  <VStack align="start" spacing={2} flex="1" minW={0}>
+                    <HStack spacing={2} wrap="wrap" align="center">
                       <Text fontWeight="bold" fontSize="md">
                         {getTipoLabel(bono.tipo_turno)}
-                      </Text>
-                      <Text fontSize="md" color="green.600" fontWeight="semibold">
-                        ${bono.valor ? Number(bono.valor).toLocaleString('es-AR') : '0'}
                       </Text>
                       <Badge
                         colorScheme={getEstadoColor(bono.usado, bono.valido_hasta)}
@@ -149,8 +146,11 @@ const BonificacionesList = ({ usuarioId, accessToken, logout, onRefresh }) => {
                         {getEstadoText(bono.usado, bono.valido_hasta)}
                       </Badge>
                     </HStack>
-                    <Text fontSize="sm" color={mutedText} noOfLines={2}>
-                      {bono.motivo}
+                    <Text fontSize="sm" color={mutedText}>
+                      <Text as="span" fontWeight="semibold">Motivo:</Text> {bono.motivo}
+                    </Text>
+                    <Text fontSize="sm" color={mutedText}>
+                      <Text as="span" fontWeight="semibold">Valor:</Text> <Text as="span" color="green.600" fontWeight="semibold">${bono.valor ? Number(bono.valor).toLocaleString('es-AR') : '0'}</Text>
                     </Text>
                   </VStack>
                   

@@ -423,6 +423,11 @@ class ComprobanteAbonoSerializer(LoggedModelSerializer):
     abono_mes_configuracion_personalizada = serializers.JSONField(source="abono_mes.configuracion_personalizada", read_only=True)
     abono_mes_renovado = serializers.BooleanField(source="abono_mes.renovado", read_only=True)
     abono_mes_fecha_limite_renovacion = serializers.DateField(source="abono_mes.fecha_limite_renovacion", read_only=True)
+    abono_mes_dia_semana = serializers.IntegerField(source="abono_mes.dia_semana", read_only=True)
+    abono_mes_dia_semana_label = serializers.SerializerMethodField()
+    abono_mes_hora = serializers.TimeField(source="abono_mes.hora", read_only=True)
+    abono_mes_hora_text = serializers.SerializerMethodField()
+    abono_mes_prestador_nombre = serializers.SerializerMethodField()
     usuario_nombre = serializers.CharField(source="abono_mes.usuario.nombre", read_only=True)
     usuario_email = serializers.CharField(source="abono_mes.usuario.email", read_only=True)
     cliente_nombre = serializers.CharField(source="cliente.nombre", read_only=True)
@@ -446,6 +451,11 @@ class ComprobanteAbonoSerializer(LoggedModelSerializer):
             "abono_mes_configuracion_personalizada",
             "abono_mes_renovado",
             "abono_mes_fecha_limite_renovacion",
+            "abono_mes_dia_semana",
+            "abono_mes_dia_semana_label",
+            "abono_mes_hora",
+            "abono_mes_hora_text",
+            "abono_mes_prestador_nombre",
             "usuario_nombre",
             "usuario_email",
             "cliente_nombre",
@@ -524,6 +534,34 @@ class ComprobanteAbonoSerializer(LoggedModelSerializer):
         except Exception as e:
             print(f"[DEBUG] monto ERROR comprobante abono {obj.id}: {e}")
             return 0.0
+
+    def get_abono_mes_dia_semana_label(self, obj):
+        """Devuelve el nombre del día de la semana del abono"""
+        if not obj.abono_mes:
+            return None
+        
+        DSEM = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+        dia_semana = obj.abono_mes.dia_semana
+        if 0 <= dia_semana <= 6:
+            return DSEM[dia_semana]
+        return None
+
+    def get_abono_mes_hora_text(self, obj):
+        """Devuelve la hora del abono en formato HH:MM"""
+        if not obj.abono_mes or not obj.abono_mes.hora:
+            return None
+        
+        return obj.abono_mes.hora.strftime("%H:%M")
+
+    def get_abono_mes_prestador_nombre(self, obj):
+        """Devuelve el nombre del prestador del abono"""
+        if not obj.abono_mes or not obj.abono_mes.prestador:
+            return None
+        
+        prestador = obj.abono_mes.prestador
+        if prestador.user:
+            return f"{prestador.user.nombre} {prestador.user.apellido}".strip()
+        return None
 
 
 class ComprobanteAbonoUploadSerializer(serializers.Serializer):
