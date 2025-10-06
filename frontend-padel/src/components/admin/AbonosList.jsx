@@ -127,9 +127,9 @@ const AbonosList = ({ usuarioId, accessToken, logout, onRenovar, onCancelar }) =
                 <Flex justify="space-between" align="start" wrap="wrap" gap={2}>
                   <VStack align="start" spacing={1} flex="1" minW={0}>
                     <HStack spacing={2} wrap="wrap">
-                      <Text fontWeight="bold" fontSize="md">
-                        {abono.sede?.nombre || "Sede no disponible"}
-                      </Text>
+                    <Text fontWeight="bold" fontSize="md">
+                      {abono.sede_nombre || "Sede no disponible"}
+                    </Text>
                       <Badge
                         colorScheme={getEstadoColor(abono.renovado, abono.estado_vigencia)}
                         size="sm"
@@ -138,10 +138,10 @@ const AbonosList = ({ usuarioId, accessToken, logout, onRenovar, onCancelar }) =
                       </Badge>
                     </HStack>
                     <Text fontSize="sm" color={mutedText}>
-                      Prestador: {abono.prestador?.nombre || "No asignado"}
+                      Prestador: {abono.prestador_nombre || "No asignado"}
                     </Text>
                     <Text fontSize="sm" color={mutedText}>
-                      Tipo: {abono.tipo_clase?.codigo || "N/A"} - ${abono.tipo_clase?.precio ? Number(abono.tipo_clase.precio).toLocaleString('es-AR') : "N/A"}
+                      Tipo: {abono.tipo_clase_codigo || "Personalizado"} - ${abono.tipo_clase_precio ? Number(abono.tipo_clase_precio).toLocaleString('es-AR') : "Configuración personalizada"}
                     </Text>
                   </VStack>
                   
