@@ -502,15 +502,17 @@ const UsuariosPage = () => {
                 <Text fontSize="xl" fontWeight="bold">
                   {detalleUsuario?.nombre} {detalleUsuario?.apellido}
                 </Text>
-                <Badge 
-                  colorScheme={detalleUsuario?.is_active ? "green" : "red"}
-                  size="lg"
-                >
-                  {detalleUsuario?.is_active ? "Activo" : "Inactivo"}
-                </Badge>
               </Flex>
             </ModalHeader>
             <ModalCloseButton />
+            <Box px={6} pb={2}>
+              <Badge 
+                colorScheme={detalleUsuario?.is_active ? "green" : "red"}
+                size="lg"
+              >
+                {detalleUsuario?.is_active ? "Activo" : "Inactivo"}
+              </Badge>
+            </Box>
             <ModalBody maxH="70vh" overflowY="auto">
               {detalleUsuario && (
                 <Tabs variant="enclosed" colorScheme="blue">

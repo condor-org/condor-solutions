@@ -14,7 +14,7 @@ def cumple_politica_cancelacion(turno):
     Verifica si un turno cumple la política de cancelación.
 
     ► Regla actual (hardcoded):
-      - Solo se permite cancelar hasta 6 horas antes del turno.
+      - Solo se permite cancelar hasta 24 horas antes del turno.
     ► Entradas:
       - turno: instancia Turno (usa .fecha y .hora)
     ► Salida:
@@ -22,4 +22,4 @@ def cumple_politica_cancelacion(turno):
     """
     ahora = make_aware(datetime.now())
     dt_turno = make_aware(datetime.combine(turno.fecha, turno.hora))
-    return dt_turno - ahora >= timedelta(hours=6)
+    return dt_turno - ahora >= timedelta(hours=24)

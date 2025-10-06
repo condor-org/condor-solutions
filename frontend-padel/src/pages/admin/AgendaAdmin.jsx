@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useMemo, useState } from "react";
 import {
   Box, Stack, HStack, VStack, Text, Select, Tabs, TabList, TabPanels, Tab, TabPanel,
   useColorModeValue, Input as ChakraInput, Divider, Badge, useToast, Modal, ModalOverlay,
-  ModalContent, ModalHeader, ModalBody, ModalFooter, ModalCloseButton, useDisclosure,Wrap, WrapItem
+  ModalContent, ModalHeader, ModalBody, ModalFooter, ModalCloseButton, useDisclosure,Wrap, WrapItem, Flex
 } from "@chakra-ui/react";
 import { AuthContext } from "../../auth/AuthContext";
 import { axiosAuth } from "../../utils/axiosAuth";
@@ -955,116 +955,89 @@ const SlotRow = ({ slot }) => {
                   <Box mt={4}>
                     {loadingAbonos ? (
                       <Text color={muted}>Cargando…</Text>
+                    ) : !sedeId ? (
+                      <Text color="orange.500" fontWeight="semibold">
+                        ⚠️ Por favor selecciona una sede para ver los abonos
+                      </Text>
                     ) : abonosMes.length === 0 ? (
                       <Text color={muted}>No hay abonos para los filtros seleccionados.</Text>
                     ) : (
-                      <VStack align="stretch" spacing={2}>
-                        {abonosMes.map(a => {
-                          const isOpen = expandedAbonoId === a.id;
-                          return (
-                            <Box
-                              key={a.id}
-                              p={3}
-                              bg={card.bg}
-                              rounded="md"
-                              borderWidth="1px"
-                              borderColor={input.border}
-                            >
-                              {/* Cabecera clickeable */}
-                            <Stack
-                              direction={{ base: "column", md: "row" }}
-                              justify="space-between"
-                              align={{ base: "stretch", md: "center" }}
-                              _hover={{ bg: hoverBg, cursor: "pointer" }}
-                              p={2}
-                              rounded="md"
-                              onClick={() => toggleAbono(a.id)}
-                            >
-                              <Text fontWeight="semibold">
-                                Abono {a.dia_semana_label || diaLabel(a.dia_semana)} {hhmm(a.hora)}hs ·{" "}
-                                Usuario: {a.usuario_nombre_completo || a.usuario || nombreUsuarioFromId(a.usuario_id)} ·{" "}
-                                Profesor: {a.prestador || `Profe ${a.prestador_id ?? ""}`} ·{" "}
-                                Sede: {a.sede || `Sede ${a.sede_id ?? ""}`}
-                              </Text>
-                              <Wrap spacing={2} justify={{ base: "flex-start", md: "flex-end" }}>
-                                 <WrapItem>
-                                <Badge variant="outline">{a?.tipo_clase?.codigo || "—"}</Badge>
-                                 </WrapItem>
-                                {a?.estado && (
-                                  <WrapItem><Badge colorScheme="blue">{a.estado}</Badge></WrapItem>
-                                )}
-                                <WrapItem>
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  onClick={(e) => { e.stopPropagation(); pedirEliminarAbono(a); }}
-                                  w={{ base: "100%", md: "auto" }}
-                                >
-                                  Eliminar
-                                </Button>
-                              </WrapItem>
-                              </Wrap>
-                            </Stack>
+                      // NUEVO FORMATO: Agrupado por día (con o sin profesor seleccionado)
+                      (() => {
+                        // Agrupar abonos por día de semana
+                        const abonosPorDia = abonosMes.reduce((acc, abono) => {
+                          const dia = abono.dia_semana;
+                          if (!acc[dia]) acc[dia] = [];
+                          acc[dia].push(abono);
+                          return acc;
+                        }, {});
 
-                              {/* Detalle expandible */}
-                              {isOpen && (
-                                <Box mt={3} pl={2}>
-                                  <Text fontSize="sm" color={muted}>
-                                    {a.sede || `Sede ${a.sede_id ?? ""}`} · {diaLabel(a.dia_semana)} · {hhmm(a.hora)}
+                        // Ordenar por día de semana (0=Lunes, 6=Domingo)
+                        const diasOrdenados = Object.keys(abonosPorDia)
+                          .map(Number)
+                          .sort((a, b) => a - b);
+
+                        return (
+                          <VStack align="stretch" spacing={4}>
+                            {diasOrdenados.map(dia => {
+                              const abonosDelDia = abonosPorDia[dia].sort((a, b) => a.hora.localeCompare(b.hora));
+                              return (
+                                <Box key={dia} p={4} bg={card.bg} rounded="lg" borderWidth="1px" borderColor={input.border}>
+                                  <Text fontSize="lg" fontWeight="bold" mb={3} color="blue.600">
+                                    {diaLabel(dia)}:
                                   </Text>
-                                  <HStack spacing={2} mt={2}>
-                                    {a?.monto && <Badge colorScheme="green" variant="subtle">Monto: ${Number(a.monto).toLocaleString("es-AR")}</Badge>}
-                                    {a?.tipo_clase?.precio && <Badge variant="outline">Precio clase: ${Number(a.tipo_clase.precio).toLocaleString("es-AR")}</Badge>}
-                                    {a?.fecha_limite_renovacion && (
-                                      <Badge colorScheme="purple" variant="subtle">
-                                        Límite renovación: {a.fecha_limite_renovacion}
-                                      </Badge>
-                                    )}
-                                  </HStack>
-
-                                  {/* Turnos reservados */}
-                                  <Box mt={3}>
-                                    <Text fontWeight="semibold" mb={1}>Turnos reservados</Text>
-                                    {Array.isArray(a.turnos_reservados) && a.turnos_reservados.length ? (
-                                      <VStack align="stretch" spacing={1}>
-                                        {a.turnos_reservados.map(t => (
-                                          <HStack key={t.id} justify="space-between">
-                                            <Text>{t.fecha} · {hhmm(t.hora)} · {t.lugar}</Text>
-                                            <Badge colorScheme={t.estado === "reservado" ? "green" : t.estado === "cancelado" ? "red" : "gray"}>
-                                              {t.estado}
-                                            </Badge>
-                                          </HStack>
-                                        ))}
-                                      </VStack>
-                                    ) : (
-                                      <Text color={muted} fontSize="sm">—</Text>
-                                    )}
-                                  </Box>
-
-                                  {/* Turnos prioridad (mes siguiente) */}
-                                  <Box mt={3}>
-                                    <Text fontWeight="semibold" mb={1}>Turnos con prioridad</Text>
-                                    {Array.isArray(a.turnos_prioridad) && a.turnos_prioridad.length ? (
-                                      <VStack align="stretch" spacing={1}>
-                                        {a.turnos_prioridad.map(t => (
-                                          <HStack key={t.id} justify="space-between">
-                                            <Text>{t.fecha} · {hhmm(t.hora)} · {t.lugar}</Text>
-                                            <Badge colorScheme={t.estado === "reservado" ? "green" : t.estado === "cancelado" ? "red" : "gray"}>
-                                              {t.estado}
-                                            </Badge>
-                                          </HStack>
-                                        ))}
-                                      </VStack>
-                                    ) : (
-                                      <Text color={muted} fontSize="sm">—</Text>
-                                    )}
-                                  </Box>
+                                  
+                                  {abonosDelDia.length === 0 ? (
+                                    <Text color={muted} fontStyle="italic">No hay abonos para este día</Text>
+                                  ) : (
+                                    <VStack align="stretch" spacing={2}>
+                                      {abonosDelDia.map(abono => (
+                                        <Box
+                                          key={abono.id}
+                                          p={3}
+                                          bg="white"
+                                          rounded="md"
+                                          borderWidth="1px"
+                                          borderColor="gray.200"
+                                          _hover={{ bg: "gray.50" }}
+                                        >
+                                          <Flex justify="space-between" align="start" wrap="wrap" gap={3}>
+                                            <VStack align="start" spacing={2} flex="1" minW={0}>
+                                              <Text fontWeight="semibold">
+                                                <Text as="span" color="blue.600">Hora:</Text> {hhmm(abono.hora)}hs
+                                              </Text>
+                                              <Text>
+                                                <Text as="span" color="blue.600">Sede:</Text> {abono.sede || `Sede ${abono.sede_id ?? ""}`}
+                                              </Text>
+                                              <Text>
+                                                <Text as="span" color="blue.600">Usuario:</Text> {abono.usuario || "N/A"}
+                                              </Text>
+                                              <Text>
+                                                <Text as="span" color="blue.600">Profesor:</Text> {abono.prestador || "N/A"}
+                                              </Text>
+                                            </VStack>
+                                            
+                                            <Button
+                                              size="sm"
+                                              variant="secondary"
+                                              colorScheme="red"
+                                              onClick={() => pedirEliminarAbono(abono)}
+                                              flexShrink={0}
+                                              alignSelf="flex-start"
+                                            >
+                                              Eliminar
+                                            </Button>
+                                          </Flex>
+                                        </Box>
+                                      ))}
+                                    </VStack>
+                                  )}
                                 </Box>
-                              )}
-                            </Box>
-                          );
-                        })}
-                      </VStack>
+                              );
+                            })}
+                          </VStack>
+                        );
+                      })()
                     )}
                   </Box>
                 </Box>

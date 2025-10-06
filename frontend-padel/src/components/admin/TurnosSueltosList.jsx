@@ -94,11 +94,11 @@ const TurnosSueltosList = ({ usuarioId, accessToken, logout, onCancelar }) => {
   };
 
   const isTurnoCancelable = (turno) => {
-    // Verificar si el turno es cancelable (más de 6 horas de anticipación)
+    // Verificar si el turno es cancelable (más de 24 horas de anticipación)
     const ahora = new Date();
     const fechaTurno = new Date(`${turno.fecha}T${turno.hora}`);
     const diffHoras = (fechaTurno - ahora) / (1000 * 60 * 60);
-    return diffHoras >= 6 && turno.estado === "reservado";
+    return diffHoras >= 24 && turno.estado === "reservado";
   };
 
   if (loading) {
@@ -160,7 +160,7 @@ const TurnosSueltosList = ({ usuarioId, accessToken, logout, onCancelar }) => {
                   
                   <VStack align="start" spacing={1}>
                     <Text fontSize="sm" color={mutedText}>
-                      📍 {turno.lugar?.nombre || "Sede no disponible"}
+                      📍 {turno.lugar || "Sede no disponible"}
                     </Text>
                     <Text fontSize="sm" color={mutedText}>
                       🎾 {getTipoLabel(turno.tipo_turno)}
@@ -187,18 +187,6 @@ const TurnosSueltosList = ({ usuarioId, accessToken, logout, onCancelar }) => {
                   )}
                 </VStack>
                 
-                {isTurnoCancelable(turno) && (
-                  <IconButton
-                    icon={<DeleteIcon />}
-                    size={buttonSize}
-                    colorScheme="red"
-                    variant="ghost"
-                    onClick={() => handleCancelar(turno.id)}
-                    isLoading={cancelando === turno.id}
-                    aria-label="Cancelar turno"
-                    flexShrink={0}
-                  />
-                )}
               </Flex>
             </Box>
           ))}

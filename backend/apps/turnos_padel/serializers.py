@@ -211,9 +211,9 @@ class TurnoSimpleSerializer(serializers.ModelSerializer):
 
 # ===== Abono (detalle enriquecido para read) =====
 class AbonoMesDetailSerializer(serializers.ModelSerializer):
-    usuario = serializers.StringRelatedField()
+    usuario = serializers.SerializerMethodField()
     sede = serializers.StringRelatedField()
-    prestador = serializers.StringRelatedField()
+    prestador = serializers.SerializerMethodField()
     tipo_clase = TipoClasePadelSerializer()
     turnos_reservados = TurnoSimpleSerializer(many=True)
     turnos_prioridad = TurnoSimpleSerializer(many=True)
@@ -227,6 +227,18 @@ class AbonoMesDetailSerializer(serializers.ModelSerializer):
             "turnos_reservados", "turnos_prioridad",
             "creado_en", "actualizado_en"
         ]
+
+    def get_usuario(self, obj):
+        """Devuelve nombre y apellido del usuario en lugar del email"""
+        if obj.usuario:
+            return f"{obj.usuario.nombre} {obj.usuario.apellido}".strip()
+        return None
+
+    def get_prestador(self, obj):
+        """Devuelve nombre y apellido del prestador en lugar del email"""
+        if obj.prestador and obj.prestador.user:
+            return f"{obj.prestador.user.nombre} {obj.prestador.user.apellido}".strip()
+        return None
 
 
 # ===== Abono (serializer base para create/update) =====

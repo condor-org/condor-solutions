@@ -139,6 +139,9 @@ const BonificacionesList = ({ usuarioId, accessToken, logout, onRefresh }) => {
                       <Text fontWeight="bold" fontSize="md">
                         {getTipoLabel(bono.tipo_turno)}
                       </Text>
+                      <Text fontSize="md" color="green.600" fontWeight="semibold">
+                        ${bono.valor ? Number(bono.valor).toLocaleString('es-AR') : '0'}
+                      </Text>
                       <Badge
                         colorScheme={getEstadoColor(bono.usado, bono.valido_hasta)}
                         size="sm"
