@@ -7,3 +7,6 @@ TZ=America/Argentina/Buenos_Aires
 
 # 00:05 todos los días -> abonos
 5 0 * * * . /etc/environment; /usr/bin/flock -n /tmp/abonos_diario.lock -c 'cd /app && python manage.py abonos_diario' >> /proc/1/fd/1 2>&1
+
+# 02:00 todos los días -> limpiar archivos de comprobantes antiguos
+0 2 * * * . /etc/environment; /usr/bin/flock -n /tmp/limpiar_comprobantes.lock -c 'cd /app && python manage.py limpiar_archivos_comprobantes --dias 30 --apply' >> /proc/1/fd/1 2>&1
