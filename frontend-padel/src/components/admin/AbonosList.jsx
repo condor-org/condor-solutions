@@ -138,7 +138,7 @@ const AbonosList = ({ usuarioId, accessToken, logout, onRenovar, onCancelar }) =
                       </Badge>
                     </HStack>
                     <Text fontSize="sm" color={mutedText}>
-                      Prestador: {abono.prestador_nombre || "No asignado"}
+                      Profesor: {abono.prestador_nombre || "No asignado"}
                     </Text>
                     <Text fontSize="sm" color={mutedText}>
                       Tipo: {abono.tipo_clase_codigo || "Personalizado"} - ${abono.tipo_clase_precio ? Number(abono.tipo_clase_precio).toLocaleString('es-AR') : "Configuración personalizada"}
