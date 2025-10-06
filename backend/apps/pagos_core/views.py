@@ -14,6 +14,7 @@ from django.http import FileResponse
 from django_filters.rest_framework import DjangoFilterBackend
 from django.core.exceptions import PermissionDenied
 import logging
+import os
 
 from apps.pagos_core.services.comprobantes import ComprobanteService
 from apps.pagos_core.models import ComprobantePago, ComprobanteAbono, PagoIntento
@@ -223,8 +224,23 @@ class ComprobanteAbonoDownloadView(APIView):
         logger.debug("Descarga de comprobante abono %s solicitada por %s (%s)", pk, request.user, getattr(request.user, "tipo_usuario", ""))
 
         try:
-            comprobante = ComprobanteService.download_comprobante(comprobante_id=int(pk), usuario=request.user)
-            if not comprobante.archivo or not comprobante.archivo.storage.exists(comprobante.archivo.name):
+            # Buscar directamente en ComprobanteAbono, no usar el método genérico
+            comprobante = ComprobanteAbono.objects.get(pk=int(pk))
+            if not comprobante.archivo:
+                raise PermissionDenied("El comprobante no tiene archivo asociado.")
+
+            # Validar permisos
+            if request.user.is_authenticated and request.user.tipo_usuario == "super_admin":
+                pass  # Super admin puede ver todo
+            elif request.user.is_authenticated and request.user.tipo_usuario == "admin_cliente":
+                if comprobante.cliente != request.user.cliente:
+                    raise PermissionDenied("No tenés permiso para ver este comprobante.")
+            elif comprobante.abono_mes and comprobante.abono_mes.usuario != request.user:
+                raise PermissionDenied("No tenés permiso para ver este comprobante.")
+            else:
+                raise PermissionDenied("No tenés permiso para ver este comprobante.")
+
+            if not comprobante.archivo.storage.exists(comprobante.archivo.name):
                 logger.error("Archivo no encontrado en storage: %s", comprobante.archivo.name)
                 return Response({"error": "Archivo no encontrado en disco"}, status=404)
 
@@ -233,10 +249,13 @@ class ComprobanteAbonoDownloadView(APIView):
                 as_attachment=True,
                 filename=comprobante.archivo.name.split("/")[-1]
             )
+        except ComprobanteAbono.DoesNotExist:
+            return Response({"error": "Comprobante de abono no encontrado"}, status=status.HTTP_404_NOT_FOUND)
         except PermissionDenied as e:
             return Response({"error": str(e)}, status=status.HTTP_403_FORBIDDEN)
-        except Exception:
-            return Response({"error": "No encontrado"}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.exception("Error descargando comprobante abono %s", pk)
+            return Response({"error": "Error interno"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class ComprobanteAprobarRechazarView(APIView):
@@ -276,6 +295,9 @@ class ComprobanteAprobarRechazarView(APIView):
                 if pago_intento:
                     pago_intento.estado = "confirmado"
                     pago_intento.save(update_fields=["estado"])
+                    
+                    # Borrar archivo del comprobante al confirmar pago
+                    self._borrar_archivo_comprobante(comprobante)
                 
                 # Actualizar estado del turno
                 if comprobante.turno:
@@ -439,6 +461,9 @@ class ComprobanteAprobarLoteView(APIView):
         if pago_intento:
             pago_intento.estado = "confirmado"
             pago_intento.save(update_fields=["estado"])
+            
+            # Borrar archivo del comprobante al confirmar pago
+            self._borrar_archivo_comprobante(comprobante)
         
         # Actualizar estado del turno
         if comprobante.turno:
@@ -461,11 +486,43 @@ class ComprobanteAprobarLoteView(APIView):
         if pago_intento:
             pago_intento.estado = "confirmado"
             pago_intento.save(update_fields=["estado"])
+            
+            # Borrar archivo del comprobante al confirmar pago
+            self._borrar_archivo_comprobante(comprobante_abono)
         
         # Actualizar estado del abono
         abono = comprobante_abono.abono_mes
         abono.estado = "pagado"
         abono.save(update_fields=["estado"])
+
+    def _borrar_archivo_comprobante(self, comprobante):
+        """
+        Borra el archivo del comprobante del sistema de archivos cuando el pago se confirma.
+        Mantiene el registro en BD para auditoría pero elimina el archivo físico.
+        """
+        try:
+            if comprobante.archivo and comprobante.archivo.storage.exists(comprobante.archivo.name):
+                # Obtener información del archivo antes de borrarlo
+                archivo_path = comprobante.archivo.path
+                archivo_size = 0
+                if os.path.exists(archivo_path):
+                    archivo_size = os.path.getsize(archivo_path)
+                
+                # Borrar archivo del sistema de archivos
+                comprobante.archivo.delete(save=False)
+                
+                logger.info(
+                    f"[PAGO_CONFIRMADO] Archivo borrado: {comprobante.archivo.name} "
+                    f"(tamaño: {archivo_size} bytes, comprobante_id: {comprobante.id})"
+                )
+            else:
+                logger.warning(
+                    f"[PAGO_CONFIRMADO] Archivo no encontrado para comprobante {comprobante.id}"
+                )
+        except Exception as e:
+            logger.error(
+                f"[PAGO_CONFIRMADO] Error borrando archivo del comprobante {comprobante.id}: {str(e)}"
+            )
 
 
 class PagosPendientesCountView(APIView):
