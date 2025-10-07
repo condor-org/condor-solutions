@@ -27,5 +27,5 @@ RUN useradd -m -u 10001 app && chown -R app:app /app
 EXPOSE 8000
 
 # Logs a stdout/err; nivel overrideable por DJANGO_LOG_LEVEL
-ENTRYPOINT ["sh", "-c", "chown -R app:app /app/media && su app -c 'exec \"$@\"'", "--"]
+ENTRYPOINT ["sh", "-c", "chown -R app:app /app/media && exec \"$@\"", "--"]
 CMD ["gunicorn","condor_core.wsgi:application","--bind","0.0.0.0:8000","--access-logfile","-","--error-logfile","-","--log-level","info"]

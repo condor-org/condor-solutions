@@ -1248,3 +1248,149 @@ def prestador_actual(request):
     if not prestador:
         return Response({"detail": "No se encontró un prestador asociado a este usuario"}, status=404)
     return Response({"id": prestador.id})
+
+# ------------------------------------------------------------------------------
+# DELETE /turnos/bonificaciones/{id}/  → Eliminar bonificación específica
+# - Permisos: Solo super_admin/admin_cliente.
+# - Función: elimina una bonificación específica con motivo administrativo.
+# ------------------------------------------------------------------------------
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def eliminar_bonificacion(request, bonificacion_id):
+    """
+    Elimina una bonificación específica.
+    Solo super_admin/admin_cliente pueden eliminar bonificaciones.
+    """
+    user = request.user
+    if user.tipo_usuario not in ["super_admin", "admin_cliente"]:
+        return Response({"error": "No autorizado"}, status=403)
+    
+    try:
+        from apps.turnos_core.services.bonificaciones import eliminar_bonificacion as eliminar_bonificacion_service
+        motivo = request.data.get("motivo", "Eliminada por administrador")
+        
+        if eliminar_bonificacion_service(bonificacion_id, motivo):
+            logger.info(f"[eliminar_bonificacion] Bonificación {bonificacion_id} eliminada por {user.id}")
+            return Response({"ok": True, "message": "Bonificación eliminada correctamente"}, status=200)
+        else:
+            return Response({"error": "Bonificación no encontrada"}, status=404)
+    except Exception as e:
+        logger.error(f"[eliminar_bonificacion] Error: {str(e)}")
+        return Response({"error": "Error eliminando bonificación"}, status=500)
+
+# ------------------------------------------------------------------------------
+# GET /turnos/bonificados/usuario/{usuario_id}/  → Bonificaciones de usuario específico
+# - Permisos: Solo super_admin/admin_cliente.
+# - Función: obtiene bonificaciones de un usuario específico.
+# ------------------------------------------------------------------------------
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def bonificaciones_usuario(request, usuario_id):
+    """
+    Obtiene bonificaciones de un usuario específico.
+    Solo super_admin/admin_cliente pueden ver bonificaciones de otros usuarios.
+    """
+    user = request.user
+    if user.tipo_usuario not in ["super_admin", "admin_cliente"]:
+        return Response({"error": "No autorizado"}, status=403)
+    
+    try:
+        Usuario = get_user_model()
+        usuario_target = Usuario.objects.get(id=usuario_id)
+        
+        # Verificar que el admin puede ver este usuario (mismo cliente)
+        if user.tipo_usuario == "admin_cliente" and usuario_target.cliente_id != user.cliente_id:
+            return Response({"error": "No autorizado para ver este usuario"}, status=403)
+        
+        # Obtener bonificaciones del usuario
+        qs = bonificaciones_vigentes(usuario_target).order_by("fecha_creacion")
+        
+        # Filtro opcional por tipo_clase_id
+        tipo_clase_id = request.query_params.get("tipo_clase_id")
+        if tipo_clase_id:
+            code, aliases = _tipo_code_y_aliases(int(tipo_clase_id))
+            if code:
+                cond = Q(tipo_turno__iexact=code)
+                for alt in aliases:
+                    cond |= Q(tipo_turno__iexact=alt)
+                qs = qs.filter(cond)
+        
+        data = list(qs.values(
+            "id",
+            "motivo",
+            "tipo_turno",
+            "fecha_creacion",
+            "valido_hasta",
+            "valor",
+            "usado",
+        ))
+        
+        logger.info(f"[bonificaciones_usuario] Usuario {usuario_id} tiene {len(data)} bonificaciones")
+        return Response(data)
+        
+    except Usuario.DoesNotExist:
+        return Response({"error": "Usuario no encontrado"}, status=404)
+    except Exception as e:
+        logger.error(f"[bonificaciones_usuario] Error: {str(e)}")
+        return Response({"error": "Error obteniendo bonificaciones"}, status=500)
+
+# ------------------------------------------------------------------------------
+# GET /turnos/usuario/{usuario_id}/  → Turnos de usuario específico
+# - Permisos: Solo super_admin/admin_cliente.
+# - Función: obtiene turnos de un usuario específico.
+# ------------------------------------------------------------------------------
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def turnos_usuario(request, usuario_id):
+    """
+    Obtiene turnos de un usuario específico.
+    Solo super_admin/admin_cliente pueden ver turnos de otros usuarios.
+    """
+    user = request.user
+    if user.tipo_usuario not in ["super_admin", "admin_cliente"]:
+        return Response({"error": "No autorizado"}, status=403)
+    
+    try:
+        Usuario = get_user_model()
+        usuario_target = Usuario.objects.get(id=usuario_id)
+        
+        # Verificar que el admin puede ver este usuario (mismo cliente)
+        if user.tipo_usuario == "admin_cliente" and usuario_target.cliente_id != user.cliente_id:
+            return Response({"error": "No autorizado para ver este usuario"}, status=403)
+        
+        # Obtener turnos del usuario
+        qs = Turno.objects.filter(usuario=usuario_target).select_related("usuario", "lugar")
+        
+        # Filtros opcionales
+        estado = request.query_params.get("estado")
+        if estado:
+            qs = qs.filter(estado=estado)
+        
+        upcoming = request.query_params.get("upcoming", "").lower()
+        if upcoming in {"1", "true", "sí", "si"}:
+            ahora = localtime()
+            hoy = ahora.date()
+            hora = ahora.time()
+            qs = qs.filter(Q(fecha__gt=hoy) | Q(fecha=hoy, hora__gte=hora))
+        
+        # Filtrar turnos sueltos (no de abonos)
+        solo_sueltos = request.query_params.get("solo_sueltos", "").lower()
+        if solo_sueltos in {"1", "true", "sí", "si"}:
+            qs = qs.filter(
+                reservado_para_abono=False,
+                abono_mes_reservado__isnull=True,
+                abono_mes_prioridad__isnull=True,
+                comprobante_abono__isnull=True,
+            )
+        
+        turnos = qs.order_by("fecha", "hora")
+        serializer = TurnoSerializer(turnos, many=True)
+        
+        logger.info(f"[turnos_usuario] Usuario {usuario_id} tiene {len(serializer.data)} turnos")
+        return Response(serializer.data)
+        
+    except Usuario.DoesNotExist:
+        return Response({"error": "Usuario no encontrado"}, status=404)
+    except Exception as e:
+        logger.error(f"[turnos_usuario] Error: {str(e)}")
+        return Response({"error": "Error obteniendo turnos"}, status=500)

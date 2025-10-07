@@ -724,13 +724,22 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
 
         hoy = timezone.localdate()
         data = []
-        for a in qs.select_related("sede", "prestador", "tipo_clase"):
+        for a in qs.select_related("sede", "prestador", "tipo_clase").prefetch_related("turnos_reservados"):
             ult = a.turnos_reservados.aggregate(ultimo=Max("fecha"))["ultimo"]
             dias = (ult - hoy).days if ult else None
             estado_vigencia = "activo" if ult and hoy <= ult else "vencido"
             ventana_renovacion = bool(dias is not None and 0 <= dias <= 7 and not a.renovado)
 
-                
+            # Obtener turnos reservados con información básica
+            turnos_reservados = []
+            for turno in a.turnos_reservados.all().order_by("fecha", "hora"):
+                turnos_reservados.append({
+                    "id": turno.id,
+                    "fecha": turno.fecha.isoformat(),
+                    "hora": turno.hora.isoformat(),
+                    "lugar": getattr(turno.lugar, "nombre", None),
+                    "estado": turno.estado
+                })
             
             item = {
                 "id": a.id,
@@ -740,17 +749,21 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
                 "prestador_nombre": getattr(a.prestador, "nombre_publico", None) or getattr(a.prestador, "nombre", None),
                 "tipo_clase_id": a.tipo_clase_id,
                 "tipo_clase_codigo": getattr(a.tipo_clase, "codigo", None),
-                "anio": a.anio, "mes": a.mes,
+                "tipo_clase_precio": getattr(a.tipo_clase, "precio", None) if a.tipo_clase else None,
+                "anio": a.anio, 
+                "mes": a.mes,
                 "renovado": a.renovado,
                 "vence_el": str(ult) if ult else None,
                 "dias_para_vencer": dias,
                 "ventana_renovacion": ventana_renovacion,
                 "estado_vigencia": estado_vigencia,
-                # 👇 claves para render “Lunes 10:00 hs”
+                # 👇 claves para render "Lunes 10:00 hs"
                 "dia_semana": a.dia_semana,
                 "dia_semana_label": DSEM[a.dia_semana] if 0 <= a.dia_semana <= 6 else None,
                 "hora": a.hora.isoformat() if a.hora else None,       # "10:00:00"
                 "hora_text": a.hora.strftime("%H:%M") if a.hora else None,  # "10:00"
+                # 👇 turnos reservados para el componente AbonosList
+                "turnos_reservados": turnos_reservados
             }
             data.append(item)
 
