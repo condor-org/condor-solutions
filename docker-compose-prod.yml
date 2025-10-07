@@ -8,6 +8,8 @@ networks:
 volumes:
   redis_data:
     name: condor_redis_data_prod
+  media_data_prod:
+    name: condor_media_data_prod
 
 services:
   backend:
@@ -27,6 +29,13 @@ services:
       timeout: 3s
       retries: 12
       start_period: 20s
+    volumes:
+      - media_data_prod:/app/media
+    command: >
+      sh -c "
+        chown -R app:app /app/media &&
+        gunicorn condor_core.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120
+      "
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
