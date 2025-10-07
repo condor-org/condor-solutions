@@ -334,12 +334,12 @@ const fetchAbonosMes = async (fechaBase) => {
       : null;
 
     // Resolver referencia del prestador a partir del id seleccionado:
-    // preferimos email, sino nombre_publico/nombre
+    // preferimos nombre_publico/nombre para comparar con el backend que devuelve "Nombre Apellido"
     const prestSel = prestadorId
       ? prestadores.find(p => String(p.id) === String(prestadorId))
       : null;
     const prestClaveSel = prestSel
-      ? (prestSel.email || prestSel.nombre_publico || prestSel.nombre || "").trim().toLowerCase()
+      ? (prestSel.nombre_publico || prestSel.nombre || prestSel.email || "").trim().toLowerCase()
       : null;
 
     const filtrados = (all || []).filter(a => {
