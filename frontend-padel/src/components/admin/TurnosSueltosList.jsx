@@ -110,7 +110,7 @@ const TurnosSueltosList = ({ usuarioId, accessToken, logout, onCancelar }) => {
   }
 
   return (
-    <VStack spacing={4} align="stretch">
+    <VStack spacing={4} align="stretch" w="100%" overflow="hidden">
       <Flex align="center" justify="space-between">
         <Text fontWeight="bold" fontSize="lg" color={card.color}>
           🏓 Clases Sueltas
@@ -132,7 +132,7 @@ const TurnosSueltosList = ({ usuarioId, accessToken, logout, onCancelar }) => {
           <Text color={mutedText}>No hay clases sueltas reservadas</Text>
         </Box>
       ) : (
-        <VStack spacing={3} align="stretch">
+        <VStack spacing={3} align="stretch" w="100%">
           {turnos.map((turno) => (
             <Box
               key={turno.id}
@@ -143,10 +143,12 @@ const TurnosSueltosList = ({ usuarioId, accessToken, logout, onCancelar }) => {
               borderColor="gray.200"
               _hover={{ bg: hoverBg }}
               transition="background-color 0.2s ease"
+              w="100%"
+              overflow="hidden"
             >
-              <Flex justify="space-between" align="start" wrap="wrap" gap={2}>
-                <VStack align="start" spacing={2} flex="1" minW={0}>
-                  <HStack spacing={2} wrap="wrap">
+              <Flex justify="space-between" align="start" gap={2} w="100%" overflow="hidden">
+                <VStack align="start" spacing={2} flex="1" minW={0} w="100%">
+                  <HStack spacing={2} wrap="wrap" w="100%" overflow="hidden">
                     <Text fontWeight="bold" fontSize="md">
                       {formatFecha(turno.fecha)} - {formatHora(turno.hora)}
                     </Text>

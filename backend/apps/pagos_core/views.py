@@ -295,9 +295,6 @@ class ComprobanteAprobarRechazarView(APIView):
                 if pago_intento:
                     pago_intento.estado = "confirmado"
                     pago_intento.save(update_fields=["estado"])
-                    
-                    # Borrar archivo del comprobante al confirmar pago
-                    self._borrar_archivo_comprobante(comprobante)
                 
                 # Actualizar estado del turno
                 if comprobante.turno:
@@ -461,9 +458,6 @@ class ComprobanteAprobarLoteView(APIView):
         if pago_intento:
             pago_intento.estado = "confirmado"
             pago_intento.save(update_fields=["estado"])
-            
-            # Borrar archivo del comprobante al confirmar pago
-            self._borrar_archivo_comprobante(comprobante)
         
         # Actualizar estado del turno
         if comprobante.turno:
@@ -486,9 +480,6 @@ class ComprobanteAprobarLoteView(APIView):
         if pago_intento:
             pago_intento.estado = "confirmado"
             pago_intento.save(update_fields=["estado"])
-            
-            # Borrar archivo del comprobante al confirmar pago
-            self._borrar_archivo_comprobante(comprobante_abono)
         
         # Actualizar estado del abono
         abono = comprobante_abono.abono_mes
