@@ -325,28 +325,30 @@ const PagosPreaprobadosPage = () => {
           align={{ base: "stretch", md: "start" }}
         >
           <Box flex="1 1 auto" minW={0}>
-            <HStack spacing={2} mb={2}>
+            <Flex direction={{ base: "column", sm: "row" }} align={{ base: "start", sm: "center" }} gap={2} mb={2} wrap="wrap">
               <Text fontWeight="bold" noOfLines={1}>
                 Comprobante
               </Text>
-              <Badge colorScheme="blue" size="sm">
-                Clase Individual
-              </Badge>
-              {isCompleted && (
-                <Badge colorScheme="green" size="sm">
-                  ✅ Completado
+              <HStack spacing={2} wrap="wrap">
+                <Badge colorScheme="blue" size="sm">
+                  Clase Individual
                 </Badge>
-              )}
-              {isRejected && (
-                <Badge colorScheme="red" size="sm">
-                  ❌ Rechazado
-                </Badge>
-              )}
-              {isPreapproved && (
-                <Badge colorScheme="yellow" size="sm">
-                  ⏳ Pendiente
-                </Badge>
-              )}
+                {isCompleted && (
+                  <Badge colorScheme="green" size="sm">
+                    ✅ Completado
+                  </Badge>
+                )}
+                {isRejected && (
+                  <Badge colorScheme="red" size="sm">
+                    ❌ Rechazado
+                  </Badge>
+                )}
+                {isPreapproved && (
+                  <Badge colorScheme="yellow" size="sm">
+                    ⏳ Pendiente
+                  </Badge>
+                )}
+              </HStack>
               {statusFilter === "preaprobados" && (
                 <input
                   type="checkbox"
@@ -459,33 +461,35 @@ const PagosPreaprobadosPage = () => {
           align={{ base: "stretch", md: "start" }}
         >
           <Box flex="1 1 auto" minW={0}>
-            <HStack spacing={2} mb={2}>
+            <Flex direction={{ base: "column", sm: "row" }} align={{ base: "start", sm: "center" }} gap={2} mb={2} wrap="wrap">
               <Text fontWeight="bold" noOfLines={1}>
                 Comprobante
               </Text>
-              <Badge colorScheme="purple" size="sm">
-                Abono Mensual
-              </Badge>
-              {p.es_renovacion && (
-                <Badge colorScheme="orange" size="sm">
-                  Renovación
+              <HStack spacing={2} wrap="wrap">
+                <Badge colorScheme="purple" size="sm">
+                  Abono Mensual
                 </Badge>
-              )}
-              {isCompleted && (
-                <Badge colorScheme="green" size="sm">
-                  ✅ Completado
-                </Badge>
-              )}
-              {isRejected && (
-                <Badge colorScheme="red" size="sm">
-                  ❌ Rechazado
-                </Badge>
-              )}
-              {isPreapproved && (
-                <Badge colorScheme="yellow" size="sm">
-                  ⏳ Pendiente
-                </Badge>
-              )}
+                {p.es_renovacion && (
+                  <Badge colorScheme="orange" size="sm">
+                    Renovación
+                  </Badge>
+                )}
+                {isCompleted && (
+                  <Badge colorScheme="green" size="sm">
+                    ✅ Completado
+                  </Badge>
+                )}
+                {isRejected && (
+                  <Badge colorScheme="red" size="sm">
+                    ❌ Rechazado
+                  </Badge>
+                )}
+                {isPreapproved && (
+                  <Badge colorScheme="yellow" size="sm">
+                    ⏳ Pendiente
+                  </Badge>
+                )}
+              </HStack>
               {statusFilter === "preaprobados" && (
                 <input
                   type="checkbox"
