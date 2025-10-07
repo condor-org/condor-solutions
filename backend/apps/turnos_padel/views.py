@@ -222,10 +222,28 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         logger.info("[AbonoMesViewSet:get_queryset] Usuario: %s (%s)", user.id, user.tipo_usuario)
 
         if user.tipo_usuario == "super_admin":
-            return AbonoMes.objects.all()
+            qs = AbonoMes.objects.all()
         elif user.tipo_usuario == "admin_cliente":
-            return AbonoMes.objects.filter(sede__cliente=user.cliente)
-        return AbonoMes.objects.filter(usuario=user)
+            qs = AbonoMes.objects.filter(sede__cliente=user.cliente)
+        else:
+            qs = AbonoMes.objects.filter(usuario=user)
+        
+        # Aplicar filtros por parámetros de query
+        prestador_id = self.request.query_params.get('prestador_id')
+        if prestador_id:
+            try:
+                qs = qs.filter(prestador_id=int(prestador_id))
+            except (ValueError, TypeError):
+                pass
+        
+        sede_id = self.request.query_params.get('sede_id')
+        if sede_id:
+            try:
+                qs = qs.filter(sede_id=int(sede_id))
+            except (ValueError, TypeError):
+                pass
+        
+        return qs
 
     def get_serializer_class(self):
         # 📄 Detail y list retornan versión enriquecida; create/update usan base.
