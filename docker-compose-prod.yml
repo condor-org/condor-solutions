@@ -8,6 +8,8 @@ networks:
 volumes:
   redis_data:
     name: condor_redis_data_prod
+  media_data_prod:
+    name: condor_media_data_prod
 
 services:
   backend:
@@ -27,6 +29,8 @@ services:
       timeout: 3s
       retries: 12
       start_period: 20s
+    volumes:
+      - media_data_prod:/app/media
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
