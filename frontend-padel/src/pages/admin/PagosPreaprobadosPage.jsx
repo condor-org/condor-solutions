@@ -184,6 +184,7 @@ const PagosPreaprobadosPage = () => {
     try {
       await api.patch(`pagos/comprobantes/${id}/${accion}/`);
       toast.success(accion === "aprobar" ? "Pago confirmado" : "Pago rechazado");
+      // Recargar con el filtro actual aplicado
       fetchPagos(currentPage);
     } catch {
       toast.error("Error al actualizar el pago");

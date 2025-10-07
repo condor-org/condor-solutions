@@ -496,16 +496,26 @@ const UsuariosPage = () => {
           size={isMobile ? "full" : "xl"}
         >
           <ModalOverlay />
-          <ModalContent bg={modal.bg} color={modal.color} maxH="90vh">
-            <ModalHeader>
+          <ModalContent 
+            bg={modal.bg} 
+            color={modal.color} 
+            maxH="90vh"
+            mx={isMobile ? 0 : 4}
+            my={isMobile ? 0 : 4}
+            w={isMobile ? "100vw" : "auto"}
+            h={isMobile ? "100vh" : "auto"}
+            maxW={isMobile ? "100vw" : "90vw"}
+            overflow="hidden"
+          >
+            <ModalHeader px={{ base: 4, md: 6 }} py={{ base: 3, md: 4 }}>
               <Flex align="center" justify="space-between" wrap="wrap" gap={2}>
-                <Text fontSize="xl" fontWeight="bold">
+                <Text fontSize={{ base: "lg", md: "xl" }} fontWeight="bold" noOfLines={2}>
                   {detalleUsuario?.nombre} {detalleUsuario?.apellido}
                 </Text>
               </Flex>
             </ModalHeader>
             <ModalCloseButton />
-            <Box px={6} pb={2}>
+            <Box px={{ base: 4, md: 6 }} pb={2}>
               <Badge 
                 colorScheme={detalleUsuario?.is_active ? "green" : "red"}
                 size="lg"
@@ -513,19 +523,74 @@ const UsuariosPage = () => {
                 {detalleUsuario?.is_active ? "Activo" : "Inactivo"}
               </Badge>
             </Box>
-            <ModalBody maxH="70vh" overflowY="auto">
+            <ModalBody 
+              px={{ base: 2, md: 6 }} 
+              py={{ base: 2, md: 4 }}
+              maxH={{ base: "calc(100vh - 140px)", md: "70vh" }} 
+              overflowY="auto"
+              overflowX="hidden"
+              w="100%"
+              maxW="100%"
+            >
               {detalleUsuario && (
                 <Tabs variant="enclosed" colorScheme="blue">
-                  <TabList>
-                    <Tab>👤 Información</Tab>
-                    <Tab>🎁 Bonificaciones</Tab>
-                    <Tab>📅 Abonos</Tab>
-                    <Tab>🏓 Clases Sueltas</Tab>
+                  <TabList 
+                    overflowX="hidden" 
+                    overflowY="hidden"
+                    w="100%"
+                    display="flex"
+                    flexWrap="wrap"
+                    gap={1}
+                  >
+                    <Tab 
+                      fontSize={{ base: "xs", md: "md" }}
+                      px={{ base: 1, md: 4 }}
+                      py={{ base: 1, md: 3 }}
+                      whiteSpace="nowrap"
+                      flex="1"
+                      minW="0"
+                      textAlign="center"
+                    >
+                      👤 Info
+                    </Tab>
+                    <Tab 
+                      fontSize={{ base: "xs", md: "md" }}
+                      px={{ base: 1, md: 4 }}
+                      py={{ base: 1, md: 3 }}
+                      whiteSpace="nowrap"
+                      flex="1"
+                      minW="0"
+                      textAlign="center"
+                    >
+                      🎁 Bonos
+                    </Tab>
+                    <Tab 
+                      fontSize={{ base: "xs", md: "md" }}
+                      px={{ base: 1, md: 4 }}
+                      py={{ base: 1, md: 3 }}
+                      whiteSpace="nowrap"
+                      flex="1"
+                      minW="0"
+                      textAlign="center"
+                    >
+                      📅 Abonos
+                    </Tab>
+                    <Tab 
+                      fontSize={{ base: "xs", md: "md" }}
+                      px={{ base: 1, md: 4 }}
+                      py={{ base: 1, md: 3 }}
+                      whiteSpace="nowrap"
+                      flex="1"
+                      minW="0"
+                      textAlign="center"
+                    >
+                      🏓 Sueltas
+                    </Tab>
                   </TabList>
 
-                  <TabPanels>
+                  <TabPanels overflowX="hidden" w="100%">
                     {/* TAB 1: Información Usuario */}
-                    <TabPanel>
+                    <TabPanel overflowX="hidden" w="100%">
                       <VStack spacing={4} align="stretch">
                         <InfoCard 
                           label="Nombre y Apellido"
@@ -557,7 +622,7 @@ const UsuariosPage = () => {
                     </TabPanel>
 
                     {/* TAB 2: Bonificaciones */}
-                    <TabPanel>
+                    <TabPanel overflowX="hidden" w="100%">
                       <VStack spacing={4} align="stretch">
                         <BonificacionesList 
                           usuarioId={detalleUsuario.id}
@@ -664,7 +729,7 @@ const UsuariosPage = () => {
                     </TabPanel>
 
                     {/* TAB 3: Abonos */}
-                    <TabPanel>
+                    <TabPanel overflowX="hidden" w="100%">
                       <AbonosList 
                         usuarioId={detalleUsuario.id}
                         accessToken={accessToken}
@@ -679,7 +744,7 @@ const UsuariosPage = () => {
                     </TabPanel>
 
                     {/* TAB 4: Clases Sueltas */}
-                    <TabPanel>
+                    <TabPanel overflowX="hidden" w="100%">
                       <TurnosSueltosList 
                         usuarioId={detalleUsuario.id}
                         accessToken={accessToken}
@@ -693,7 +758,7 @@ const UsuariosPage = () => {
                 </Tabs>
               )}
             </ModalBody>
-            <ModalFooter>
+            <ModalFooter px={{ base: 4, md: 6 }} py={{ base: 3, md: 4 }}>
               <Button 
                 onClick={onCloseDetalle} 
                 size={{ base: "md", md: "lg" }} 
