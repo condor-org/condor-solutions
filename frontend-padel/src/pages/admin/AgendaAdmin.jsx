@@ -351,12 +351,12 @@ const fetchAbonosMes = async (fechaBase) => {
         ? true
         : String(a.sede || "").trim().toLowerCase() === sedeNombreSel;
 
-      // Prestador: el endpoint devuelve "prestador" como string (p.ej. "correo (empleado_cliente)").
-      // Matcheamos por inclusión contra email/nombre público del prestador elegido.
-      const prestStr = String(a.prestador || "").toLowerCase();
+      // Prestador: el endpoint devuelve "prestador" como string (p.ej. "Lucas Profe").
+      // Matcheamos exactamente por nombre y apellido del prestador elegido.
+      const prestStr = String(a.prestador || "").trim().toLowerCase();
       const okPrest = !prestClaveSel
         ? true
-        : prestStr.includes(prestClaveSel);
+        : prestStr === prestClaveSel;
 
       return okMes && okSede && okPrest;
     });
