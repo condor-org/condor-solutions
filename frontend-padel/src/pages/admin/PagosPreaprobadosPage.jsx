@@ -357,7 +357,7 @@ const PagosPreaprobadosPage = () => {
                   style={{ marginLeft: "8px" }}
                 />
               )}
-            </HStack>
+            </Flex>
 
             <HStack spacing={2} wrap="wrap" mb={1}>
               <Text fontSize="sm">Turno:</Text>
@@ -498,7 +498,7 @@ const PagosPreaprobadosPage = () => {
                   style={{ marginLeft: "8px" }}
                 />
               )}
-            </HStack>
+            </Flex>
 
             {/* Abono: Lunes 10:00hs */}
             <Text fontSize="sm" mb={1}>
