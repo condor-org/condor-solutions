@@ -20,12 +20,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       
+      - id: lower
+        run: echo "OWNER_LC=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
           registry-url: 'https://npm.pkg.github.com'
           scope: '@condor-org'
+      
+      - name: Configure NPM authentication
+        run: |
+          echo "@condor-org:registry=https://npm.pkg.github.com" >> ~/.npmrc
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> ~/.npmrc
       
       - name: Install dependencies
         run: |
@@ -36,5 +44,3 @@ jobs:
         run: |
           cd shared-auth
           npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
