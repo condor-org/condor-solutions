@@ -18,7 +18,7 @@ on:
         required: false
         type: string
       run_bootstrap:
-        description: 'Ejecutar bootstrap_condor después del deploy'
+        description: 'Ejecutar bootstrap_condor después del deploy (SOLO DEV)'
         required: false
         default: false
         type: boolean
@@ -215,6 +215,13 @@ jobs:
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && (inputs.release_tag || needs.get-latest-release.outputs.latest_tag) || github.event.release.tag_name }}
     steps:
+      - name: Validar parámetros PROD
+        if: github.event_name == 'workflow_dispatch' && inputs.run_bootstrap == true
+        run: |
+          echo "❌ ERROR: run_bootstrap=true no está permitido en PRODUCCIÓN"
+          echo "El bootstrap borra la base de datos y solo debe usarse en DEV"
+          exit 1
+      
       - name: Deploy a PROD
         uses: appleboy/ssh-action@v1.0.3
         with:
