@@ -1,0 +1,25 @@
+{
+  "name": "@condor-org/shared-auth",
+  "version": "1.0.0",
+  "description": "Shared authentication module for Condor frontends",
+  "main": "src/index.js",
+  "files": [
+    "src/**/*"
+  ],
+  "scripts": {
+    "test": "echo \"No tests specified\" && exit 0",
+    "prepublishOnly": "echo \"Publishing @condor-org/shared-auth@$npm_package_version\""
+  },
+  "keywords": ["auth", "oauth", "condor"],
+  "author": "Condor Team",
+  "license": "MIT",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  },
+  "peerDependencies": {
+    "react": ">=16.8.0"
+  }
+}

@@ -1,0 +1,39 @@
+name: Publish Shared Auth Package
+
+on:
+  push:
+    paths:
+      - 'shared-auth/**'
+    branches:
+      - main
+      - feature/distrito-padel-client
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          registry-url: 'https://npm.pkg.github.com'
+      
+      - name: Install dependencies
+        run: |
+          cd shared-auth
+          npm install
+      
+      - name: Publish package
+        run: |
+          cd shared-auth
+          npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
