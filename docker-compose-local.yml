@@ -53,13 +53,11 @@ services:
     networks:
       - condor_local_net
     healthcheck:
-      test:
-        - "CMD-SHELL"
-        - "python -c \"import http.client; c=http.client.HTTPConnection('localhost',8000,timeout=3); c.request('GET','/healthz'); c.getresponse();\""
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 15s
+      test: ["CMD-SHELL", "python -c \"import http.client,sys; c=http.client.HTTPConnection('localhost',8000,timeout=3); c.request('GET','/'); c.getresponse(); sys.exit(0)\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
 
   frontend:
     # ← build local en vez de image GHCR

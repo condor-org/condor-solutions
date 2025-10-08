@@ -5,9 +5,19 @@ from django.db import models
 class Cliente(models.Model):
     TIPOS_CLIENTE = [
         ('padel', 'Club de Padel'),
+        ('canchas', 'Administración Canchas'),
+        ('medicina', 'Medicina'),
+        ('superadmin', 'Super Admin'),
         ('financiera', 'Financiera'),
         ('peluqueria', 'Peluquería'),
         # Agregá más verticales según necesidad.
+    ]
+
+    TIPOS_FE = [
+        ('padel', 'Frontend Profesores Padel'),
+        ('canchas', 'Frontend Administración Canchas'),
+        ('medicina', 'Frontend Medicina'),
+        ('superadmin', 'Frontend Super Admin'),
     ]
 
     THEMES_VISUALES = [
@@ -22,6 +32,13 @@ class Cliente(models.Model):
         choices=TIPOS_CLIENTE,
         default='padel',
         help_text="Define el tipo de negocio del cliente."
+    )
+
+    tipo_fe = models.CharField(
+        max_length=50,
+        choices=TIPOS_FE,
+        default='padel',
+        help_text="Define qué frontend debe servirse para este cliente."
     )
 
     theme = models.CharField(

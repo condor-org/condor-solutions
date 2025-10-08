@@ -25,9 +25,15 @@ COPY . .
 RUN useradd -m -u 10001 app && chown -R app:app /app
 # Asegurar permisos del directorio media (se ejecuta como root durante build)
 RUN mkdir -p /app/media && chown -R app:app /app/media
+
+# Copiar y configurar entrypoint
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 USER app
 
 EXPOSE 8000
 
-# Logs a stdout/err; nivel overrideable por DJANGO_LOG_LEVEL
+# Usar entrypoint que ejecuta migraciones automáticamente
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["gunicorn","condor_core.wsgi:application","--bind","0.0.0.0:8000","--access-logfile","-","--error-logfile","-","--log-level","info"]
