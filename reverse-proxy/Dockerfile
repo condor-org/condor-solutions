@@ -1,4 +1,4 @@
-FROM nginx:1.25-alpine
+FROM openresty/openresty:1.25-alpine
 
 # Copiamos todas las configuraciones
 COPY nginx.local.conf /etc/nginx/nginx.local.conf
