@@ -153,7 +153,12 @@ class ComprobanteView(ListCreateAPIView):
         # 🔐 Scope por tipo de usuario
         tu = getattr(usuario, "tipo_usuario", None)
         if tu == "super_admin":
-            pass
+            # Super admin: filtrar por cliente actual
+            cliente_actual = getattr(self.request, 'cliente_actual', None)
+            if cliente_actual:
+                qs = qs.filter(cliente=cliente_actual)
+            else:
+                qs = qs.none()
         elif tu == "admin_cliente" and usuario.cliente_id:
             qs = qs.filter(cliente=usuario.cliente)
         elif tu == "empleado_cliente":
@@ -667,7 +672,12 @@ class ComprobanteAbonoView(ListCreateAPIView):
         # 🔐 Scope por tipo de usuario
         tu = getattr(usuario, "tipo_usuario", None)
         if tu == "super_admin":
-            pass
+            # Super admin: filtrar por cliente actual
+            cliente_actual = getattr(self.request, 'cliente_actual', None)
+            if cliente_actual:
+                qs = qs.filter(cliente=cliente_actual)
+            else:
+                qs = qs.none()
         elif tu == "admin_cliente" and usuario.cliente_id:
             qs = qs.filter(cliente=usuario.cliente)
         elif tu == "empleado_cliente":

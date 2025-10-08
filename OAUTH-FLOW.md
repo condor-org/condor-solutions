@@ -141,9 +141,9 @@ server {
         proxy_pass http://backend_dev;
     }
     
-    # OAuth Callback → backend_dev
+    # OAuth Callback → frontend_dev (el frontend maneja el intercambio)
     location = /oauth/google/callback {
-        proxy_pass http://backend_dev/api/auth/oauth/callback/;
+        proxy_pass http://frontend_padel_dev;
     }
     
     # FE → según configuración en DB (routing dinámico)
@@ -166,6 +166,52 @@ server {
     }
 }
 ```
+
+---
+
+## ⚠️ **PROBLEMA IDENTIFICADO Y SOLUCIONADO**
+
+### **🔍 El Problema:**
+En la configuración actual, el **TENANTS DEV server block** estaba enviando el OAuth callback al **backend** en lugar del **frontend**:
+
+```nginx
+# ❌ CONFIGURACIÓN INCORRECTA (causaba loop infinito)
+location = /oauth/google/callback {
+  proxy_pass http://backend_dev/api/auth/oauth/callback/;  # ← BACKEND
+}
+```
+
+### **🔄 ¿Por qué causaba loop infinito?**
+1. **Usuario** hace login → Google OAuth
+2. **Google** redirige a → `https://auth-dev.cnd-ia.com/oauth/google/callback`
+3. **AUTH DEV server** → `proxy_pass http://backend_dev/api/auth/oauth/callback/`
+4. **Backend** procesa callback → redirige a → `https://padel-dev.cnd-ia.com/oauth/google/callback`
+5. **TENANTS DEV server** → `proxy_pass http://backend_dev/api/auth/oauth/callback/` ❌
+6. **Backend** recibe el callback de nuevo → redirige a → `https://padel-dev.cnd-ia.com/oauth/google/callback`
+7. **Loop infinito** 🔄
+
+### **✅ La Solución:**
+El **TENANTS DEV server block** debe enviar el OAuth callback al **frontend** para que maneje el intercambio:
+
+```nginx
+# ✅ CONFIGURACIÓN CORRECTA
+location = /oauth/google/callback {
+  proxy_pass http://frontend_padel_dev;  # ← FRONTEND
+}
+```
+
+### **🎯 ¿Por qué funciona así?**
+- **AUTH DEV server**: OAuth callback → Backend (procesa el callback inicial)
+- **TENANTS DEV server**: OAuth callback → Frontend (maneja el intercambio del token)
+- **Frontend**: Tiene la lógica para procesar el OAuth callback y completar el login
+
+### **📋 Flujo Correcto:**
+1. **Usuario** hace login → Google OAuth
+2. **Google** redirige a → `https://auth-dev.cnd-ia.com/oauth/google/callback`
+3. **AUTH DEV server** → `proxy_pass http://backend_dev/api/auth/oauth/callback/`
+4. **Backend** procesa callback → redirige a → `https://padel-dev.cnd-ia.com/oauth/google/callback`
+5. **TENANTS DEV server** → `proxy_pass http://frontend_padel_dev`
+6. **Frontend** recibe callback → procesa el token → usuario logueado ✅
 
 ---
 
@@ -241,6 +287,37 @@ Request → Nginx → ¿Es /api/? → Backend
 - `$host` - El hostname del request
 - `$fe_type` - Tipo de frontend (padel, canchas, medicina)
 - `$tenant` - Nombre del tenant extraído del hostname
+
+---
+
+## 📋 **Estándares OAuth 2.0 que Seguimos**
+
+### **✅ Estándar OAuth 2.0 Authorization Code Flow:**
+1. **Authorization Request** - Usuario redirige a Google
+2. **Authorization Response** - Google redirige con código
+3. **Token Request** - Cliente intercambia código por token
+4. **Token Response** - Google devuelve access_token
+
+### **🎯 Nuestra Implementación:**
+```
+1. Usuario → Google OAuth (Authorization Request)
+2. Google → auth-dev.cnd-ia.com/oauth/google/callback (Authorization Response)
+3. Backend → Procesa callback y redirige al cliente
+4. Frontend → Intercambia código por token (Token Request)
+5. Frontend → Usuario logueado (Token Response)
+```
+
+### **🔑 Componentes OAuth:**
+- **Authorization Server**: Google OAuth 2.0
+- **Client**: Nuestra aplicación (frontend + backend)
+- **Resource Owner**: Usuario final
+- **Redirect URI**: `https://auth-dev.cnd-ia.com/oauth/google/callback`
+
+### **🛡️ Seguridad:**
+- ✅ **PKCE (Proof Key for Code Exchange)** - Protege contra ataques
+- ✅ **State parameter** - Previene CSRF
+- ✅ **HTTPS** - Comunicación segura
+- ✅ **JWT tokens** - Autenticación stateless
 
 ---
 

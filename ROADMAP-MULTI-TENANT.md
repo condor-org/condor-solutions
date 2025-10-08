@@ -41,7 +41,33 @@ Implementar sistema multi-tenant que permita agregar clientes automáticamente c
 - ✅ API para crear clientes
 - ✅ Validaciones y verificaciones
 
-### **Fase 4: Automatización Completa**
+### **Fase 4: Usuarios Multi-Tenant**
+**Objetivo:** Permitir que usuarios accedan a múltiples clientes
+**Alcance:** Sistema de roles y permisos por cliente
+
+**Componentes:**
+- 🔄 Modelo UsuarioCliente (usuario + cliente + rol)
+- 🔄 Modelo Rol (permisos específicos)
+- 🔄 Modelo SesionUsuario (rol activo por sesión)
+- 🔄 TenantMiddleware actualizado
+- 🔄 OAuth Callback multi-tenant
+- 🔄 API para cambiar rol/cliente
+- 🔄 Frontend selector de cliente/rol
+- 🔄 Seguridad estricta por cliente
+
+**Riesgos:**
+- ⚠️ Cambios críticos en autenticación
+- ⚠️ Posible ruptura de funcionalidad existente
+- ⚠️ Complejidad alta en implementación
+- ⚠️ Testing exhaustivo requerido
+
+**Estrategia:**
+- 🛡️ Implementación gradual con feature flags
+- 🛡️ Mantener lógica actual como fallback
+- 🛡️ Testing en dev antes de prod
+- 🛡️ Rollback plan definido
+
+### **Fase 5: Automatización Completa**
 **Objetivo:** Automatizar DNS y Google Console
 **Alcance:** Todo automatizado
 
@@ -85,7 +111,8 @@ Implementar sistema multi-tenant que permita agregar clientes automáticamente c
 ### **📋 Pendiente:**
 - Fase 2: OAuth compartido
 - Fase 3: Automatización básica
-- Fase 4: Automatización completa
+- Fase 4: Usuarios Multi-Tenant
+- Fase 5: Automatización completa
 
 ## 🎯 Criterios de Éxito
 
@@ -107,6 +134,13 @@ Implementar sistema multi-tenant que permita agregar clientes automáticamente c
 - ✅ Validaciones automáticas
 
 ### **Fase 4:**
+- ✅ Usuarios pueden acceder a múltiples clientes
+- ✅ Roles específicos por cliente
+- ✅ Seguridad estricta por cliente
+- ✅ Selector de cliente/rol en frontend
+- ✅ Sin acceso no autorizado a datos
+
+### **Fase 5:**
 - ✅ DNS automático
 - ✅ Google Console automático
 - ✅ Frontend SuperAdmin
@@ -137,6 +171,7 @@ Implementar sistema multi-tenant que permita agregar clientes automáticamente c
 
 ---
 
-**Última actualización:** 2024-01-XX
+**Última actualización:** 2025-10-08
 **Fase actual:** Fase 1 - Multi-FE Básico
 **Estado:** En desarrollo
+**Próxima fase:** Fase 2 - OAuth Compartido
