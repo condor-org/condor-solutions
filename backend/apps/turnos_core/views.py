@@ -152,7 +152,12 @@ class TurnoListView(ListAPIView):
 
         # super admin (ambas variantes por compat)
         if getattr(usuario, "tipo_usuario", None) == "super_admin" or getattr(usuario, "is_superuser", False):
-            qs = Turno.objects.all().select_related("usuario", "lugar")
+            # Super admin: filtrar por cliente actual
+            cliente_actual = getattr(self.request, 'cliente_actual', None)
+            if cliente_actual:
+                qs = Turno.objects.filter(lugar__cliente=cliente_actual).select_related("usuario", "lugar")
+            else:
+                qs = Turno.objects.none()
 
         # admin del cliente → TODOS los turnos de su cliente
         elif getattr(usuario, "tipo_usuario", None) == "admin_cliente" and getattr(usuario, "cliente_id", None):
@@ -241,7 +246,12 @@ class TurnosAgendaAdminView(APIView):
 
         # alcance por rol
         if getattr(user, "tipo_usuario", "") == "super_admin" or getattr(user, "is_superuser", False):
-            pass
+            # Super admin: filtrar por cliente actual
+            cliente_actual = getattr(request, 'cliente_actual', None)
+            if cliente_actual:
+                qs = qs.filter(lugar__cliente=cliente_actual)
+            else:
+                qs = qs.none()
         elif getattr(user, "tipo_usuario", "") == "admin_cliente" and getattr(user, "cliente_id", None):
             qs = qs.filter(lugar__cliente_id=user.cliente_id)
         elif getattr(user, "tipo_usuario", "") == "empleado_cliente":
@@ -644,7 +654,12 @@ class LugarViewSet(viewsets.ModelViewSet):
         user = self.request.user
 
         if user.is_superuser:
-            return Lugar.objects.all()
+            # Super admin: filtrar por cliente actual
+            cliente_actual = getattr(self.request, 'cliente_actual', None)
+            if cliente_actual:
+                return Lugar.objects.filter(cliente=cliente_actual)
+            else:
+                return Lugar.objects.none()
 
         if hasattr(user, "cliente"):
             return Lugar.objects.filter(cliente=user.cliente)
@@ -768,7 +783,12 @@ class DisponibilidadViewSet(viewsets.ModelViewSet):
         user = self.request.user
 
         if user.tipo_usuario == "super_admin":
-            return Disponibilidad.objects.all()
+            # Super admin: filtrar por cliente actual
+            cliente_actual = getattr(self.request, 'cliente_actual', None)
+            if cliente_actual:
+                return Disponibilidad.objects.filter(prestador__cliente=cliente_actual)
+            else:
+                return Disponibilidad.objects.none()
 
         if user.tipo_usuario == "admin_cliente":
             return Disponibilidad.objects.filter(prestador__cliente=user.cliente)

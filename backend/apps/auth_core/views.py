@@ -95,12 +95,7 @@ class UsuarioViewSet(viewsets.ModelViewSet):
     ordering_fields = ['id', 'email', 'tipo_usuario']
 
     def get_queryset(self):
-        user = self.request.user
-        if getattr(user, "tipo_usuario", None) == 'super_admin':
-            return Usuario.objects.all()
-        if getattr(user, "tipo_usuario", None) == 'admin_cliente' and getattr(user, "cliente", None):
-            return Usuario.objects.filter(cliente=user.cliente)
-        return Usuario.objects.none()
+        return get_queryset_for_user(self.request.user, self.request, Usuario)
 
 # ==========================
 # OAuth: obtener STATE
@@ -514,3 +509,22 @@ class IssueInviteView(APIView):
         token = sign_state(payload, settings.SECRET_KEY, ttl_seconds=ttl_seconds)
         logger.info(f"[INVITE ISSUE] by={req_user.id} cliente_id={cliente_id} role={role} email={'y' if email else 'n'}")
         return Response({"invite": token}, status=201)
+
+
+def get_queryset_for_user(user, request, model_class):
+    """
+    Helper para obtener queryset filtrado por cliente actual.
+    Super admin ve solo datos del cliente actual, no de todos.
+    """
+    cliente_actual = getattr(request, 'cliente_actual', None)
+    
+    if getattr(user, "tipo_usuario", None) == 'super_admin':
+        # Super admin: filtrar por cliente actual
+        if cliente_actual:
+            return model_class.objects.filter(cliente=cliente_actual)
+        else:
+            return model_class.objects.none()
+    elif getattr(user, "tipo_usuario", None) == 'admin_cliente' and getattr(user, "cliente", None):
+        return model_class.objects.filter(cliente=user.cliente)
+    else:
+        return model_class.objects.none()

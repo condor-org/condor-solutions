@@ -69,11 +69,16 @@ class SedePadelViewSet(viewsets.ModelViewSet):
         # ✅ Restringe por tipo de usuario y cliente; usa select_related/prefetch para evitar N+1.
         user = self.request.user
         if user.tipo_usuario == "super_admin":
-            return (
-                Lugar.objects.all()
-                .select_related("configuracion_padel")
-                .prefetch_related("configuracion_padel__tipos_clase")
-            )
+            # Super admin: filtrar por cliente actual
+            cliente_actual = getattr(self.request, 'cliente_actual', None)
+            if cliente_actual:
+                return (
+                    Lugar.objects.filter(cliente=cliente_actual)
+                    .select_related("configuracion_padel")
+                    .prefetch_related("configuracion_padel__tipos_clase")
+                )
+            else:
+                return Lugar.objects.none()
         elif user.tipo_usuario == "admin_cliente":
             return (
                 Lugar.objects.filter(cliente=user.cliente)
@@ -222,7 +227,12 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         logger.info("[AbonoMesViewSet:get_queryset] Usuario: %s (%s)", user.id, user.tipo_usuario)
 
         if user.tipo_usuario == "super_admin":
-            qs = AbonoMes.objects.all()
+            # Super admin: filtrar por cliente actual
+            cliente_actual = getattr(self.request, 'cliente_actual', None)
+            if cliente_actual:
+                qs = AbonoMes.objects.filter(sede__cliente=cliente_actual)
+            else:
+                qs = AbonoMes.objects.none()
         elif user.tipo_usuario == "admin_cliente":
             qs = AbonoMes.objects.filter(sede__cliente=user.cliente)
         else:
