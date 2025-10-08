@@ -45,6 +45,15 @@ jobs:
           - name: frontend
             context: ./frontend-padel
             file: ./frontend-padel/docker/Dockerfile
+          - name: frontend-canchas
+            context: ./frontend-canchas
+            file: ./frontend-canchas/docker/Dockerfile
+          - name: frontend-medicina
+            context: ./frontend-medicina
+            file: ./frontend-medicina/docker/Dockerfile
+          - name: frontend-superadmin
+            context: ./frontend-superadmin
+            file: ./frontend-superadmin/docker/Dockerfile
 
     steps:
       - uses: actions/checkout@v4
