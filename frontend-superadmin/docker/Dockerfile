@@ -23,7 +23,7 @@ RUN sed -i 's#access_log .*#access_log /dev/stdout;#' /etc/nginx/nginx.conf \
  && sed -i 's#error_log .*#error_log /dev/stderr warn;#' /etc/nginx/nginx.conf
 
 # Nginx del frontend (SPA + cache assets)
-COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend-superadmin/docker/nginx.conf /etc/nginx/conf.d/default.conf
 
 # App estática
 COPY --from=build /app/build /usr/share/nginx/html
@@ -32,7 +32,7 @@ COPY --from=build /app/build /usr/share/nginx/html
 RUN echo "window.RUNTIME_CONFIG={};" > /usr/share/nginx/html/config.js
 
 # EntryPoint: genera config.js con PUBLIC_* en runtime
-COPY docker/entrypoint.sh /entrypoint.sh
+COPY frontend-superadmin/docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 EXPOSE 80
