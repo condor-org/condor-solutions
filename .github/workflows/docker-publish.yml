@@ -43,16 +43,16 @@ jobs:
             context: ./backend
             file: ./backend/docker/Dockerfile.cron
           - name: frontend
-            context: ./frontend-padel
+            context: .
             file: ./frontend-padel/docker/Dockerfile
           - name: frontend-canchas
-            context: ./frontend-canchas
+            context: .
             file: ./frontend-canchas/docker/Dockerfile
           - name: frontend-medicina
-            context: ./frontend-medicina
+            context: .
             file: ./frontend-medicina/docker/Dockerfile
           - name: frontend-superadmin
-            context: ./frontend-superadmin
+            context: .
             file: ./frontend-superadmin/docker/Dockerfile
 
     steps:
