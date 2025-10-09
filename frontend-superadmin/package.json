@@ -4,7 +4,7 @@
   "private": true,
   "dependencies": {
     "@chakra-ui/icons": "^2.2.4",
-    "condor-shared-auth": "^1.0.5",
+    "condor-shared-auth": "^1.2.3",
     "@chakra-ui/react": "^2.8.2",
     "@chakra-ui/theme-tools": "^2.2.6",
     "@emotion/react": "^11.14.0",
