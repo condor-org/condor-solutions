@@ -7,11 +7,11 @@ WORKDIR /app
 COPY frontend-medicina/package*.json ./
 RUN npm ci --no-audit --no-fund
 
-# Copiar shared-auth ANTES del frontend para evitar conflictos
-COPY shared-auth/src ./src/shared-auth
-
 # Build (sin hornear envs)
 COPY frontend-medicina/ ./
+
+# Copiar shared-auth DESPUÉS del frontend para evitar conflictos
+COPY shared-auth/src ./src/shared-auth
 
 RUN npm run build
 
