@@ -2,7 +2,7 @@
 // Módulo de autenticación compartido para múltiples frontends
 
 export { AuthContext } from './AuthContext.js';
-export { AuthProvider } from './AuthProvider.js';
+export { AuthProvider } from './AuthProvider.jsx';
 export { useAuth } from './useAuth.js';
 export { ProtectedRoute } from './ProtectedRoute.js';
 export { LoginButton } from './LoginButton.js';
