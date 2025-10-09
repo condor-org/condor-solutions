@@ -4,9 +4,7 @@ on:
   push:
     paths:
       - 'shared-auth/**'
-    branches:
-      - main
-      - feature/distrito-padel-client
+    branches: [ main, feature/distrito-padel-client ]
   workflow_dispatch:
 
 jobs:
@@ -15,33 +13,29 @@ jobs:
     permissions:
       contents: read
       packages: write
-    
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      
-      - id: lower
-        run: echo "OWNER_LC=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
-      
+      - uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
           registry-url: 'https://npm.pkg.github.com'
           scope: '@condor-org'
-      
-      - name: Configure NPM authentication
+          always-auth: true
+
+      - name: Config .npmrc (GH Packages)
         run: |
-          echo "@condor-org:registry=https://npm.pkg.github.com" >> ~/.npmrc
-          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> ~/.npmrc
-          echo "//npm.pkg.github.com/:always-auth=true" >> ~/.npmrc
-      
-      - name: Install dependencies
-        run: |
-          cd shared-auth
-          npm install
-      
-      - name: Publish package
-        run: |
-          cd shared-auth
-          npm publish
+          echo "@condor-org:registry=https://npm.pkg.github.com" > ~/.npmrc
+          echo "//npm.pkg.github.com/:_authToken=\${NODE_AUTH_TOKEN}" >> ~/.npmrc
+
+      - name: Install deps
+        working-directory: shared-auth
+        run: npm ci
+
+      - name: Publish
+        working-directory: shared-auth
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm publish
