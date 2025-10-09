@@ -11,3 +11,5 @@ export { default as authService } from './authService';
 export { default as oauthClient } from './oauthClient';
 export { default as pkce } from './pkce';
 export { default as axiosInterceptor } from './axiosInterceptor';
+export { default as LoginPage } from './LoginPage';
+export { default as Signup } from './Signup';
