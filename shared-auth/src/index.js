@@ -11,5 +11,5 @@ export { authService } from './authService.js';
 export { oauthClient } from './oauthClient.js';
 export { pkce } from './pkce.js';
 export { axiosInterceptor } from './axiosInterceptor.js';
-export { default as LoginPage } from './LoginPage.jsx';
-export { default as Signup } from './Signup.jsx';
+export { default as LoginPage } from './SharedLoginPage.jsx';
+export { default as Signup } from './SharedSignup.jsx';
