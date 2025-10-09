@@ -27,8 +27,10 @@ jobs:
         working-directory: shared-auth
         run: npm install
 
+      - name: Configure NPM auth
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+
       - name: Publish
         working-directory: shared-auth
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish
