@@ -1,5 +1,5 @@
 {
-  "name": "@condor/shared-auth",
+  "name": "condor-shared-auth",
   "version": "1.0.5",
   "description": "Shared authentication module for Condor frontends",
   "main": "src/index.js",
@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "test": "echo \"No tests specified\" && exit 0",
-    "prepublishOnly": "echo \"Publishing @condor/shared-auth@$npm_package_version\""
+    "prepublishOnly": "echo \"Publishing condor-shared-auth@$npm_package_version\""
   },
   "keywords": ["auth", "oauth", "condor"],
   "author": "Condor Team",
