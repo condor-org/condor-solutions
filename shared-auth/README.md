@@ -36,3 +36,4 @@ Este módulo se usa como symlink en cada frontend:
 rm -rf src/shared-auth
 ln -s ../../shared-auth src/shared-auth
 ```
+
