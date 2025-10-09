@@ -3,15 +3,16 @@
 FROM node:20.12.2 AS build
 WORKDIR /app
 
-# Copiar shared-auth ANTES de instalar deps
-COPY shared-auth/src ./src/shared-auth
-
 # Instalar deps (cacheables)
 COPY frontend-canchas/package*.json ./
 RUN npm ci --no-audit --no-fund
 
 # Build (sin hornear envs)
 COPY frontend-canchas/ ./
+
+# Copiar shared-auth DESPUÉS de copiar el frontend
+COPY shared-auth/src ./src/shared-auth
+
 RUN npm run build
 
 # ──────────────────────────────────────────────────────────
