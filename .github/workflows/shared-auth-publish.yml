@@ -10,10 +10,8 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    environment: dev
     permissions:
       contents: read
-      packages: write
 
     steps:
       - uses: actions/checkout@v4
@@ -29,4 +27,6 @@ jobs:
 
       - name: Publish
         working-directory: shared-auth
-        run: npm publish --registry https://registry.npmjs.org
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm publish
