@@ -10,9 +10,6 @@ RUN npm ci --no-audit --no-fund
 # Build (sin hornear envs)
 COPY frontend-padel/ ./
 
-# Copiar shared-auth DESPUÉS del frontend para evitar conflictos
-COPY shared-auth/src ./src/shared-auth
-
 RUN npm run build
 
 # ──────────────────────────────────────────────────────────
