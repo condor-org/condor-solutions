@@ -32,7 +32,7 @@ jobs:
 
       - name: Install deps
         working-directory: shared-auth
-        run: npm ci
+        run: npm install
 
       - name: Publish
         working-directory: shared-auth
