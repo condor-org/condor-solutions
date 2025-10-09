@@ -25,11 +25,6 @@ jobs:
           scope: '@condor-org'
           always-auth: true
 
-      - name: Config .npmrc (GH Packages)
-        run: |
-          echo "@condor-org:registry=https://npm.pkg.github.com" > ~/.npmrc
-          echo "//npm.pkg.github.com/:_authToken=\${NODE_AUTH_TOKEN}" >> ~/.npmrc
-
       - name: Install deps
         working-directory: shared-auth
         run: npm install
