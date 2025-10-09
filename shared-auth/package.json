@@ -1,6 +1,6 @@
 {
   "name": "@condor-org/shared-auth",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Shared authentication module for Condor frontends",
   "main": "src/index.js",
   "files": [
