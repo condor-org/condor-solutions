@@ -168,8 +168,11 @@ jobs:
             echo "[+] Pull de imágenes DEV"
             docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml pull
 
+            echo "[+] Bajando stack DEV existente (si existe)"
+            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml down --remove-orphans || true
+
             echo "[+] Levantando stack DEV"
-            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml up -d --force-recreate
+            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml up -d
 
             echo "[+] Esperando servicios healthy (BE/FE DEV)"
             for i in $(seq 1 40); do
