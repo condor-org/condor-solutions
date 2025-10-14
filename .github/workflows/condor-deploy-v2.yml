@@ -166,10 +166,21 @@ jobs:
             docker network inspect condor_net_dev >/dev/null 2>&1 || docker network create condor_net_dev >/dev/null
 
             echo "[+] Pull de imágenes DEV"
-            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml pull
+            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml pull || {
+              echo "[!] Algunas imágenes no se pudieron descargar, continuando con las disponibles..."
+              # Intentar pull individual de cada servicio
+              docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml pull backend_dev || echo "Backend image not found"
+              docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml pull frontend_dev || echo "Frontend image not found"
+              docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml pull db_dev || echo "DB image not found"
+              docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml pull redis_dev || echo "Redis image not found"
+              docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml pull cron_dev || echo "Cron image not found - will skip cron service"
+            }
+
+            echo "[+] Bajando stack DEV existente (si existe)"
+            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml down --remove-orphans || true
 
             echo "[+] Levantando stack DEV"
-            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml up -d --force-recreate
+            docker compose -p condor_dev --env-file .env.dev -f docker-compose-dev.yml up -d
 
             echo "[+] Esperando servicios healthy (BE/FE DEV)"
             for i in $(seq 1 40); do
@@ -325,8 +336,11 @@ jobs:
             echo "[+] Pull de imágenes PROD"
             docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml pull
 
+            echo "[+] Bajando stack PROD existente (si existe)"
+            docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml down --remove-orphans || true
+
             echo "[+] Levantando stack PROD"
-            docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml up -d --force-recreate
+            docker compose -p condor_prod --env-file .env.prod -f docker-compose-prod.yml up -d
 
             echo "[+] Esperando servicios healthy (BE/FE PROD)"
             for i in $(seq 1 40); do
