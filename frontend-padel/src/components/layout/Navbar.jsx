@@ -10,6 +10,7 @@ import Button from '../ui/Button';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import NotificationBellInline from '../notifications/NotificationBellInline';
 import { useUnreadCount } from '../../hooks/useUnreadCount';
+import RoleSwitcher from './RoleSwitcher';
 
 const Navbar = () => {
   const { colorMode, toggleColorMode } = useColorMode();
@@ -21,7 +22,7 @@ const Navbar = () => {
   const { bg, borderColor, color, iconColor, hoverColor, textColor, emailOpacity } = useNavbarTokens();
   const { count: unread } = useUnreadCount(accessToken, { pollMs: 60000 });
 
-  const isAdmin = user?.tipo_usuario === 'super_admin' || user?.tipo_usuario === 'admin_cliente';
+  const isAdmin = user?.is_super_admin || user?.cliente_actual?.rol === 'admin_cliente';
   const titulo = isAdmin ? 'AdminPadel' : 'Padel App';
 
   const goToNotifications = () => {
@@ -100,10 +101,13 @@ const Navbar = () => {
             {user?.email}
           </Text>
 
+          {/* Selector de roles - solo si tiene múltiples roles */}
+          <RoleSwitcher />
+
           <NotificationBellInline count={unread} onClick={goToNotifications} />
 
           {/* Botón Turnos: sólo desktop/tablet */}
-          {user?.tipo_usuario === 'empleado_cliente' && (
+          {user?.cliente_actual?.rol === 'empleado_cliente' && (
             <Button
               size="sm"
               variant="secondary"

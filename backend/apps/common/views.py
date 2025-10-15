@@ -23,7 +23,7 @@ class MonitoreoRecursosView(APIView):
     def get(self, request):
         try:
             # Verificar permisos
-            if not hasattr(request.user, 'tipo_usuario') or request.user.tipo_usuario != 'super_admin':
+            if not request.user.is_super_admin:
                 return Response({"error": "Acceso denegado"}, status=403)
 
             # Obtener información del sistema

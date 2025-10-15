@@ -84,7 +84,18 @@ class TenantMiddleware:
 
     def __call__(self, request):
         host = self._get_request_host(request)
+        log.info("[TENANT] request_host=%s X-Tenant-Host=%s HTTP_HOST=%s PATH=%s METHOD=%s USER_AGENT=%s", 
+                host, 
+                request.META.get("HTTP_X_TENANT_HOST", "N/A"),
+                request.META.get("HTTP_HOST", "N/A"),
+                request.path,
+                request.method,
+                request.META.get("HTTP_USER_AGENT", "N/A")[:100])
         cliente = self._resolve_cliente(host)
+        
+        # ✅ LOG: Cliente detectado
+        log.info("[TENANT] cliente_detectado=%s host=%s", 
+                cliente.nombre if cliente else "None", host)
 
         if not cliente:
             if not self.strict and self.default_cliente_id:

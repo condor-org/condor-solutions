@@ -6,7 +6,7 @@ import {
   ModalHeader, ModalCloseButton, ModalBody, ModalFooter, useDisclosure,
   IconButton, Switch, Stack, HStack, useBreakpointValue, Divider,
   useColorModeValue, Select, SimpleGrid, ButtonGroup, InputGroup, InputLeftElement,
-  Tabs, TabList, Tab, TabPanels, TabPanel, Badge
+  Tabs, TabList, Tab, TabPanels, TabPanel, Badge, Checkbox, CheckboxGroup
 } from "@chakra-ui/react";
 import { DeleteIcon, EditIcon, SearchIcon } from "@chakra-ui/icons";
 import Sidebar from "../../components/layout/Sidebar";
@@ -40,6 +40,7 @@ const UsuariosPage = () => {
   const [apellido, setApellido] = useState("");
   const [telefono, setTelefono] = useState("");
   const [tipoUsuario, setTipoUsuario] = useState("usuario_final");
+  const [roles, setRoles] = useState([]);
   const [email, setEmail] = useState("");
   const [activo, setActivo] = useState(true);
   const [detalleUsuario, setDetalleUsuario] = useState(null);
@@ -190,6 +191,7 @@ const UsuariosPage = () => {
     setApellido("");
     setTelefono("");
     setTipoUsuario("usuario_final");
+    setRoles([]);
     setEmail("");
     setActivo(true);
   };
@@ -204,7 +206,8 @@ const UsuariosPage = () => {
     setNombre(u.nombre || "");
     setApellido(u.apellido || "");
     setTelefono(u.telefono || "");
-    setTipoUsuario(u.tipo_usuario || "usuario_final");
+    setTipoUsuario(u.cliente_actual?.rol || "usuario_final");
+    setRoles(u.user_roles || []);
     setEmail(u.email || "");
     setActivo(!!u.is_active);
     onOpen();
@@ -235,6 +238,7 @@ const UsuariosPage = () => {
       apellido,
       telefono,
       tipo_usuario: tipoUsuario,
+      roles: roles,
       email,
       is_active: activo,
     };
@@ -279,9 +283,9 @@ const UsuariosPage = () => {
     });
   }, [usuarios, busqueda]);
 
-  const usuariosFinales = usuariosFiltrados.filter(u => u.tipo_usuario === "usuario_final");
-  const empleados = usuariosFiltrados.filter(u => u.tipo_usuario === "empleado_cliente");
-  const admins = usuariosFiltrados.filter(u => u.tipo_usuario === "admin_cliente");
+  const usuariosFinales = usuariosFiltrados.filter(u => u.cliente_actual?.rol === "usuario_final");
+  const empleados = usuariosFiltrados.filter(u => u.cliente_actual?.rol === "empleado_cliente");
+  const admins = usuariosFiltrados.filter(u => u.cliente_actual?.rol === "admin_cliente");
 
   const handleDelete = async (id, email) => {
     if (!window.confirm(`¿Eliminar el usuario "${email}"?`)) return;
@@ -446,18 +450,37 @@ const UsuariosPage = () => {
                     size="md"
                     fontSize={{ base: "16px", md: "inherit" }}
                   />
-                  <Select
-                    size="md"
-                    fontSize={{ base: "16px", md: "inherit" }}
-                    bg={input.bg}
-                    color={input.color}
-                    value={tipoUsuario}
-                    onChange={e => setTipoUsuario(e.target.value)}
-                  >
-                    <option value="admin_cliente">Admin del Cliente</option>
-                    <option value="empleado_cliente">Empleado del Cliente</option>
-                    <option value="usuario_final">Usuario Final</option>
-                  </Select>
+                  <Box>
+                    <Text fontSize="sm" fontWeight="medium" mb={2}>Roles del Usuario</Text>
+                    <CheckboxGroup 
+                      value={roles} 
+                      onChange={setRoles}
+                    >
+                      <VStack align="start" spacing={2}>
+                        <Checkbox 
+                          value="admin_cliente"
+                          size="md"
+                          fontSize={{ base: "16px", md: "inherit" }}
+                        >
+                          Admin del Cliente
+                        </Checkbox>
+                        <Checkbox 
+                          value="empleado_cliente"
+                          size="md"
+                          fontSize={{ base: "16px", md: "inherit" }}
+                        >
+                          Empleado del Cliente
+                        </Checkbox>
+                        <Checkbox 
+                          value="usuario_final"
+                          size="md"
+                          fontSize={{ base: "16px", md: "inherit" }}
+                        >
+                          Usuario Final
+                        </Checkbox>
+                      </VStack>
+                    </CheckboxGroup>
+                  </Box>
                   <ChakraInput
                     placeholder="Email"
                     type="email"
@@ -608,7 +631,7 @@ const UsuariosPage = () => {
                         />
                         <InfoCard 
                           label="Tipo de Usuario"
-                          value={detalleUsuario.tipo_usuario}
+                          value={detalleUsuario.cliente_actual?.rol}
                         />
                         <InfoCard 
                           label="Username"
@@ -634,7 +657,7 @@ const UsuariosPage = () => {
                         />
                         
                         {/* Formulario para asignar nueva bonificación */}
-                        {detalleUsuario.tipo_usuario === "usuario_final" && (
+                        {detalleUsuario.cliente_actual?.rol === "usuario_final" && (
                           <Box p={4} bg={card.bg} borderRadius="md" borderWidth="1px">
                             <Text fontWeight="bold" mb={3}>🎁 Asignar Nueva Bonificación</Text>
                             <VStack spacing={3} align="stretch">

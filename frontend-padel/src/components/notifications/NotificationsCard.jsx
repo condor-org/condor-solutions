@@ -29,7 +29,7 @@ const NotificationsCard = ({ limit = 5, pollMs = 60000, anchorId }) => {
   const muted = useMutedText();
   const navigate = useNavigate();
 
-  const isAdmin = ["super_admin", "admin_cliente"].includes(user?.tipo_usuario);
+  const isAdmin = user?.is_super_admin || user?.cliente_actual?.rol === "admin_cliente";
   const goAll = () => navigate(isAdmin ? "/admin/notificaciones?from=card" : "/notificaciones?from=card");
 
   const [items, setItems] = useState([]);

@@ -147,7 +147,7 @@ const ReservarAbonoAdmin = () => {
         }
         
         // Filtrar solo usuarios finales
-        const finales = todosLosUsuarios.filter(u => u?.tipo_usuario === "usuario_final");
+        const finales = todosLosUsuarios.filter(u => u?.cliente_actual?.rol === "usuario_final");
         setUsuarios(finales);
       } catch (e) {
         console.error("[AbonoAdmin] usuarios error:", e);

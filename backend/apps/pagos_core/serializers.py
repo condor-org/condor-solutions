@@ -29,10 +29,14 @@ class ComprobanteUploadSerializer(serializers.Serializer):
             raise serializers.ValidationError({"turno_id": "Turno no encontrado"})
 
         # 2) Scope por rol/cliente
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(self.context['request'])
+        cliente_actual = getattr(self.context['request'], 'cliente_actual', None)
+        
         if (
-            user.tipo_usuario == "usuario_final" and turno.usuario_id != user.id
+            rol_actual == "usuario_final" and turno.usuario_id != user.id
         ) or (
-            user.tipo_usuario == "admin_cliente" and turno.usuario.cliente_id != user.cliente_id
+            rol_actual == "admin_cliente" and cliente_actual and turno.usuario.cliente_id != cliente_actual.id
         ):
             raise serializers.ValidationError({"turno_id": "No tenés permiso sobre este turno"})
 
@@ -343,6 +347,11 @@ class TurnoReservaSerializer(serializers.Serializer):
         archivo = attrs.get("archivo")
         user = self.context["request"].user
 
+        # Obtener rol actual
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(self.context['request'])
+        cliente_actual = getattr(self.context['request'], 'cliente_actual', None)
+        
         # Turno existente y libre
         try:
             turno = Turno.objects.select_related("usuario", "prestador__cliente").get(pk=turno_id)
@@ -352,11 +361,11 @@ class TurnoReservaSerializer(serializers.Serializer):
             raise serializers.ValidationError({"turno_id": "Ese turno ya está reservado."})
 
         # Reglas por rol
-        if user.tipo_usuario == "usuario_final":
+        if rol_actual == "usuario_final":
             # Debe subir comprobante y el turno debe pertenecer a su cliente
             if not archivo:
                 raise serializers.ValidationError({"archivo": "Debés subir un comprobante."})
-            if turno.prestador.cliente_id != user.cliente_id:
+            if cliente_actual and turno.prestador.cliente_id != cliente_actual.id:
                 raise serializers.ValidationError({"turno_id": "No tenés acceso a este turno."})
 
             # Validación básica del archivo (mismo criterio que ComprobanteUploadSerializer)
@@ -368,9 +377,9 @@ class TurnoReservaSerializer(serializers.Serializer):
             if ext not in allowed_ext:
                 raise serializers.ValidationError({"archivo": f"Extensión no permitida: {ext}"})
 
-        elif user.tipo_usuario == "admin_cliente":
+        elif rol_actual == "admin_cliente":
             # Puede reservar sin archivo pero debe pertenecer a su cliente
-            if turno.prestador.cliente_id != user.cliente_id:
+            if cliente_actual and turno.prestador.cliente_id != cliente_actual.id:
                 raise serializers.ValidationError({"turno_id": "No tenés acceso a este turno."})
         else:
             # Otros roles no participan de este flujo
@@ -389,11 +398,14 @@ class TurnoReservaSerializer(serializers.Serializer):
         user = self.context["request"].user
         turno_id = validated_data["turno_id"]
         archivo = validated_data.get("archivo")
+        
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(self.context['request'])
 
         turno = Turno.objects.get(pk=turno_id)
 
         # admin_cliente → reserva directa
-        if user.tipo_usuario == "admin_cliente":
+        if rol_actual == "admin_cliente":
             turno.usuario = user
             turno.estado = "reservado"
             turno.save(update_fields=["usuario", "estado"])

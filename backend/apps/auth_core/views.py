@@ -46,12 +46,33 @@ def _email_domain_ok(email: str) -> bool:
     except Exception:
         return False
 
-def _issue_tokens_for_user(user, return_to="/"):
+def _issue_tokens_for_user(user, return_to="/", cliente_actual=None):
+    # ✅ LOG: Cliente que se usa para el JWT
+    logger.info(f"[ISSUE TOKENS] cliente_actual={cliente_actual.nombre if cliente_actual else 'None'} user_id={user.id}")
+    
     refresh = RefreshToken.for_user(user)
     access = refresh.access_token
     access["email"] = user.email
-    access["tipo_usuario"] = user.tipo_usuario
-    access["cliente_id"] = user.cliente_id
+    access["is_super_admin"] = user.is_super_admin
+    
+    # Configurar rol y roles para el nuevo sistema multi-tenant
+    if cliente_actual:
+        access["cliente_id"] = cliente_actual.id  # ✅ Usar cliente_actual
+        # ✅ LOG: JWT cliente_id
+        logger.info(f"[ISSUE TOKENS] jwt_cliente_id={cliente_actual.id}")
+        
+        roles_en_cliente = user.get_roles_en_cliente(cliente_actual.id)
+        # Usar el primer rol disponible como rol activo (el usuario puede cambiarlo después)
+        rol_en_cliente = roles_en_cliente[0] if roles_en_cliente else "usuario_final"
+        access["rol_en_cliente"] = rol_en_cliente
+        access["roles_en_cliente"] = roles_en_cliente
+    else:
+        # Fallback al sistema antiguo
+        access["cliente_id"] = user.cliente_id
+        access["tipo_usuario"] = user.tipo_usuario
+        access["rol_en_cliente"] = user.tipo_usuario
+        access["roles_en_cliente"] = [user.tipo_usuario]
+    
     return {
         "ok": True,
         "access": str(access),
@@ -59,10 +80,10 @@ def _issue_tokens_for_user(user, return_to="/"):
         "user": {
             "id": user.id,
             "email": user.email,
-            "nombre": getattr(user, "nombre", None),      # <---
-            "apellido": getattr(user, "apellido", None),  # <---
-            "telefono": getattr(user, "telefono", None),  # opcional
-            "tipo_usuario": user.tipo_usuario,
+            "nombre": getattr(user, "nombre", None),
+            "apellido": getattr(user, "apellido", None),
+            "telefono": getattr(user, "telefono", None),
+            "tipo_usuario": user.tipo_usuario,  # Mantener para compatibilidad
             "cliente_id": user.cliente_id,
         },
         "return_to": return_to,
@@ -76,16 +97,60 @@ class MiPerfilView(APIView):
 
     def get(self, request):
         user = request.user
+        cliente_actual = getattr(request, 'cliente_actual', None)
+        
+        # ✅ LOG: Cliente que se devuelve al frontend
+        logger.info(f"[MI PERFIL] cliente_actual={cliente_actual.nombre if cliente_actual else 'None'} user_id={user.id}")
+        
+        # Importar y usar la función helper
+        from .utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(request)
+        
+        # Información del cliente actual
+        cliente_actual_info = None
+        if cliente_actual:
+            # Usar el rol del JWT si está disponible, sino el primer rol disponible
+            roles_en_cliente = user.get_roles_en_cliente(cliente_actual.id)
+            rol_en_cliente = rol_actual or (roles_en_cliente[0] if roles_en_cliente else "usuario_final")
+            
+            cliente_actual_info = {
+                "id": cliente_actual.id,
+                "nombre": cliente_actual.nombre,
+                "rol": rol_en_cliente,
+                "roles": roles_en_cliente,
+                "tipo_cliente": cliente_actual.tipo_cliente,
+                "tipo_fe": getattr(cliente_actual, 'tipo_fe', cliente_actual.tipo_cliente),
+            }
+        
+        # En un sistema multi-tenant por hostname, solo mostramos el cliente actual
+        # No exponemos otros clientes por seguridad
+        clientes_usuario = []
+        if cliente_actual:
+            # Solo mostrar el cliente actual con sus roles
+            roles_en_cliente = user.get_roles_en_cliente(cliente_actual.id)
+            for rol in roles_en_cliente:
+                clientes_usuario.append({
+                    "id": cliente_actual.id,
+                    "nombre": cliente_actual.nombre,
+                    "rol": rol,
+                    "tipo_cliente": cliente_actual.tipo_cliente,
+                    "tipo_fe": getattr(cliente_actual, 'tipo_fe', cliente_actual.tipo_cliente),
+                })
+        
         data = {
             "id": user.id,
             "email": user.email,
-            "nombre": getattr(user, "nombre", None),     # <---
-            "apellido": getattr(user, "apellido", None), # <---
+            "nombre": getattr(user, "nombre", None),
+            "apellido": getattr(user, "apellido", None),
             "telefono": getattr(user, "telefono", None),
+            "is_super_admin": user.is_super_admin,
+            "cliente_actual": cliente_actual_info,
+            "clientes": clientes_usuario,
+            # Backward compatibility
             "tipo_usuario": getattr(user, "tipo_usuario", None),
             "cliente_id": getattr(user, "cliente_id", None),
         }
-        logger.debug(f"[YO VIEW] user_id={user.id} cliente_id={data['cliente_id']}")
+        logger.debug(f"[YO VIEW] user_id={user.id} cliente_actual={cliente_actual_info} clientes={len(clientes_usuario)}")
         return Response(data)
 
 class UsuarioViewSet(viewsets.ModelViewSet):
@@ -96,11 +161,85 @@ class UsuarioViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if getattr(user, "tipo_usuario", None) == 'super_admin':
+        cliente_actual = getattr(self.request, 'cliente_actual', None)
+        
+        # Importar y usar la función helper
+        from .utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(self.request)
+        
+        # Super admin (usar nuevo campo)
+        if user.is_super_admin:
             return Usuario.objects.all()
-        if getattr(user, "tipo_usuario", None) == 'admin_cliente' and getattr(user, "cliente", None):
-            return Usuario.objects.filter(cliente=user.cliente)
-        return Usuario.objects.none()
+        # Admin del cliente → TODOS los usuarios de su cliente
+        elif rol_actual == "admin_cliente" and cliente_actual:
+            return Usuario.objects.filter(cliente_id=cliente_actual.id)
+        else:
+            return Usuario.objects.none()
+
+    def list(self, request, *args, **kwargs):
+        """
+        Lista usuarios mostrando una entrada por cada rol que tengan.
+        """
+        from apps.auth_core.models import UserClient
+        
+        # Obtener usuarios base
+        usuarios = self.get_queryset()
+        
+        # Crear lista de usuarios con roles
+        usuarios_con_roles = []
+        
+        for usuario in usuarios:
+            # Obtener todos los roles del usuario en el cliente actual
+            cliente_actual = getattr(request, 'cliente_actual', None)
+            
+            if usuario.is_super_admin:
+                # Super admin aparece una vez con rol super_admin
+                usuarios_con_roles.append({
+                    'usuario': usuario,
+                    'rol': 'super_admin',
+                    'cliente': None
+                })
+            else:
+                # Usuarios normales: una entrada por cada rol en cada cliente
+                user_clients = UserClient.objects.filter(usuario=usuario, activo=True)
+                
+                if user_clients.exists():
+                    # Usuario con sistema nuevo: mostrar por roles
+                    for user_client in user_clients:
+                        usuarios_con_roles.append({
+                            'usuario': usuario,
+                            'rol': user_client.rol,
+                            'cliente': user_client.cliente
+                        })
+                else:
+                    # Usuario con sistema antiguo: mostrar con tipo_usuario
+                    usuarios_con_roles.append({
+                        'usuario': usuario,
+                        'rol': usuario.tipo_usuario,
+                        'cliente': usuario.cliente
+                    })
+        
+        # Serializar cada entrada
+        serializer = UsuarioSerializer([entry['usuario'] for entry in usuarios_con_roles], many=True)
+        data = serializer.data
+        
+        # Agregar información de rol a cada entrada
+        for i, entry in enumerate(usuarios_con_roles):
+            data[i]['rol_activo'] = entry['rol']
+            # Sobrescribir tipo_usuario con el rol activo para consistencia
+            data[i]['tipo_usuario'] = entry['rol']
+            if entry['cliente']:
+                data[i]['cliente_info'] = {
+                    'id': entry['cliente'].id,
+                    'nombre': entry['cliente'].nombre
+                }
+        
+        return Response({
+            'count': len(data),
+            'next': None,
+            'previous': None,
+            'results': data
+        })
 
 # ==========================
 # OAuth: obtener STATE
@@ -127,18 +266,26 @@ class OAuthStateView(APIView):
         host = body.get("host")
         invite = body.get("invite")
         return_to = body.get("return_to", "/")
+        redirect_uri = body.get("redirect_uri")
+        
+        logger.info(f"[OAUTH STATE] request_body={body}")
+        logger.info(f"[OAUTH STATE] redirect_uri_from_body={redirect_uri}")
 
         if not host or not isinstance(host, str):
             return Response({"detail": "host_required"}, status=400)
 
-        # Resolver cliente por host
-        strict = getattr(settings, "TENANT_STRICT_HOST", True)
-        dom = ClienteDominio.objects.select_related("cliente").filter(hostname=host, activo=True).first()
-        if not dom and strict:
-            logger.info(f"[OAUTH STATE] unknown_host host={host}")
-            return Response({"detail": "unknown_host"}, status=400)
-
-        cliente_id = dom.cliente_id if dom else getattr(settings, "TENANT_DEFAULT_CLIENTE_ID", None)
+        # Usar el cliente detectado por el TenantMiddleware
+        cliente_actual = getattr(request, 'cliente_actual', None)
+        
+        # ✅ LOG: Cliente que se va a usar
+        logger.info(f"[OAUTH STATE] cliente_actual={cliente_actual.nombre if cliente_actual else 'None'} host={host}")
+        
+        if not cliente_actual:
+            logger.warning(f"[OAUTH STATE] no_cliente_actual host={host}")
+            return Response({"detail": "cliente_not_resolved"}, status=400)
+        
+        cliente_id = cliente_actual.id
+        logger.info(f"[OAUTH STATE] using_tenant_cliente host={host} cliente_id={cliente_id} cliente_nombre={cliente_actual.nombre}")
 
         nonce = get_random_string(24)
         payload = {
@@ -150,6 +297,8 @@ class OAuthStateView(APIView):
         }
         if invite:
             payload["invite"] = invite
+        if redirect_uri:
+            payload["redirect_uri"] = redirect_uri
 
         state = sign_state(payload, cfg.state_hmac_secret, ttl_seconds=300)
         logger.info(f"[OAUTH STATE] issued host={host} cliente_id={cliente_id} invite={'y' if invite else 'n'}")
@@ -225,6 +374,13 @@ class OAuthCallbackView(APIView):
         expected_nonce = state.get("nonce")
 
         cliente_id_state = state.get("cliente_id")
+        
+        # ✅ LOG: Cliente del state
+        logger.info(f"[OAUTH CB] cliente_id_from_state={cliente_id_state}")
+        
+        # ✅ LOG: Cliente actual del request
+        cliente_actual = getattr(request, 'cliente_actual', None)
+        logger.info(f"[OAUTH CB] cliente_actual_from_request={cliente_actual.nombre if cliente_actual else 'None'}")
         if cliente_id_state is not None:
             try:
                 cliente_id_state = int(cliente_id_state)
@@ -266,12 +422,20 @@ class OAuthCallbackView(APIView):
 
         # 2) Intercambio code->tokens (PKCE)
         token_url = "https://oauth2.googleapis.com/token"
+        
+        # Usar la URL de redirección del state en lugar de la configurada
+        logger.info(f"[OAUTH CB] state_content={state}")
+        logger.info(f"[OAUTH CB] state_redirect_uri={state.get('redirect_uri')}")
+        logger.info(f"[OAUTH CB] cfg_redirect_uri={cfg.redirect_uri}")
+        redirect_uri = state.get("redirect_uri", cfg.redirect_uri)
+        logger.info(f"[OAUTH CB] using_redirect_uri={redirect_uri}")
+        
         form = {
             "grant_type": "authorization_code",
             "code": code,
             "client_id": cfg.client_id,
             "client_secret": cfg.client_secret,
-            "redirect_uri": cfg.redirect_uri,
+            "redirect_uri": redirect_uri,
             "code_verifier": code_verifier,
         }
         t0 = time.time()
@@ -336,13 +500,22 @@ class OAuthCallbackView(APIView):
         try:
             user = User.objects.filter(email=email).first()
             if user:
-                if getattr(user, "tipo_usuario", "") != "super_admin":
-                    if cliente_id_state and user.cliente_id != cliente_id_state:
+                # Verificar acceso al cliente usando el nuevo sistema multi-tenant
+                if not user.is_super_admin:
+                    if cliente_id_state and not user.tiene_acceso_a_cliente(cliente_id_state):
                         logger.info(
-                            "[OAUTH CB] user_tenant_mismatch user_cliente=%s state_cliente=%s email_mask=%s***",
-                            user.cliente_id, cliente_id_state, email[:2]
+                            "[OAUTH CB] user_no_access_to_client user_id=%s cliente_id=%s email_mask=%s***",
+                            user.id, cliente_id_state, email[:2]
                         )
-                        return Response({"detail": "tenant_mismatch"}, status=403)
+                        # Si no tiene acceso, agregar automáticamente como usuario_final
+                        from apps.clientes_core.models import Cliente
+                        try:
+                            cliente = Cliente.objects.get(id=cliente_id_state)
+                            user.agregar_rol_a_cliente(cliente, 'usuario_final')
+                            logger.info(f"[OAUTH CB] auto_added_user_to_client user_id={user.id} cliente_id={cliente_id_state}")
+                        except Cliente.DoesNotExist:
+                            logger.warning(f"[OAUTH CB] cliente_not_found cliente_id={cliente_id_state}")
+                            return Response({"detail": "cliente_not_found"}, status=400)
 
                 updates = {}
                 if not getattr(user, "oauth_provider", None):
@@ -357,7 +530,8 @@ class OAuthCallbackView(APIView):
                         setattr(user, k, v)
                     user.save(update_fields=list(updates.keys()))
 
-                return Response(_issue_tokens_for_user(user, return_to), status=200)
+                cliente_actual = getattr(request, 'cliente_actual', None)
+                return Response(_issue_tokens_for_user(user, return_to, cliente_actual), status=200)
 
             pending_payload = {
                 "v": 1,
@@ -451,7 +625,8 @@ class OnboardView(APIView):
             if getattr(user, "tipo_usuario", "") != "super_admin" and user.cliente_id != cliente_id:
                 logger.info("[ONBOARD] user_tenant_mismatch email_mask=%s***", email[:2])
                 return Response({"detail": "tenant_mismatch"}, status=403)
-            return Response(_issue_tokens_for_user(user, "/"), status=200)
+            cliente_actual = getattr(request, 'cliente_actual', None)
+            return Response(_issue_tokens_for_user(user, "/", cliente_actual), status=200)
 
         # Crear usuario (respeta rol del invite)
         try:
@@ -472,7 +647,8 @@ class OnboardView(APIView):
                 user.save(update_fields=["password"])
 
             logger.info(f"[ONBOARD] ok user_id={user.id} cliente_id={cliente_id} role={new_user_role}")
-            return Response(_issue_tokens_for_user(user, "/"), status=201)
+            cliente_actual = getattr(request, 'cliente_actual', None)
+            return Response(_issue_tokens_for_user(user, "/", cliente_actual), status=201)
 
         except Exception:
             logger.error(f"[ONBOARD] unexpected_error email_mask={str(email)[:2]}***", exc_info=True)
@@ -514,3 +690,107 @@ class IssueInviteView(APIView):
         token = sign_state(payload, settings.SECRET_KEY, ttl_seconds=ttl_seconds)
         logger.info(f"[INVITE ISSUE] by={req_user.id} cliente_id={cliente_id} role={role} email={'y' if email else 'n'}")
         return Response({"invite": token}, status=201)
+
+
+# ==========================
+# Cambio de Rol
+# ==========================
+
+class CambiarRolView(APIView):
+    """
+    Endpoint para cambiar el rol activo del usuario en el cliente actual.
+    Emite un nuevo JWT con el rol seleccionado.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        nuevo_rol = request.data.get('rol')
+        cliente_actual = getattr(request, 'cliente_actual', None)
+        
+        if not cliente_actual:
+            return Response(
+                {"error": "No se pudo determinar el cliente actual"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not nuevo_rol:
+            return Response(
+                {"error": "Se requiere el campo 'rol'"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Verificar que el usuario tenga el rol solicitado en el cliente actual
+        if not user.tiene_rol_en_cliente(cliente_actual.id, nuevo_rol):
+            return Response(
+                {"error": f"El usuario no tiene el rol '{nuevo_rol}' en este cliente"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Emitir nuevos tokens con el rol seleccionado
+        try:
+            # Usar la función actualizada que acepta cliente_actual
+            refresh = RefreshToken.for_user(user)
+            access = refresh.access_token
+            access["email"] = user.email
+            access["is_super_admin"] = user.is_super_admin
+            access["cliente_id"] = cliente_actual.id if cliente_actual else None
+            access["rol_en_cliente"] = nuevo_rol
+            access["roles_en_cliente"] = user.get_roles_en_cliente(cliente_actual.id) if cliente_actual else []
+            
+            # Obtener información del cliente actual
+            cliente_actual_info = None
+            if cliente_actual:
+                roles_en_cliente = user.get_roles_en_cliente(cliente_actual.id)
+                
+                cliente_actual_info = {
+                    "id": cliente_actual.id,
+                    "nombre": cliente_actual.nombre,
+                    "rol": nuevo_rol,  # Usar el nuevo rol seleccionado
+                    "roles": roles_en_cliente,
+                    "tipo_cliente": cliente_actual.tipo_cliente,
+                    "tipo_fe": getattr(cliente_actual, 'tipo_fe', cliente_actual.tipo_cliente),
+                }
+            
+            # Obtener todos los clientes del usuario
+            clientes_usuario = []
+            for user_client in user.get_clientes_activos():
+                clientes_usuario.append({
+                    "id": user_client.cliente.id,
+                    "nombre": user_client.cliente.nombre,
+                    "rol": user_client.rol,
+                    "tipo_cliente": user_client.cliente.tipo_cliente,
+                    "tipo_fe": getattr(user_client.cliente, 'tipo_fe', user_client.cliente.tipo_cliente),
+                })
+            
+            tokens_data = {
+                "ok": True,
+                "access": str(access),
+                "refresh": str(refresh),
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                    "nombre": getattr(user, "nombre", None),
+                    "apellido": getattr(user, "apellido", None),
+                    "telefono": getattr(user, "telefono", None),
+                    "is_super_admin": user.is_super_admin,
+                    "cliente_actual": cliente_actual_info,
+                    "clientes": clientes_usuario,
+                },
+                "return_to": "/",
+            }
+            
+            return Response({
+                "ok": True,
+                "access": tokens_data["access"],
+                "refresh": tokens_data["refresh"],
+                "user": tokens_data["user"],
+                "message": f"Rol cambiado a {nuevo_rol} exitosamente"
+            })
+            
+        except Exception as e:
+            logger.error(f"Error al cambiar rol: {e}")
+            return Response(
+                {"error": "Error interno al cambiar rol"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

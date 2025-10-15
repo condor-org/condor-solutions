@@ -246,7 +246,7 @@ const AgendaAdmin = () => {
     api.get("auth/usuarios/?ordering=email")
       .then(res => {
         const data = res?.data?.results ?? res?.data ?? [];
-        setUsuarios((Array.isArray(data) ? data : []).filter(u => u?.tipo_usuario === "usuario_final"));
+        setUsuarios((Array.isArray(data) ? data : []).filter(u => u?.cliente_actual?.rol === "usuario_final"));
       })
       .catch(e => { console.error("[AgendaAdmin] usuarios error:", e); setUsuarios([]); });
   }, [api]);

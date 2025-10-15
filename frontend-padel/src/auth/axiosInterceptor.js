@@ -74,8 +74,12 @@ export const applyAuthInterceptor = (axiosInstance, logoutCallback, options = {}
         try {
           isRefreshing = true;
 
-          // 👈 usar SIEMPRE el mismo prefijo configurado (abs o relativo)
-          const refreshEndpoint = `${apiBasePath.replace(/\/+$/, "")}/token/refresh/`;
+          // 👈 usar solo el path relativo, no el baseURL completo
+          const refreshEndpoint = `/token/refresh/`;
+          
+          // Debug: verificar que no se duplique la URL
+          console.log("[INTERCEPTOR] apiBasePath:", apiBasePath);
+          console.log("[INTERCEPTOR] refreshEndpoint:", refreshEndpoint);
 
           const res = await axiosInstance.post(refreshEndpoint, { refresh });
           const newAccess = res?.data?.access;

@@ -131,14 +131,18 @@ class SedePadelSerializer(serializers.ModelSerializer):
         tipos_abono_data = config_data.pop("tipos_abono", [])
 
         user = self.context["request"].user
-        if user.tipo_usuario == "super_admin":
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(self.context['request'])
+        cliente_actual = getattr(self.context['request'], 'cliente_actual', None)
+        
+        if user.is_super_admin:
             cliente = validated_data.pop("cliente", None)
             if not cliente:
                 raise serializers.ValidationError("Debe especificar un cliente si es super_admin.")
         else:
             # Evita que un admin_cliente/empleado fuerce cliente distinto
             validated_data.pop("cliente", None)
-            cliente = user.cliente
+            cliente = cliente_actual
 
         sede = Lugar.objects.create(cliente=cliente, **validated_data)
 

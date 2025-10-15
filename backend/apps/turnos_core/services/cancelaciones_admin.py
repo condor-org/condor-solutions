@@ -53,7 +53,7 @@ def _admins_de_cliente(cliente_id: int) -> Iterable[Usuario]:
      queda disponible para futuras extensiones (p.e. avisos internos).*
     """
     return Usuario.objects.filter(
-        cliente_id=cliente_id, tipo_usuario__in=["admin_cliente", "super_admin"]
+        cliente_id=cliente_id, is_super_admin=True
     ).only("id", "cliente_id")
 
 
