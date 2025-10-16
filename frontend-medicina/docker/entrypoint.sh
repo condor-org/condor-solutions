@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+
+# Defaults seguros para runtime
+: "${PUBLIC_API_BASE_URL:=/api}"
+: "${PUBLIC_CLIENTE_ID:=1}"
+: "${PUBLIC_NOMBRE_CLIENTE:=Condor}"
+: "${PUBLIC_COLOR_PRIMARIO:=#F44336}"
+: "${PUBLIC_COLOR_SECUNDARIO:=#000000}"
+
+# ⬇️ NUEVO: vars de OAuth Google (sin defaults mágicos)
+: "${PUBLIC_GOOGLE_CLIENT_ID:=}"
+: "${PUBLIC_OAUTH_REDIRECT_URI:=}"
+
+cat >/usr/share/nginx/html/config.js <<EOF
+window.RUNTIME_CONFIG = {
+  API_BASE_URL: "${PUBLIC_API_BASE_URL}",
+  CLIENTE_ID: "${PUBLIC_CLIENTE_ID}",
+  NOMBRE_CLIENTE: "${PUBLIC_NOMBRE_CLIENTE}",
+  COLOR_PRIMARIO: "${PUBLIC_COLOR_PRIMARIO}",
+  COLOR_SECUNDARIO: "${PUBLIC_COLOR_SECUNDARIO}",
+
+  // ⬇️ NUEVO
+  GOOGLE_CLIENT_ID: "${PUBLIC_GOOGLE_CLIENT_ID}",
+  OAUTH_REDIRECT_URI: "${PUBLIC_OAUTH_REDIRECT_URI}"
+};
+EOF
+
+exec "$@"
