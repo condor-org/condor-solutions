@@ -563,7 +563,7 @@ class OAuthCallbackView(APIView):
             return Response({"detail": "unexpected_error"}, status=500)
 
 # ==========================
-# Onboarding (opcional, si OAUTH_AUTO_PROVISION=False)
+# Onboarding (siempre requerido para usuarios nuevos)
 # ==========================
 
 class OnboardView(APIView):

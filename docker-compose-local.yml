@@ -48,7 +48,7 @@ services:
     env_file:
       - .env
     environment:
-      DJANGO_SETTINGS_MODULE: "condor_core.settings.local"
+      DJANGO_SETTINGS_MODULE: "condor_core.settings.dev"
       DJANGO_REQUEST_LOG_LEVEL: "ERROR"
       DJANGO_MIDDLEWARE_LOG_LEVEL: "WARNING"
       DJANGO_LOG_SKIP_CONTAINS: "/api/notificaciones/unread_count/,/api/token/refresh/"
@@ -122,7 +122,7 @@ services:
     env_file:
       - .env
     environment:
-      DJANGO_SETTINGS_MODULE: "condor_core.settings.local"
+      DJANGO_SETTINGS_MODULE: "condor_core.settings.dev"
       DJANGO_REQUEST_LOG_LEVEL: "ERROR"
       DJANGO_MIDDLEWARE_LOG_LEVEL: "WARNING"
       DJANGO_LOG_SKIP_CONTAINS: "/api/notificaciones/unread_count/,/api/token/refresh/"

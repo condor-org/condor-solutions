@@ -50,7 +50,6 @@ TENANT_DEFAULT_CLIENTE_ID = os.getenv("TENANT_DEFAULT_CLIENTE_ID")  # sólo si s
 GOOGLE_ISSUER = os.getenv("GOOGLE_ISSUER", "https://accounts.google.com")
 GOOGLE_JWKS_URL = os.getenv("GOOGLE_JWKS_URL", "https://www.googleapis.com/oauth2/v3/certs")
 OAUTH_REDIRECT_URI = os.getenv("OAUTH_REDIRECT_URI", "")
-OAUTH_AUTO_PROVISION = os.getenv("OAUTH_AUTO_PROVISION", "false").lower() == "true"
 OAUTH_ALLOWED_EMAIL_DOMAIN = os.getenv("OAUTH_ALLOWED_EMAIL_DOMAIN", "*")
 OAUTH_REQUIRE_EMAIL_VERIFIED = os.getenv("OAUTH_REQUIRE_EMAIL_VERIFIED", "true").lower() == "true"
 FEATURE_OAUTH_INVITES = os.getenv("FEATURE_OAUTH_INVITES", "false").lower() == "true"
@@ -58,5 +57,5 @@ FEATURE_OAUTH_INVITES = os.getenv("FEATURE_OAUTH_INVITES", "false").lower() == "
 
 NOTIF_EMAIL_ENABLED = os.getenv("NOTIF_EMAIL_ENABLED", "true").lower() == "true"
 AWS_REGION = "us-east-2"                 # tu región SES
-NOTIF_EMAIL_FROM = "no-reply@lob-padel.cnd-ia.com"  # remitente verificado en SES
+NOTIF_EMAIL_FROM = "no-reply@cnd-ia.com"  # remitente verificado en SES
 SES_CONFIGURATION_SET = None  
