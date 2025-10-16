@@ -1,0 +1,31 @@
+version: "3.9"
+
+networks:
+  condor_net_dev:
+    external: true
+    name: condor_net_dev
+
+services:
+  frontend_superadmin_dev:
+    image: ghcr.io/${OWNER}/${IMAGE_PREFIX}-frontend-superadmin:${FRONTEND_SUPERADMIN_TAG_DEV}
+    container_name: frontend_superadmin_dev
+    env_file: [ .env.frontend-superadmin-dev ]
+    environment:
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL}
+      PUBLIC_CLIENTE_ID: ${PUBLIC_CLIENTE_ID}
+      PUBLIC_NOMBRE_CLIENTE: ${PUBLIC_NOMBRE_CLIENTE}
+      PUBLIC_COLOR_PRIMARIO: ${PUBLIC_COLOR_PRIMARIO}
+      PUBLIC_COLOR_SECUNDARIO: ${PUBLIC_COLOR_SECUNDARIO}
+      PUBLIC_GOOGLE_CLIENT_ID: ${PUBLIC_GOOGLE_CLIENT_ID}
+      PUBLIC_OAUTH_REDIRECT_URI: ${PUBLIC_OAUTH_REDIRECT_URI}
+    restart: always
+    mem_limit: "256m"
+    healthcheck:
+      test: ["CMD-SHELL", "pidof nginx >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    networks: [condor_net_dev]

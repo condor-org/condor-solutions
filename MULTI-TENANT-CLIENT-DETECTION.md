@@ -485,3 +485,121 @@ for d in ClienteDominio.objects.all():
 ```
 
 **🎯 Resultado**: El sistema sirve únicamente la información del cliente detectado por puerto, garantizando aislamiento completo entre clientes.
+
+---
+
+## 🚀 PIPELINES MODULARES IMPLEMENTADOS
+
+### **📋 Nuevos Pipelines de Deploy:**
+
+**✅ 1. Backend Deploy** (`.github/workflows/backend-deploy.yml`)
+- **Trigger:** Release `v*-backend` + manual dispatch
+- **Build:** `condor-backend` + `condor-cron` → GHCR
+- **Deploy:** Backend + Cron + DB + Redis (EC2)
+
+**✅ 2. Frontend Padel Deploy** (`.github/workflows/frontend-padel-deploy.yml`)
+- **Trigger:** Release `v*-frontend-padel` + manual dispatch
+- **Build:** `condor-frontend` → GHCR
+- **Deploy:** Frontend Padel (EC2)
+
+**✅ 3. Frontend Canchas Deploy** (`.github/workflows/frontend-canchas-deploy.yml`)
+- **Trigger:** Release `v*-frontend-canchas` + manual dispatch
+- **Build:** `condor-frontend-canchas` → GHCR
+- **Deploy:** Frontend Canchas (EC2)
+
+**✅ 4. Frontend Medicina Deploy** (`.github/workflows/frontend-medicina-deploy.yml`)
+- **Trigger:** Release `v*-frontend-medicina` + manual dispatch
+- **Build:** `condor-frontend-medicina` → GHCR
+- **Deploy:** Frontend Medicina (EC2)
+
+**✅ 5. Frontend SuperAdmin Deploy** (`.github/workflows/frontend-superadmin-deploy.yml`)
+- **Trigger:** Release `v*-frontend-superadmin` + manual dispatch
+- **Build:** `condor-frontend-superadmin` → GHCR
+- **Deploy:** Frontend SuperAdmin (EC2)
+
+**✅ 6. Proxy Deploy** (`.github/workflows/proxy-deploy.yml`)
+- **Trigger:** Release `v*-proxy` + manual dispatch
+- **Build:** `condor-proxy` → GHCR
+- **Deploy:** Proxy (EC2)
+
+### **📋 Docker Compose Modulares Creados:**
+
+**✅ Backend:**
+- `docker-compose-backend-dev.yml` → Backend + Cron + DB + Redis (dev)
+- `docker-compose-backend-prod.yml` → Backend + Cron + Redis (prod)
+
+**✅ Frontend Padel:**
+- `docker-compose-frontend-padel-dev.yml` → Frontend Padel (dev)
+- `docker-compose-frontend-padel-prod.yml` → Frontend Padel (prod)
+
+**✅ Frontend Canchas:**
+- `docker-compose-frontend-canchas-dev.yml` → Frontend Canchas (dev)
+- `docker-compose-frontend-canchas-prod.yml` → Frontend Canchas (prod)
+
+**✅ Frontend Medicina:**
+- `docker-compose-frontend-medicina-dev.yml` → Frontend Medicina (dev)
+- `docker-compose-frontend-medicina-prod.yml` → Frontend Medicina (prod)
+
+**✅ Frontend SuperAdmin:**
+- `docker-compose-frontend-superadmin-dev.yml` → Frontend SuperAdmin (dev)
+- `docker-compose-frontend-superadmin-prod.yml` → Frontend SuperAdmin (prod)
+
+**✅ Proxy:**
+- `docker-compose-proxy-dev.yml` → Proxy (dev)
+- `docker-compose-proxy-prod.yml` → Proxy (prod)
+
+### **🎯 Ventajas del Sistema Modular:**
+
+**✅ Deploy Independiente:**
+- Cada servicio se deploya por separado
+- Solo se actualiza lo que cambió
+- Rollback granular por servicio
+
+**✅ Versionado Granular:**
+- Tags específicos por servicio (`v1.0.0-backend`, `v1.0.0-frontend-padel`)
+- Fácil identificación de versiones
+- Trazabilidad completa
+
+**✅ Mantiene Sistema Actual:**
+- Workflows existentes se mantienen
+- Docker Compose existentes se mantienen
+- Migración gradual posible
+
+**✅ Triggers Automáticos:**
+- Release con tag específico → Deploy automático
+- Workflow dispatch → Deploy manual
+- Selectivo por servicio
+
+### **🔧 Flujo de Deploy Modular:**
+
+**1. Build (GitHub Actions):**
+```bash
+Release v1.0.0-backend → Build automático → Push GHCR
+```
+
+**2. Deploy (EC2 via SSH):**
+```bash
+appleboy/ssh-action → EC2 → docker compose up -d
+```
+
+**3. Health Checks:**
+```bash
+Esperar servicios healthy → Migraciones → Limpieza
+```
+
+### **📊 Archivos Creados/Modificados:**
+
+**✅ Nuevos Pipelines (6):**
+- `.github/workflows/backend-deploy.yml`
+- `.github/workflows/frontend-padel-deploy.yml`
+- `.github/workflows/frontend-canchas-deploy.yml`
+- `.github/workflows/frontend-medicina-deploy.yml`
+- `.github/workflows/frontend-superadmin-deploy.yml`
+- `.github/workflows/proxy-deploy.yml`
+
+**✅ Nuevos Docker Compose (12):**
+- 6 archivos dev + 6 archivos prod
+
+**✅ Sistema Actual Mantenido:**
+- Workflows existentes → **SE MANTIENEN**
+- Docker Compose existentes → **SE MANTIENEN**

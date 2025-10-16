@@ -1,0 +1,223 @@
+name: Frontend Padel Deploy
+
+on:
+  release:
+    types: [published]
+    tags: ['v*-frontend-padel']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy (e.g., v1.0.0-frontend-padel)'
+        required: true
+        default: 'v1.0.0-frontend-padel'
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: ${{ github.repository_owner }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Get Version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION}"
+          
+      - id: lower
+        run: echo "OWNER_LC=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ steps.lower.outputs.OWNER_LC }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & Push Frontend Padel
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend-padel
+          file: ./frontend-padel/docker/Dockerfile
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: ${{ env.REGISTRY }}/${{ steps.lower.outputs.OWNER_LC }}/condor-frontend:${{ steps.version.outputs.version }}
+          push: true
+
+  deploy-dev:
+    runs-on: ubuntu-latest
+    environment: dev
+    needs: build
+    steps:
+      - name: Deploy Frontend Padel to DEV
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ vars.EC2_HOST }}
+          username: ${{ vars.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          timeout: 30s
+          command_timeout: 10m
+          script: |
+            set -euo pipefail
+            cd /opt/condor
+            
+            echo "[+] Frontend Padel Deploy DEV - Parámetros"
+            VERSION="${{ needs.build.outputs.version }}"
+            echo "    VERSION=$VERSION"
+            echo "    ENVIRONMENT=dev"
+            
+            # Variables del sistema actual
+            TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
+            REPO="condor-ai-solutions/condor"
+            OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+            
+            # Descargar docker-compose-frontend-padel-dev.yml
+            echo "[+] Descargar docker-compose-frontend-padel-dev.yml"
+            curl -fsSL \
+              -H "Authorization: token ${TOKEN}" \
+              -H "Accept: application/vnd.github.raw" \
+              "https://api.github.com/repos/${REPO}/contents/docker-compose-frontend-padel-dev.yml?ref=${{ github.sha }}" \
+              -o docker-compose-frontend-padel-dev.yml
+            
+            # Docker login GHCR
+            echo "[+] Docker login GHCR"
+            echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+            
+            # Generar .env.frontend-padel-dev
+            echo "[+] Generar .env.frontend-padel-dev"
+            cat > .env.frontend-padel-dev << 'EOF'
+            PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}
+            PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}
+            PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}
+            PUBLIC_COLOR_PRIMARIO=${{ vars.PUBLIC_COLOR_PRIMARIO }}
+            PUBLIC_COLOR_SECUNDARIO=${{ vars.PUBLIC_COLOR_SECUNDARIO }}
+            PUBLIC_GOOGLE_CLIENT_ID=${{ secrets.PUBLIC_GOOGLE_CLIENT_ID }}
+            PUBLIC_OAUTH_REDIRECT_URI=${{ vars.PUBLIC_OAUTH_REDIRECT_URI }}
+            OWNER=${{ github.repository_owner }}
+            IMAGE_PREFIX=condor
+            FRONTEND_TAG_DEV=${VERSION}
+            EOF
+            
+            # Asegurar networks
+            echo "[+] Asegurar networks externas"
+            docker network inspect condor_net_dev >/dev/null 2>&1 || docker network create condor_net_dev >/dev/null
+            
+            # Pull y deploy frontend
+            echo "[+] Pull imágenes frontend padel DEV"
+            docker compose -p condor_frontend_padel_dev --env-file .env.frontend-padel-dev -f docker-compose-frontend-padel-dev.yml pull
+            
+            echo "[+] Levantando frontend padel DEV"
+            docker compose -p condor_frontend_padel_dev --env-file .env.frontend-padel-dev -f docker-compose-frontend-padel-dev.yml up -d --force-recreate
+            
+            # Esperar health checks
+            echo "[+] Esperando frontend healthy"
+            for i in $(seq 1 40); do
+              F=$(docker inspect -f '{{.State.Health.Status}}' frontend_condor_dev 2>/dev/null || echo "starting")
+              echo "  frontend_dev=$F"
+              if [ "$F" = "healthy" ]; then break; fi
+              sleep 3
+            done
+            
+            # Limpieza
+            echo "[+] Limpieza de imágenes no usadas"
+            docker image prune -f >/dev/null || true
+            
+            echo "[✓] Frontend Padel Deploy DEV OK"
+
+  deploy-prod:
+    runs-on: ubuntu-latest
+    environment: prod
+    needs: deploy-dev
+    steps:
+      - name: Deploy Frontend Padel to PROD
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ vars.EC2_HOST }}
+          username: ${{ vars.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          timeout: 30s
+          command_timeout: 10m
+          script: |
+            set -euo pipefail
+            cd /opt/condor
+            
+            echo "[+] Frontend Padel Deploy PROD - Parámetros"
+            VERSION="${{ needs.build.outputs.version }}"
+            echo "    VERSION=$VERSION"
+            echo "    ENVIRONMENT=prod"
+            
+            # Variables del sistema actual
+            TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
+            REPO="condor-ai-solutions/condor"
+            OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+            
+            # Descargar docker-compose-frontend-padel-prod.yml
+            echo "[+] Descargar docker-compose-frontend-padel-prod.yml"
+            curl -fsSL \
+              -H "Authorization: token ${TOKEN}" \
+              -H "Accept: application/vnd.github.raw" \
+              "https://api.github.com/repos/${REPO}/contents/docker-compose-frontend-padel-prod.yml?ref=${{ github.sha }}" \
+              -o docker-compose-frontend-padel-prod.yml
+            
+            # Docker login GHCR
+            echo "[+] Docker login GHCR"
+            echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+            
+            # Generar .env.frontend-padel-prod
+            echo "[+] Generar .env.frontend-padel-prod"
+            cat > .env.frontend-padel-prod << 'EOF'
+            PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}
+            PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}
+            PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}
+            PUBLIC_COLOR_PRIMARIO=${{ vars.PUBLIC_COLOR_PRIMARIO }}
+            PUBLIC_COLOR_SECUNDARIO=${{ vars.PUBLIC_COLOR_SECUNDARIO }}
+            OWNER=${{ github.repository_owner }}
+            IMAGE_PREFIX=condor
+            FRONTEND_TAG=${VERSION}
+            EOF
+            
+            # Asegurar networks
+            echo "[+] Asegurar networks externas"
+            docker network inspect condor_net >/dev/null 2>&1 || docker network create condor_net >/dev/null
+            
+            # Pull y deploy frontend
+            echo "[+] Pull imágenes frontend padel PROD"
+            docker compose -p condor_frontend_padel_prod --env-file .env.frontend-padel-prod -f docker-compose-frontend-padel-prod.yml pull
+            
+            echo "[+] Levantando frontend padel PROD"
+            docker compose -p condor_frontend_padel_prod --env-file .env.frontend-padel-prod -f docker-compose-frontend-padel-prod.yml up -d --force-recreate
+            
+            # Esperar health checks
+            echo "[+] Esperando frontend healthy"
+            for i in $(seq 1 40); do
+              F=$(docker inspect -f '{{.State.Health.Status}}' condor_frontend_padel_prod-frontend 2>/dev/null || echo "starting")
+              echo "  frontend=$F"
+              if [ "$F" = "healthy" ]; then break; fi
+              sleep 3
+            done
+            
+            # Limpieza
+            echo "[+] Limpieza de imágenes no usadas"
+            docker image prune -f >/dev/null || true
+            
+            echo "[✓] Frontend Padel Deploy PROD OK"

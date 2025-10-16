@@ -1,0 +1,29 @@
+version: "3.9"
+
+networks:
+  condor_net:
+    external: true
+    name: condor_net
+
+services:
+  frontend:
+    image: ghcr.io/${OWNER}/${IMAGE_PREFIX}-frontend:${FRONTEND_TAG}
+    container_name: frontend_condor
+    env_file: [ .env.frontend-padel-prod ]
+    environment:
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL}
+      PUBLIC_CLIENTE_ID: ${PUBLIC_CLIENTE_ID}
+      PUBLIC_NOMBRE_CLIENTE: ${PUBLIC_NOMBRE_CLIENTE}
+      PUBLIC_COLOR_PRIMARIO: ${PUBLIC_COLOR_PRIMARIO}
+      PUBLIC_COLOR_SECUNDARIO: ${PUBLIC_COLOR_SECUNDARIO}
+    restart: always
+    mem_limit: "256m"
+    healthcheck:
+      test: ["CMD-SHELL", "pidof nginx >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    networks: [condor_net]
