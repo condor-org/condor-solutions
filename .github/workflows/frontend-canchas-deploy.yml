@@ -3,7 +3,6 @@ name: Frontend Canchas Deploy
 on:
   release:
     types: [published]
-    tags: ['v*-frontend-canchas']
   workflow_dispatch:
     inputs:
       version:
@@ -22,6 +21,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    if: github.event_name != 'release' || endsWith(github.event.release.tag_name, '-frontend-canchas')
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:

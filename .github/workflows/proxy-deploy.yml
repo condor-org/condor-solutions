@@ -3,7 +3,6 @@ name: Proxy Deploy
 on:
   release:
     types: [published]
-    tags: ['v*-proxy']
   workflow_dispatch:
     inputs:
       version:
@@ -22,6 +21,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    if: github.event_name != 'release' || endsWith(github.event.release.tag_name, '-proxy')
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
