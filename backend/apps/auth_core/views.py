@@ -167,9 +167,19 @@ class UsuarioViewSet(viewsets.ModelViewSet):
         from .utils import get_rol_actual_del_jwt
         rol_actual = get_rol_actual_del_jwt(self.request)
         
-        # Super admin (usar nuevo campo)
+        # Super admin: si accede desde un dominio específico, filtrar por ese cliente
         if user.is_super_admin:
-            return Usuario.objects.all()
+            if cliente_actual:
+                # Super admin accediendo desde un cliente específico: filtrar por ese cliente
+                from apps.auth_core.models import UserClient
+                usuarios_ids = UserClient.objects.filter(
+                    cliente=cliente_actual,
+                    activo=True
+                ).values_list('usuario_id', flat=True)
+                return Usuario.objects.filter(id__in=usuarios_ids)
+            else:
+                # Super admin accediendo sin cliente específico: mostrar todos
+                return Usuario.objects.all()
         # Admin del cliente → SOLO usuarios que tienen roles en SU cliente
         elif rol_actual == "admin_cliente" and cliente_actual:
             from apps.auth_core.models import UserClient
