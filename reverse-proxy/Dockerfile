@@ -1,5 +1,8 @@
 FROM openresty/openresty:alpine
 
+# Instalar wget para healthcheck
+RUN apk add --no-cache wget
+
 # Copiamos todas las configuraciones
 COPY nginx.local.conf /etc/nginx/nginx.local.conf
 COPY nginx.ec2.dev.conf /etc/nginx/nginx.ec2.dev.conf
