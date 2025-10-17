@@ -51,6 +51,11 @@ class UsuarioSerializer(LoggedModelSerializer):
         v = (v or "").strip().lower()
         if not v:
             raise serializers.ValidationError("Email requerido")
+        
+        # Verificar si el email ya existe (solo para creación, no para actualización)
+        if not self.instance and User.objects.filter(email=v).exists():
+            raise serializers.ValidationError("Ya existe un usuario con este email")
+        
         return v
 
     def validate(self, attrs):
@@ -90,39 +95,77 @@ class UsuarioSerializer(LoggedModelSerializer):
     def create(self, validated_data):
         # Extraer roles si están presentes
         roles = validated_data.pop('roles', [])
+        email = validated_data.get('email')
         
-        # username=email y password inutilizable (sin credenciales)
-        if not validated_data.get("username"):
-            validated_data["username"] = validated_data["email"]
-
-        instance = User(**validated_data)
-        if hasattr(instance, "set_unusable_password"):
-            instance.set_unusable_password()
-        instance.save()
-        
-        # Asignar roles si se proporcionaron
-        if roles:
-            from apps.auth_core.models import UserClient
-            cliente = validated_data.get('cliente')
+        # Verificar si el usuario ya existe por email
+        try:
+            instance = User.objects.get(email=email)
+            logger.info(f"[UsuarioSerializer] Usuario existente encontrado: {email}, actualizando roles")
             
-            if cliente:
-                for rol in roles:
-                    # Validar que el rol sea válido y no sea super_admin
-                    if rol in ['usuario_final', 'admin_cliente', 'empleado_cliente']:
-                        UserClient.objects.get_or_create(
-                            usuario=instance,
-                            cliente=cliente,
-                            rol=rol,
-                            defaults={'activo': True}
-                        )
-                        logger.info(f"[UsuarioSerializer] Asignado rol '{rol}' al usuario {instance.email} en cliente {cliente.id}")
-                    elif rol == 'super_admin':
-                        logger.warning(f"[UsuarioSerializer] Intento de asignar rol 'super_admin' al usuario {instance.email} - BLOQUEADO")
-                        raise serializers.ValidationError({"roles": "No se puede asignar el rol 'super_admin' a través de este endpoint"})
-            else:
-                logger.warning(f"[UsuarioSerializer] No se pudo asignar roles porque no hay cliente especificado")
-        
-        return instance
+            # Si el usuario existe, solo actualizar roles (no crear duplicado)
+            if roles:
+                from apps.auth_core.models import UserClient
+                cliente = validated_data.get('cliente')
+                
+                if cliente:
+                    # Eliminar roles existentes para este cliente
+                    UserClient.objects.filter(usuario=instance, cliente=cliente).delete()
+                    logger.info(f"[UsuarioSerializer] Roles existentes eliminados para {instance.email} en cliente {cliente.id}")
+                    
+                    # Asignar nuevos roles
+                    for rol in roles:
+                        # Validar que el rol sea válido y no sea super_admin
+                        if rol in ['usuario_final', 'admin_cliente', 'empleado_cliente']:
+                            UserClient.objects.create(
+                                usuario=instance,
+                                cliente=cliente,
+                                rol=rol,
+                                activo=True
+                            )
+                            logger.info(f"[UsuarioSerializer] Asignado rol '{rol}' al usuario {instance.email} en cliente {cliente.id}")
+                        elif rol == 'super_admin':
+                            logger.warning(f"[UsuarioSerializer] Intento de asignar rol 'super_admin' al usuario {instance.email} - BLOQUEADO")
+                            raise serializers.ValidationError({"roles": "No se puede asignar el rol 'super_admin' a través de este endpoint"})
+                else:
+                    logger.warning(f"[UsuarioSerializer] No se pudo asignar roles porque no hay cliente especificado")
+            
+            return instance
+            
+        except User.DoesNotExist:
+            # Crear nuevo usuario solo si no existe
+            if not validated_data.get("username"):
+                validated_data["username"] = validated_data["email"]
+
+            instance = User(**validated_data)
+            if hasattr(instance, "set_unusable_password"):
+                instance.set_unusable_password()
+            instance.save()
+            logger.info(f"[UsuarioSerializer] Nuevo usuario creado: {email}")
+            
+            # Asignar roles si se proporcionaron
+            if roles:
+                from apps.auth_core.models import UserClient
+                cliente = validated_data.get('cliente')
+                
+                if cliente:
+                    # Asignar nuevos roles
+                    for rol in roles:
+                        # Validar que el rol sea válido y no sea super_admin
+                        if rol in ['usuario_final', 'admin_cliente', 'empleado_cliente']:
+                            UserClient.objects.create(
+                                usuario=instance,
+                                cliente=cliente,
+                                rol=rol,
+                                activo=True
+                            )
+                            logger.info(f"[UsuarioSerializer] Asignado rol '{rol}' al usuario {instance.email} en cliente {cliente.id}")
+                        elif rol == 'super_admin':
+                            logger.warning(f"[UsuarioSerializer] Intento de asignar rol 'super_admin' al usuario {instance.email} - BLOQUEADO")
+                            raise serializers.ValidationError({"roles": "No se puede asignar el rol 'super_admin' a través de este endpoint"})
+                else:
+                    logger.warning(f"[UsuarioSerializer] No se pudo asignar roles porque no hay cliente especificado")
+            
+            return instance
 
     def update(self, instance, validated_data):
         # Extraer roles si están presentes
