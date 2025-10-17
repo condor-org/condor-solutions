@@ -220,13 +220,13 @@ class UsuarioViewSet(viewsets.ModelViewSet):
                     )
                     
                     if user_clients.exists():
-                        # Usuario con sistema nuevo: mostrar solo roles del cliente actual
-                        for user_client in user_clients:
-                            usuarios_con_roles.append({
-                                'usuario': usuario,
-                                'rol': user_client.rol,
-                                'cliente': user_client.cliente
-                            })
+                        # Usuario con sistema nuevo: mostrar solo el primer rol del cliente actual
+                        user_client = user_clients.first()
+                        usuarios_con_roles.append({
+                            'usuario': usuario,
+                            'rol': user_client.rol,
+                            'cliente': user_client.cliente
+                        })
                     else:
                         # Usuario con sistema antiguo: mostrar con tipo_usuario solo si es del cliente actual
                         if usuario.cliente == cliente_actual:
@@ -240,13 +240,13 @@ class UsuarioViewSet(viewsets.ModelViewSet):
                     user_clients = UserClient.objects.filter(usuario=usuario, activo=True)
                     
                     if user_clients.exists():
-                        # Usuario con sistema nuevo: mostrar por roles
-                        for user_client in user_clients:
-                            usuarios_con_roles.append({
-                                'usuario': usuario,
-                                'rol': user_client.rol,
-                                'cliente': user_client.cliente
-                            })
+                        # Usuario con sistema nuevo: mostrar solo el primer rol
+                        user_client = user_clients.first()
+                        usuarios_con_roles.append({
+                            'usuario': usuario,
+                            'rol': user_client.rol,
+                            'cliente': user_client.cliente
+                        })
                     else:
                         # Usuario con sistema antiguo: mostrar con tipo_usuario
                         usuarios_con_roles.append({
