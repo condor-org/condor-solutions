@@ -9,6 +9,11 @@ on:
         description: 'Version to deploy (e.g., v1.0.0-backend)'
         required: true
         default: 'v1.0.0-backend'
+      deploy_prod:
+        description: 'Deploy to production (requires approval)'
+        required: false
+        default: 'false'
+        type: boolean
 
 permissions:
   contents: read
@@ -115,7 +120,7 @@ jobs:
             
             # Generar .env.backend-dev
             echo "[+] Generar .env.backend-dev"
-            cat > .env.backend-dev << 'EOF'
+            cat > .env.backend-dev << EOF
             DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
             DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,${{ vars.ALLOWED_HOSTS }}
             CSRF_TRUSTED_ORIGINS=${{ vars.CSRF_TRUSTED_ORIGINS }}
@@ -181,7 +186,8 @@ jobs:
   deploy-prod:
     runs-on: ubuntu-latest
     environment: prod
-    needs: deploy-dev
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_prod == 'true'
     steps:
       - name: Deploy Backend to PROD
         uses: appleboy/ssh-action@v1.0.3
@@ -220,7 +226,7 @@ jobs:
             
             # Generar .env.backend-prod
             echo "[+] Generar .env.backend-prod"
-            cat > .env.backend-prod << 'EOF'
+            cat > .env.backend-prod << EOF
             DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
             DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,${{ vars.ALLOWED_HOSTS }}
             CSRF_TRUSTED_ORIGINS=${{ vars.CSRF_TRUSTED_ORIGINS }}

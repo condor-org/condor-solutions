@@ -9,6 +9,11 @@ on:
         description: 'Version to deploy (e.g., v1.0.0-proxy)'
         required: true
         default: 'v1.0.0-proxy'
+      deploy_prod:
+        description: 'Deploy to production (requires approval)'
+        required: false
+        default: 'false'
+        type: boolean
 
 permissions:
   contents: read
@@ -104,7 +109,7 @@ jobs:
             
             # Generar .env.proxy-dev
             echo "[+] Generar .env.proxy-dev"
-            cat > .env.proxy-dev << 'EOF'
+            cat > .env.proxy-dev << EOF
             OWNER=${{ github.repository_owner }}
             IMAGE_PREFIX=condor
             PROXY_TAG_DEV=${VERSION}
@@ -145,7 +150,8 @@ jobs:
   deploy-prod:
     runs-on: ubuntu-latest
     environment: prod
-    needs: deploy-dev
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_prod == 'true'
     steps:
       - name: Deploy Proxy to PROD
         uses: appleboy/ssh-action@v1.0.3
@@ -184,7 +190,7 @@ jobs:
             
             # Generar .env.proxy-prod
             echo "[+] Generar .env.proxy-prod"
-            cat > .env.proxy-prod << 'EOF'
+            cat > .env.proxy-prod << EOF
             OWNER=${{ github.repository_owner }}
             IMAGE_PREFIX=condor
             PROXY_TAG=${VERSION}

@@ -9,6 +9,11 @@ on:
         description: 'Version to deploy (e.g., v1.0.0-frontend-canchas)'
         required: true
         default: 'v1.0.0-frontend-canchas'
+      deploy_prod:
+        description: 'Deploy to production (requires approval)'
+        required: false
+        default: 'false'
+        type: boolean
 
 permissions:
   contents: read
@@ -104,7 +109,7 @@ jobs:
             
             # Generar .env.frontend-canchas-dev
             echo "[+] Generar .env.frontend-canchas-dev"
-            cat > .env.frontend-canchas-dev << 'EOF'
+            cat > .env.frontend-canchas-dev << EOF
             PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}
             PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}
             PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}
@@ -146,7 +151,8 @@ jobs:
   deploy-prod:
     runs-on: ubuntu-latest
     environment: prod
-    needs: deploy-dev
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_prod == 'true'
     steps:
       - name: Deploy Frontend Canchas to PROD
         uses: appleboy/ssh-action@v1.0.3
@@ -185,7 +191,7 @@ jobs:
             
             # Generar .env.frontend-canchas-prod
             echo "[+] Generar .env.frontend-canchas-prod"
-            cat > .env.frontend-canchas-prod << 'EOF'
+            cat > .env.frontend-canchas-prod << EOF
             PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}
             PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}
             PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}

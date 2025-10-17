@@ -9,6 +9,11 @@ on:
         description: 'Version to deploy (e.g., v1.0.0-frontend-padel)'
         required: true
         default: 'v1.0.0-frontend-padel'
+      deploy_prod:
+        description: 'Deploy to production (requires approval)'
+        required: false
+        default: 'false'
+        type: boolean
 
 permissions:
   contents: read
@@ -104,7 +109,7 @@ jobs:
             
             # Generar .env.frontend-padel-dev
             echo "[+] Generar .env.frontend-padel-dev"
-            cat > .env.frontend-padel-dev << 'EOF'
+            cat > .env.frontend-padel-dev << EOF
             PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}
             PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}
             PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}
@@ -146,7 +151,8 @@ jobs:
   deploy-prod:
     runs-on: ubuntu-latest
     environment: prod
-    needs: deploy-dev
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_prod == 'true'
     steps:
       - name: Deploy Frontend Padel to PROD
         uses: appleboy/ssh-action@v1.0.3
@@ -185,7 +191,7 @@ jobs:
             
             # Generar .env.frontend-padel-prod
             echo "[+] Generar .env.frontend-padel-prod"
-            cat > .env.frontend-padel-prod << 'EOF'
+            cat > .env.frontend-padel-prod << EOF
             PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}
             PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}
             PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}
