@@ -9,6 +9,11 @@ on:
         description: 'Version to deploy (e.g., v1.0.0-frontend-medicina)'
         required: true
         default: 'v1.0.0-frontend-medicina'
+      deploy_prod:
+        description: 'Deploy to production (requires approval)'
+        required: false
+        default: 'false'
+        type: boolean
 
 permissions:
   contents: read
@@ -146,7 +151,8 @@ jobs:
   deploy-prod:
     runs-on: ubuntu-latest
     environment: prod
-    needs: deploy-dev
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_prod == 'true'
     steps:
       - name: Deploy Frontend Medicina to PROD
         uses: appleboy/ssh-action@v1.0.3
