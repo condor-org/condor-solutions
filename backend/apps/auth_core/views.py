@@ -170,9 +170,15 @@ class UsuarioViewSet(viewsets.ModelViewSet):
         # Super admin (usar nuevo campo)
         if user.is_super_admin:
             return Usuario.objects.all()
-        # Admin del cliente → TODOS los usuarios de su cliente
+        # Admin del cliente → SOLO usuarios que tienen roles en SU cliente
         elif rol_actual == "admin_cliente" and cliente_actual:
-            return Usuario.objects.filter(cliente_id=cliente_actual.id)
+            from apps.auth_core.models import UserClient
+            # Obtener usuarios que tienen UserClient activo en el cliente actual
+            usuarios_ids = UserClient.objects.filter(
+                cliente=cliente_actual,
+                activo=True
+            ).values_list('usuario_id', flat=True)
+            return Usuario.objects.filter(id__in=usuarios_ids)
         else:
             return Usuario.objects.none()
 
@@ -200,24 +206,54 @@ class UsuarioViewSet(viewsets.ModelViewSet):
                     'cliente': None
                 })
             else:
-                # Usuarios normales: una entrada por cada rol en cada cliente
-                user_clients = UserClient.objects.filter(usuario=usuario, activo=True)
+                # Obtener el rol actual del usuario
+                from .utils import get_rol_actual_del_jwt
+                rol_actual = get_rol_actual_del_jwt(request)
+                cliente_actual = getattr(request, 'cliente_actual', None)
                 
-                if user_clients.exists():
-                    # Usuario con sistema nuevo: mostrar por roles
-                    for user_client in user_clients:
+                if rol_actual == "admin_cliente" and cliente_actual:
+                    # Admin de cliente: solo mostrar roles del cliente actual
+                    user_clients = UserClient.objects.filter(
+                        usuario=usuario, 
+                        cliente=cliente_actual,
+                        activo=True
+                    )
+                    
+                    if user_clients.exists():
+                        # Usuario con sistema nuevo: mostrar solo roles del cliente actual
+                        for user_client in user_clients:
+                            usuarios_con_roles.append({
+                                'usuario': usuario,
+                                'rol': user_client.rol,
+                                'cliente': user_client.cliente
+                            })
+                    else:
+                        # Usuario con sistema antiguo: mostrar con tipo_usuario solo si es del cliente actual
+                        if usuario.cliente == cliente_actual:
+                            usuarios_con_roles.append({
+                                'usuario': usuario,
+                                'rol': usuario.tipo_usuario,
+                                'cliente': usuario.cliente
+                            })
+                else:
+                    # Super admin: mostrar todos los roles del usuario
+                    user_clients = UserClient.objects.filter(usuario=usuario, activo=True)
+                    
+                    if user_clients.exists():
+                        # Usuario con sistema nuevo: mostrar por roles
+                        for user_client in user_clients:
+                            usuarios_con_roles.append({
+                                'usuario': usuario,
+                                'rol': user_client.rol,
+                                'cliente': user_client.cliente
+                            })
+                    else:
+                        # Usuario con sistema antiguo: mostrar con tipo_usuario
                         usuarios_con_roles.append({
                             'usuario': usuario,
-                            'rol': user_client.rol,
-                            'cliente': user_client.cliente
+                            'rol': usuario.tipo_usuario,
+                            'cliente': usuario.cliente
                         })
-                else:
-                    # Usuario con sistema antiguo: mostrar con tipo_usuario
-                    usuarios_con_roles.append({
-                        'usuario': usuario,
-                        'rol': usuario.tipo_usuario,
-                        'cliente': usuario.cliente
-                    })
         
         # Serializar cada entrada
         serializer = UsuarioSerializer([entry['usuario'] for entry in usuarios_con_roles], many=True)

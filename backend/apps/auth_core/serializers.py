@@ -21,6 +21,9 @@ class UsuarioSerializer(LoggedModelSerializer):
     # Campo para leer los roles del usuario
     user_roles = serializers.SerializerMethodField(read_only=True)
     
+    # Campo para el cliente actual del usuario
+    cliente_actual = serializers.SerializerMethodField(read_only=True)
+    
     class Meta:
         model = User
         fields = (
@@ -36,6 +39,7 @@ class UsuarioSerializer(LoggedModelSerializer):
             "is_super_admin",
             "roles",
             "user_roles",
+            "cliente_actual",
         )
         read_only_fields = ["id", "username"]
 
@@ -186,3 +190,18 @@ class UsuarioSerializer(LoggedModelSerializer):
         ).values_list('rol', flat=True)
         
         return list(roles)
+    
+    def get_cliente_actual(self, obj):
+        """
+        Obtiene el cliente actual del usuario con su rol.
+        """
+        cliente_actual = obj.cliente_actual
+        if not cliente_actual:
+            return None
+        
+        return {
+            'id': cliente_actual.cliente.id,
+            'nombre': cliente_actual.cliente.nombre,
+            'rol': cliente_actual.rol,
+            'activo': cliente_actual.activo
+        }
