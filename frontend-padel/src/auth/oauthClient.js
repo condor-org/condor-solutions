@@ -1,5 +1,5 @@
 // src/auth/oauthClient.js
-import axios from "axios";
+import { axiosAuth } from "../utils/axiosAuth";
 import { randomString, sha256Base64Url } from "./pkce";
 
 const PROVIDER = "google";
@@ -107,18 +107,17 @@ export async function startGoogleLogin({ host, returnTo = "/", invite } = {}) {
   const codeChallenge = await sha256Base64Url(codeVerifier);
 
   // Pedimos STATE + NONCE al backend (same-origin si PUBLIC_API_BASE_URL=/api)
-  const stateUrl = `${API}/auth/oauth/state/`;
   let stateResp;
   try {
-    stateResp = await axios.post(
-      stateUrl,
+    stateResp = await axiosAuth(null, null).post(
+      `/auth/oauth/state/`,
       { host: resolvedHost, return_to: returnTo, provider: PROVIDER, invite },
       { timeout: 10000 }
     );
   } catch (err) {
     const resp = err?.response;
     console.error(`[OAuth][${traceId}] state request failed`, {
-      url: stateUrl,
+      url: `/auth/oauth/state/`,
       status: resp?.status,
       data: resp?.data,
       msg: err?.message,
@@ -219,11 +218,11 @@ export async function exchangeCodeForTokens({ code, state }) {
     throw new Error("missing_pkce");
   }
 
-  const url = `${API}/auth/oauth/callback/`;
+  const url = `/auth/oauth/callback/`;
   console.log(`[OAuth][${traceId}] POST ${url}`);
 
   try {
-    const resp = await axios.post(
+    const resp = await axiosAuth(null, null).post(
       url,
       { code, state, code_verifier: codeVerifier, provider: PROVIDER },
       { timeout: 15000 }

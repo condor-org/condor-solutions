@@ -144,7 +144,7 @@ def _notify_abono_admin(abono, actor, evento="creado", extra=None):
 
         admins = Usuario.objects.filter(
             cliente_id=cliente_id,
-            tipo_usuario__in=["admin_cliente", "super_admin"]  # incluimos ambos
+            is_super_admin=True  # super_admin global
         ).only("id", "cliente_id")
 
         ctx = {
@@ -505,7 +505,9 @@ def validar_y_confirmar_abono(data, bonificaciones_ids, archivo, request, forzar
 
     # ¿quién llama?
     user = getattr(request, "user", None)
-    caller_es_admin = bool(user and getattr(user, "tipo_usuario", None) in ("super_admin", "admin_cliente"))
+    from apps.auth_core.utils import get_rol_actual_del_jwt
+    rol_actual = get_rol_actual_del_jwt(request)
+    caller_es_admin = bool(user and (user.is_super_admin or rol_actual == "admin_cliente"))
     omitir_archivo = caller_es_admin and bool(forzar_admin)
 
     # 1) Precios dinámicos basados en turnos del mes
@@ -644,7 +646,9 @@ def _validar_y_confirmar_renovacion(*, abono_id, bonificaciones_ids, archivo, re
     if getattr(user, "tipo_usuario", None) == "usuario_final" and abono.usuario_id != getattr(user, "id", None):
         raise serializers.ValidationError({"detail": "No autorizado para renovar este abono."})
 
-    caller_es_admin = bool(user and getattr(user, "tipo_usuario", None) in ("super_admin", "admin_cliente"))
+    from apps.auth_core.utils import get_rol_actual_del_jwt
+    rol_actual = get_rol_actual_del_jwt(request)
+    caller_es_admin = bool(user and (user.is_super_admin or rol_actual == "admin_cliente"))
     omitir_archivo = caller_es_admin and bool(forzar_admin)
 
     # Precios "server source of truth" - usar cálculo dinámico

@@ -444,7 +444,10 @@ class PrestadorConUsuarioSerializer(LoggedModelSerializer):
         request = self.context["request"]
         admin_user = request.user
 
-        if admin_user.tipo_usuario not in ("super_admin", "admin_cliente"):
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(self.context['request'])
+        
+        if not admin_user.is_super_admin and rol_actual != "admin_cliente":
             raise DRFPermissionDenied("No tenés permisos para crear prestadores.")
 
         # Extraer datos del usuario

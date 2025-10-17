@@ -1,5 +1,8 @@
 // src/router/PublicRoute.jsx
-
+/**
+ * Componente para rutas públicas con redirección automática.
+ * Redirige usuarios autenticados a su dashboard según su rol actual.
+ */
 import React, { useContext } from "react";
 import { Navigate } from "react-router-dom";
 import { AuthContext } from "../auth/AuthContext";
@@ -11,10 +14,13 @@ const PublicRoute = ({ children }) => {
 
   if (loadingUser) return null;
 
-  if (user?.tipo_usuario) {
+  if (user?.cliente_actual?.rol) {
     let destino = "/login"; // fallback defensivo
 
-    switch (user.tipo_usuario) {
+    // Usar la nueva estructura multi-tenant
+    const currentRole = user.cliente_actual?.rol;
+
+    switch (currentRole) {
       case "super_admin":
       case "admin_cliente":
         destino = "/admin";
@@ -26,7 +32,7 @@ const PublicRoute = ({ children }) => {
         destino = "/profesores/turnos";
         break;
       default:
-        console.warn("[PUBLIC ROUTE] ⚠️ tipo_usuario desconocido:", user.tipo_usuario);
+        console.warn("[PUBLIC ROUTE] ⚠️ rol desconocido:", currentRole);
     }
 
     console.log("[PUBLIC ROUTE] Usuario logueado. Redireccionando a:", destino);

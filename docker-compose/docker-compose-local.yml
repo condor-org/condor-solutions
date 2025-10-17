@@ -5,15 +5,31 @@ networks:
 
 services:
   proxy:
-    image: condor-proxy:local
+    build:
+      context: ./reverse-proxy
+      dockerfile: Dockerfile
     environment:
       PROXY_MODE: "local"
     ports:
+      # ========================================
+      # ROUTING DINÁMICO CON LUA
+      # ========================================
+      # Puerto 8080: Routing dinámico por subdominio
+      # lucas.localhost:8080 → Frontend Padel
+      # distrito.localhost:8080 → Frontend Canchas
+      # medicina.localhost:8080 → Frontend Medicina
+      # admin.localhost:8080 → Frontend Super Admin
       - "127.0.0.1:8080:8080"
     depends_on:
       backend:
         condition: service_healthy
       frontend:
+        condition: service_healthy
+      frontend-canchas:
+        condition: service_healthy
+      frontend-medicina:
+        condition: service_healthy
+      frontend-superadmin:
         condition: service_healthy
     restart: always
     logging:
@@ -122,6 +138,117 @@ services:
         max-file: "3"
     networks:
       - condor_local_net
+
+  frontend-canchas:
+    # ← build local en vez de image GHCR
+    build:
+      context: ./frontend-canchas
+      dockerfile: docker/Dockerfile
+      args:
+        REACT_ENV: "development"
+    env_file:
+      - .env
+    environment:
+      PUBLIC_API_BASE_URL: "/api"
+      PUBLIC_CLIENTE_ID: "4"
+      PUBLIC_NOMBRE_CLIENTE: "Distrito Padel"
+      PUBLIC_COLOR_PRIMARIO: "#4CAF50"
+      PUBLIC_COLOR_SECUNDARIO: "${PUBLIC_COLOR_SECUNDARIO}"
+      PUBLIC_GOOGLE_CLIENT_ID: "${PUBLIC_GOOGLE_CLIENT_ID}"
+      PUBLIC_OAUTH_REDIRECT_URI: "${PUBLIC_OAUTH_REDIRECT_URI}"
+    depends_on:
+      - backend
+    restart: always
+    mem_limit: "256m"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - condor_local_net
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget -qO- http://localhost || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  frontend-medicina:
+    # ← build local en vez de image GHCR
+    build:
+      context: ./frontend-medicina
+      dockerfile: docker/Dockerfile
+      args:
+        REACT_ENV: "development"
+    env_file:
+      - .env
+    environment:
+      PUBLIC_API_BASE_URL: "/api"
+      PUBLIC_CLIENTE_ID: "5"
+      PUBLIC_NOMBRE_CLIENTE: "Clínica Medicina"
+      PUBLIC_COLOR_PRIMARIO: "#2196F3"
+      PUBLIC_COLOR_SECUNDARIO: "${PUBLIC_COLOR_SECUNDARIO}"
+      PUBLIC_GOOGLE_CLIENT_ID: "${PUBLIC_GOOGLE_CLIENT_ID}"
+      PUBLIC_OAUTH_REDIRECT_URI: "${PUBLIC_OAUTH_REDIRECT_URI}"
+    depends_on:
+      - backend
+    restart: always
+    mem_limit: "256m"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - condor_local_net
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget -qO- http://localhost || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  frontend-superadmin:
+    # ← build local en vez de image GHCR
+    build:
+      context: ./frontend-superadmin
+      dockerfile: docker/Dockerfile
+      args:
+        REACT_ENV: "development"
+    env_file:
+      - .env
+    environment:
+      PUBLIC_API_BASE_URL: "/api"
+      PUBLIC_CLIENTE_ID: "6"
+      PUBLIC_NOMBRE_CLIENTE: "Super Admin"
+      PUBLIC_COLOR_PRIMARIO: "#9C27B0"
+      PUBLIC_COLOR_SECUNDARIO: "${PUBLIC_COLOR_SECUNDARIO}"
+      PUBLIC_GOOGLE_CLIENT_ID: "${PUBLIC_GOOGLE_CLIENT_ID}"
+      PUBLIC_OAUTH_REDIRECT_URI: "${PUBLIC_OAUTH_REDIRECT_URI}"
+    depends_on:
+      - backend
+    restart: always
+    mem_limit: "256m"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - condor_local_net
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget -qO- http://localhost || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
 
   db:
     image: postgres:14

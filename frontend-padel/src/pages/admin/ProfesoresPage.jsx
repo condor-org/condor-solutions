@@ -144,7 +144,7 @@ const ProfesoresPage = () => {
     if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast.error("Ingresá un email válido.");
     if (!editingId && password.length < 6) return toast.error("La contraseña debe tener al menos 6 caracteres.");
     if (disponibilidades.some(d => !d.sede)) return toast.error("Completá la sede en cada disponibilidad.");
-    if (user.tipo_usuario === "super_admin" && (!clienteId || isNaN(clienteId))) return toast.error("ID de cliente inválido.");
+    if (user.is_super_admin && (!clienteId || isNaN(clienteId))) return toast.error("ID de cliente inválido.");
     
     // Validar solapamiento de disponibilidades
     const disponibilidadesValidas = disponibilidades.filter(d => d.sede && d.sede !== "");
@@ -154,7 +154,7 @@ const ProfesoresPage = () => {
     const payload = {
       nombre, apellido, email, telefono, especialidad, nombre_publico: nombrePublico, activo: true,
       ...(password && { password }),
-      ...(user.tipo_usuario === "super_admin" && { cliente: parseInt(clienteId) }),
+      ...(user.is_super_admin && { cliente: parseInt(clienteId) }),
       disponibilidades: disponibilidades.map(d => ({ lugar: d.sede, dia_semana: d.dia, hora_inicio: d.hora_inicio, hora_fin: d.hora_fin }))
     };
     const api = axiosAuth(accessToken);
@@ -389,7 +389,7 @@ const ProfesoresPage = () => {
                   size="md"
                   fontSize={{ base: "16px", md: "inherit" }}
                 />
-                {user.tipo_usuario === "super_admin" && (
+                {user.is_super_admin && (
                   <ChakraInput
                     placeholder="ID del Cliente"
                     inputMode="numeric"

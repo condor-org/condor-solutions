@@ -45,18 +45,18 @@ ANTIGUEDAD_MAXIMA_DE_COMPROBANTE_EN_MINUTOS = 15
 class ComprobanteService:
 
     @staticmethod
-    def download_comprobante(comprobante_id: int, usuario):
+    def download_comprobante(comprobante_id: int, usuario, request=None):
         # Intentar primero con ComprobantePago
         try:
             comprobante = ComprobantePago.objects.get(pk=comprobante_id)
             if not comprobante.archivo:
                 raise PermissionDenied("El comprobante no tiene archivo asociado.")
 
-            if usuario.is_authenticated and usuario.tipo_usuario == "super_admin":
+            if usuario.is_authenticated and usuario.is_super_admin:
                 return comprobante
 
-            if usuario.is_authenticated and usuario.tipo_usuario == "admin_cliente":
-                if comprobante.cliente == usuario.cliente:
+            if usuario.is_authenticated and request and hasattr(request, 'cliente_actual') and request.cliente_actual:
+                if comprobante.cliente == request.cliente_actual:
                     return comprobante
 
             if comprobante.turno and comprobante.turno.usuario == usuario:
@@ -74,8 +74,8 @@ class ComprobanteService:
                 if usuario.is_authenticated and usuario.tipo_usuario == "super_admin":
                     return comprobante
 
-                if usuario.is_authenticated and usuario.tipo_usuario == "admin_cliente":
-                    if comprobante.cliente == usuario.cliente:
+                if usuario.is_authenticated and request and hasattr(request, 'cliente_actual') and request.cliente_actual:
+                    if comprobante.cliente == request.cliente_actual:
                         return comprobante
 
                 if comprobante.abono_mes and comprobante.abono_mes.usuario == usuario:
@@ -374,6 +374,7 @@ class ComprobanteService:
         cliente=None,
         ip_cliente=None,
         user_agent=None,
+        request=None,
     ) -> ComprobantePago:
         # 0) Archivo
         max_mb = 200
@@ -395,11 +396,14 @@ class ComprobanteService:
         prestador = turno.recurso
         if prestador.cliente_id != (cliente or usuario.cliente).id:
             raise PermissionDenied("No tenés acceso a este turno.")
-        tipo_usuario = getattr(usuario, "tipo_usuario", None)
-        if tipo_usuario == "admin_cliente":
-            if prestador.cliente_id != usuario.cliente.id:
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(request) if request else None
+        cliente_actual = getattr(request, 'cliente_actual', None) if request else None
+        
+        if rol_actual == "admin_cliente" and cliente_actual:
+            if prestador.cliente_id != cliente_actual.id:
                 raise PermissionDenied("No tenés permiso para operar sobre este turno.")
-        elif tipo_usuario != "super_admin":
+        elif not usuario.is_super_admin:
             if turno.usuario_id is not None and turno.usuario_id != usuario.id:
                 raise PermissionDenied("No tenés permiso para modificar este turno.")
 

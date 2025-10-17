@@ -56,8 +56,12 @@ async function fetchAllPages(api, url, { params = {}, maxPages = 50, pageSize = 
       if (!data?.next || results.length === 0 || page >= maxPages) break;
 
       const isAbsolute = typeof data.next === "string" && /^https?:\/\//i.test(data.next);
-      if (isAbsolute) res = await api.get(data.next);
-      else {
+      if (isAbsolute) {
+        // Extraer la ruta relativa de la URL absoluta
+        const url = new URL(data.next);
+        const relativePath = url.pathname + url.search;
+        res = await api.get(relativePath);
+      } else {
         const nextOffset = (currentParams.offset ?? 0) + (currentParams.limit ?? pageSize);
         currentParams = { ...currentParams, offset: nextOffset };
         res = await api.get(nextUrl, { params: currentParams });

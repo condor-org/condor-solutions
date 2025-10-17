@@ -21,7 +21,14 @@ class NotificationListView(generics.ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        qs = Notification.objects.filter(recipient=user).order_by("-created_at")
+        cliente_actual = getattr(self.request, 'cliente_actual', None)
+        
+        # Filtrar por usuario y cliente actual
+        if cliente_actual:
+            qs = Notification.objects.filter(recipient=user, cliente_id=cliente_actual.id).order_by("-created_at")
+        else:
+            qs = Notification.objects.filter(recipient=user).order_by("-created_at")
+            
         unread = self.request.query_params.get("unread")
         notif_type = self.request.query_params.get("type")
         if unread in {"1", "true", "True"}:
@@ -35,7 +42,14 @@ class NotificationUnreadCountView(APIView):
     permission_classes = [InAppPermission]
 
     def get(self, request):
-        cnt = Notification.objects.filter(recipient=request.user, unread=True).count()
+        cliente_actual = getattr(request, 'cliente_actual', None)
+        
+        # Filtrar por usuario, cliente actual y no leídas
+        if cliente_actual:
+            cnt = Notification.objects.filter(recipient=request.user, cliente_id=cliente_actual.id, unread=True).count()
+        else:
+            cnt = Notification.objects.filter(recipient=request.user, unread=True).count()
+            
         return Response({"unread_count": cnt})
 
 

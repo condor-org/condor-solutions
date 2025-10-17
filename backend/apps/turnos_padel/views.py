@@ -68,15 +68,19 @@ class SedePadelViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         # ✅ Restringe por tipo de usuario y cliente; usa select_related/prefetch para evitar N+1.
         user = self.request.user
-        if user.tipo_usuario == "super_admin":
+        cliente_actual = getattr(self.request, 'cliente_actual', None)
+        
+        # Super admin (usar nuevo campo)
+        if user.is_super_admin:
             return (
                 Lugar.objects.all()
                 .select_related("configuracion_padel")
                 .prefetch_related("configuracion_padel__tipos_clase")
             )
-        elif user.tipo_usuario == "admin_cliente":
+        # Admin del cliente → sedes de su cliente
+        elif cliente_actual:
             return (
-                Lugar.objects.filter(cliente=user.cliente)
+                Lugar.objects.filter(cliente=cliente_actual)
                 .select_related("configuracion_padel")
                 .prefetch_related("configuracion_padel__tipos_clase")
             )
@@ -115,8 +119,12 @@ class SedePadelViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def perform_create(self, serializer):
-        # 🧾 Asigna cliente desde el usuario autenticado (consistencia multi-tenant).
-        return serializer.save(cliente=self.request.user.cliente)
+        # 🧾 Asigna cliente desde el cliente actual (consistencia multi-tenant).
+        cliente_actual = getattr(self.request, 'cliente_actual', None)
+        if cliente_actual:
+            return serializer.save(cliente=cliente_actual)
+        else:
+            raise ValueError("No se puede crear sede sin cliente actual")
 
     @transaction.atomic
     def update(self, request, *args, **kwargs):
@@ -142,11 +150,16 @@ class ConfiguracionSedePadelViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        cliente_actual = getattr(self.request, 'cliente_actual', None)
         qs = ConfiguracionSedePadel.objects.all()
 
-        if user.tipo_usuario == "admin_cliente":
-            qs = qs.filter(sede__cliente=user.cliente)
-        elif user.tipo_usuario != "super_admin":
+        # Super admin (usar nuevo campo)
+        if user.is_super_admin:
+            return qs
+        # Admin del cliente → configuraciones de su cliente
+        elif cliente_actual:
+            qs = qs.filter(sede__cliente=cliente_actual)
+        else:
             return ConfiguracionSedePadel.objects.none()
 
         return qs
@@ -219,14 +232,26 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         # 🧭 Scope por perfil; logs con contexto mínimo (id/tipo).
         user = self.request.user
-        logger.info("[AbonoMesViewSet:get_queryset] Usuario: %s (%s)", user.id, user.tipo_usuario)
+        cliente_actual = getattr(self.request, 'cliente_actual', None)
+        
+        # Importar y usar la función helper
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(self.request)
+        
+        logger.info("[AbonoMesViewSet:get_queryset] Usuario: %s rol_actual: %s", user.id, rol_actual)
 
-        if user.tipo_usuario == "super_admin":
+        # Super admin (usar nuevo campo)
+        if user.is_super_admin:
             qs = AbonoMes.objects.all()
-        elif user.tipo_usuario == "admin_cliente":
-            qs = AbonoMes.objects.filter(sede__cliente=user.cliente)
+        # Admin del cliente → TODOS los abonos de su cliente (incluyendo los suyos)
+        elif rol_actual == "admin_cliente" and cliente_actual:
+            qs = AbonoMes.objects.filter(sede__cliente_id=cliente_actual.id)
+        # Usuario final → sus propios abonos DEL CLIENTE ACTUAL
         else:
-            qs = AbonoMes.objects.filter(usuario=user)
+            if cliente_actual:
+                qs = AbonoMes.objects.filter(usuario=user, sede__cliente_id=cliente_actual.id)
+            else:
+                qs = AbonoMes.objects.filter(usuario=user)
         
         # Aplicar filtros por parámetros de query
         prestador_id = self.request.query_params.get('prestador_id')
@@ -262,7 +287,12 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
 
         # ➜ Acepta 'usuario' o 'usuario_id' y valida alcance según rol.
         usuario_target = data.get("usuario") or data.get("usuario_id")
-        if user.tipo_usuario == "usuario_final":
+        
+        # Importar y usar la función helper
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(request)
+        
+        if rol_actual == "usuario_final":
             if usuario_target and int(usuario_target) != user.id:
                 return Response({"detail": "No podés crear abonos para otro usuario."}, status=403)
             data["usuario"] = user.id

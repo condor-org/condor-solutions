@@ -151,14 +151,16 @@ class ComprobanteView(ListCreateAPIView):
             )
 
         # 🔐 Scope por tipo de usuario
-        tu = getattr(usuario, "tipo_usuario", None)
-        if tu == "super_admin":
+        cliente_actual = getattr(self.request, 'cliente_actual', None)
+        
+        # Super admin (usar nuevo campo)
+        if usuario.is_super_admin:
             pass
-        elif tu == "admin_cliente" and usuario.cliente_id:
-            qs = qs.filter(cliente=usuario.cliente)
-        elif tu == "empleado_cliente":
-            qs = qs.filter(turno__usuario=usuario)
-        else:  # usuario_final
+        # Admin del cliente → comprobantes de su cliente
+        elif cliente_actual:
+            qs = qs.filter(cliente=cliente_actual)
+        # Empleado/usuario final → solo sus propios comprobantes
+        else:
             qs = qs.filter(turno__usuario=usuario)
         
         return qs
@@ -230,10 +232,14 @@ class ComprobanteAbonoDownloadView(APIView):
                 raise PermissionDenied("El comprobante no tiene archivo asociado.")
 
             # Validar permisos
-            if request.user.is_authenticated and request.user.tipo_usuario == "super_admin":
+            from apps.auth_core.utils import get_rol_actual_del_jwt
+            rol_actual = get_rol_actual_del_jwt(request)
+            cliente_actual = getattr(request, 'cliente_actual', None)
+            
+            if request.user.is_authenticated and request.user.is_super_admin:
                 pass  # Super admin puede ver todo
-            elif request.user.is_authenticated and request.user.tipo_usuario == "admin_cliente":
-                if comprobante.cliente != request.user.cliente:
+            elif request.user.is_authenticated and rol_actual == "admin_cliente":
+                if comprobante.cliente != cliente_actual:
                     raise PermissionDenied("No tenés permiso para ver este comprobante.")
             elif comprobante.abono_mes and comprobante.abono_mes.usuario != request.user:
                 raise PermissionDenied("No tenés permiso para ver este comprobante.")
@@ -525,7 +531,17 @@ class PagosPendientesCountView(APIView):
     permission_classes = [EsAdminDeSuCliente | EsSuperAdmin]
 
     def get(self, request):
-        count = ComprobantePago.objects.filter(cliente=request.user.cliente, valido=False).count()
+        cliente_actual = getattr(request, 'cliente_actual', None)
+        
+        # Super admin → todos los comprobantes pendientes
+        if request.user.is_super_admin:
+            count = ComprobantePago.objects.filter(valido=False).count()
+        # Admin del cliente → comprobantes pendientes de su cliente
+        elif cliente_actual:
+            count = ComprobantePago.objects.filter(cliente=cliente_actual, valido=False).count()
+        else:
+            count = 0
+            
         return Response({"count": count})
 
 
@@ -665,14 +681,16 @@ class ComprobanteAbonoView(ListCreateAPIView):
             )
 
         # 🔐 Scope por tipo de usuario
-        tu = getattr(usuario, "tipo_usuario", None)
-        if tu == "super_admin":
+        cliente_actual = getattr(self.request, 'cliente_actual', None)
+        
+        # Super admin (usar nuevo campo)
+        if usuario.is_super_admin:
             pass
-        elif tu == "admin_cliente" and usuario.cliente_id:
-            qs = qs.filter(cliente=usuario.cliente)
-        elif tu == "empleado_cliente":
-            qs = qs.filter(abono_mes__usuario=usuario)
-        else:  # usuario_final
+        # Admin del cliente → comprobantes de abono de su cliente
+        elif cliente_actual:
+            qs = qs.filter(cliente=cliente_actual)
+        # Empleado/usuario final → solo sus propios comprobantes de abono
+        else:
             qs = qs.filter(abono_mes__usuario=usuario)
         
         return qs

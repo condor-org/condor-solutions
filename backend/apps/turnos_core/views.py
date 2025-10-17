@@ -149,21 +149,26 @@ class TurnoListView(ListAPIView):
 
     def get_queryset(self):
         usuario = self.request.user
+        cliente_actual = getattr(self.request, 'cliente_actual', None)
+        
+        # Importar y usar la función helper
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(self.request)
 
-        # super admin (ambas variantes por compat)
-        if getattr(usuario, "tipo_usuario", None) == "super_admin" or getattr(usuario, "is_superuser", False):
+        # Super admin (usar nuevo campo)
+        if usuario.is_super_admin:
             qs = Turno.objects.all().select_related("usuario", "lugar")
 
-        # admin del cliente → TODOS los turnos de su cliente
-        elif getattr(usuario, "tipo_usuario", None) == "admin_cliente" and getattr(usuario, "cliente_id", None):
+        # Admin del cliente → TODOS los turnos de su cliente
+        elif rol_actual == "admin_cliente" and cliente_actual:
             qs = (
                 Turno.objects
-                .filter(lugar__cliente_id=usuario.cliente_id)
+                .filter(lugar__cliente_id=cliente_actual.id)
                 .select_related("usuario", "lugar")
             )
 
-        # empleado (prestador) → sus propios turnos
-        elif getattr(usuario, "tipo_usuario", None) == "empleado_cliente":
+        # Empleado (prestador) → sus propios turnos
+        elif rol_actual == "empleado_cliente":
             from django.contrib.contenttypes.models import ContentType
             ct_prestador = ContentType.objects.get_for_model(Prestador)
             qs = (
@@ -172,7 +177,7 @@ class TurnoListView(ListAPIView):
                 .select_related("usuario", "lugar")
             )
 
-        # usuario final → sus turnos (y más abajo se filtran no-abonos)
+        # Usuario final → sus turnos (y más abajo se filtran no-abonos)
         else:
             qs = Turno.objects.filter(usuario=usuario).select_related("usuario", "lugar")
 
@@ -189,7 +194,7 @@ class TurnoListView(ListAPIView):
             qs = qs.filter(Q(fecha__gt=hoy) | Q(fecha=hoy, hora__gte=hora))
 
         # 🔒 usuarios finales: ocultar turnos de abonos
-        if getattr(usuario, "tipo_usuario", None) == "usuario_final":
+        if rol_actual == "usuario_final":
             qs = qs.filter(
                 reservado_para_abono=False,
                 abono_mes_reservado__isnull=True,
@@ -670,15 +675,19 @@ class PrestadorViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        cliente_actual = getattr(self.request, 'cliente_actual', None)
         lugar_id = self.request.query_params.get("lugar_id")
 
-        # Base: todos los prestadores del mismo cliente
-        qs = Prestador.objects.filter(cliente=user.cliente, activo=True)
+        # Base: todos los prestadores del cliente actual
+        if cliente_actual:
+            qs = Prestador.objects.filter(cliente=cliente_actual, activo=True)
+        else:
+            # Fallback al sistema antiguo
+            qs = Prestador.objects.filter(cliente=user.cliente, activo=True)
 
         # Si filtra por sede
         if lugar_id:
             qs = qs.filter(disponibilidades__lugar_id=lugar_id).distinct()
-
         return qs
 
     def get_serializer(self, *args, **kwargs):

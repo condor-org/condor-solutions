@@ -35,14 +35,13 @@ const RegistroPage = () => {
 
     setIsSubmitting(true);
     try {
-      const api = axiosAuth(); // baseURL = API_BASE_URL (ej: "/api")
+      const api = axiosAuth(null, null); // baseURL = API_BASE_URL (ej: "/api")
       const payload = {
         email: (email || "").trim(),
         password,
         nombre: (nombre || "").trim(),
         apellido: (apellido || "").trim(),
         telefono: (telefono || "").trim(),
-        tipo_usuario: "usuario_final",
       };
 
       await api.post("/auth/registro/", payload); // → /api/auth/registro/

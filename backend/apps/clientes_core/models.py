@@ -31,6 +31,21 @@ class Cliente(models.Model):
         help_text="Define el esquema visual general del cliente."
     )
 
+    # Campo para identificar el tipo de frontend específico del cliente
+    TIPOS_FE = [
+        ('padel', 'Frontend de Padel'),
+        ('canchas', 'Frontend de Canchas'),
+        ('financiera', 'Frontend de Financiera'),
+        ('peluqueria', 'Frontend de Peluquería'),
+    ]
+    
+    tipo_fe = models.CharField(
+        max_length=50,
+        choices=TIPOS_FE,
+        default='padel',
+        help_text="Define el tipo de frontend específico para este cliente."
+    )
+
     color_primario = models.CharField(max_length=20, blank=True, null=True)
     color_secundario = models.CharField(max_length=20, blank=True, null=True)
 
