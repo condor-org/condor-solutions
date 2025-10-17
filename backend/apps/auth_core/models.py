@@ -126,6 +126,28 @@ class Usuario(AbstractUser):
             user_client.save()
         return user_client
 
+    @property
+    def cliente_actual(self):
+        """
+        Devuelve el UserClient activo para el cliente actual del usuario.
+        Para super admins, devuelve None.
+        Para usuarios con cliente asignado, devuelve el UserClient activo.
+        """
+        if self.is_super_admin:
+            return None
+        
+        # Si el usuario tiene un cliente asignado directamente (sistema anterior)
+        if self.cliente:
+            user_client = self.clientes_roles.filter(
+                cliente=self.cliente,
+                activo=True
+            ).first()
+            if user_client:
+                return user_client
+        
+        # Si no tiene cliente asignado directamente, buscar el primer UserClient activo
+        return self.clientes_roles.filter(activo=True).first()
+
 
 class UserClient(models.Model):
     """
