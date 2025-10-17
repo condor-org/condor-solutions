@@ -106,7 +106,7 @@ jobs:
             curl -fsSL \
               -H "Authorization: token ${TOKEN}" \
               -H "Accept: application/vnd.github.raw" \
-              "https://api.github.com/repos/${REPO}/contents/docker-compose-backend-dev.yml?ref=${{ github.sha }}" \
+              "https://api.github.com/repos/${REPO}/contents/docker-compose/docker-compose-backend-dev.yml?ref=${{ github.sha }}" \
               -o docker-compose-backend-dev.yml
             
             # Docker login GHCR
@@ -211,7 +211,7 @@ jobs:
             curl -fsSL \
               -H "Authorization: token ${TOKEN}" \
               -H "Accept: application/vnd.github.raw" \
-              "https://api.github.com/repos/${REPO}/contents/docker-compose-backend-prod.yml?ref=${{ github.sha }}" \
+              "https://api.github.com/repos/${REPO}/contents/docker-compose/docker-compose-backend-prod.yml?ref=${{ github.sha }}" \
               -o docker-compose-backend-prod.yml
             
             # Docker login GHCR

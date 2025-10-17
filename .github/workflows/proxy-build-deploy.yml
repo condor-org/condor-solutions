@@ -104,7 +104,7 @@ jobs:
             curl -fsSL \
               -H "Authorization: token ${TOKEN}" \
               -H "Accept: application/vnd.github.raw" \
-              "https://api.github.com/repos/${REPO}/contents/docker-compose-proxy.yml?ref=${{ github.sha }}" \
+              "https://api.github.com/repos/${REPO}/contents/docker-compose/docker-compose-proxy.yml?ref=${{ github.sha }}" \
               -o docker-compose-proxy.yml
 
             echo "[+] Docker login GHCR"
