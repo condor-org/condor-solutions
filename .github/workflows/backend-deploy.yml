@@ -1,9 +1,9 @@
 name: Backend Deploy
 
 on:
+  pull_request:
   release:
     types: [published]
-    tags: ['v*-backend']
   workflow_dispatch:
     inputs:
       version:
@@ -22,6 +22,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    if: github.event_name != 'release' || endsWith(github.event.release.tag_name, '-backend')
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:

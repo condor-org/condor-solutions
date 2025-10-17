@@ -388,15 +388,133 @@ class MiPerfilView(APIView):
 
 ## 6️⃣ Flow Completo en Acción
 
-### Request: `localhost:8081/api/auth/yo/`
+### **🌐 Entornos de Despliegue**
 
-#### Paso 1: Nginx
+#### **🏠 LOCAL (Desarrollo)**
+```
+Usuario → localhost:8080/8081 → Nginx Proxy → Backend Django → TenantMiddleware
+```
+
+#### **🚀 DEV (Desarrollo en EC2)**
+```
+Usuario → subdomain.dev.cnd-ia.com → Cloudflare → EC2 → Nginx → Backend Django → TenantMiddleware
+```
+
+#### **🏭 PROD (Producción en EC2)**
+```
+Usuario → subdomain.cnd-ia.com → Cloudflare → EC2 → Nginx → Backend Django → TenantMiddleware
+```
+
+### **🔧 Configuración por Entorno**
+
+#### **1. Base de Datos - Mapeo de Dominios**
+
+**Local:**
+```sql
+-- Tabla: cliente_dominio
+hostname              | cliente_id | activo
+---------------------|------------|--------
+localhost             | 1          | true
+127.0.0.1            | 1          | true  
+lucas.localhost       | 1          | true
+distrito.localhost    | 4          | true
+```
+
+**Dev:**
+```sql
+-- Tabla: cliente_dominio
+hostname              | cliente_id | activo
+---------------------|------------|--------
+lucas.dev.cnd-ia.com  | 1          | true
+distrito.dev.cnd-ia.com| 4          | true
+```
+
+**Prod:**
+```sql
+-- Tabla: cliente_dominio
+hostname              | cliente_id | activo
+---------------------|------------|--------
+lucas.cnd-ia.com      | 1          | true
+distrito.cnd-ia.com   | 4          | true
+```
+
+#### **2. Nginx Configuration**
+
+**Local (nginx.local.conf):**
+```nginx
+# Puerto 8080 - Lucas Padel
+server {
+  listen 8080;
+  server_name localhost;
+  location /api/ {
+    proxy_pass http://backend;
+    proxy_set_header X-Tenant-Host "lucas.localhost";
+  }
+}
+
+# Puerto 8081 - Distrito Padel
+server {
+  listen 8081;
+  server_name localhost;
+  location /api/ {
+    proxy_pass http://backend;
+    proxy_set_header X-Tenant-Host "distrito.localhost";
+  }
+}
+```
+
+**Dev/Prod (nginx.conf en EC2):**
+```nginx
+# Lucas Padel
+server {
+  listen 80;
+  server_name lucas.dev.cnd-ia.com lucas.cnd-ia.com;
+  location /api/ {
+    proxy_pass http://backend;
+    proxy_set_header X-Tenant-Host "lucas.dev.cnd-ia.com";  # o lucas.cnd-ia.com
+  }
+}
+
+# Distrito Padel
+server {
+  listen 80;
+  server_name distrito.dev.cnd-ia.com distrito.cnd-ia.com;
+  location /api/ {
+    proxy_pass http://backend;
+    proxy_set_header X-Tenant-Host "distrito.dev.cnd-ia.com";  # o distrito.cnd-ia.com
+  }
+}
+```
+
+#### **3. Cloudflare DNS Configuration**
+
+**Dev:**
+```
+Tipo    | Nombre                    | Contenido           | TTL
+--------|---------------------------|---------------------|-----
+CNAME   | lucas.dev.cnd-ia.com      | ec2-dev.cnd-ia.com  | Auto
+CNAME   | distrito.dev.cnd-ia.com   | ec2-dev.cnd-ia.com  | Auto
+```
+
+**Prod:**
+```
+Tipo    | Nombre                | Contenido           | TTL
+--------|-----------------------|---------------------|-----
+CNAME   | lucas.cnd-ia.com      | ec2-prod.cnd-ia.com | Auto
+CNAME   | distrito.cnd-ia.com   | ec2-prod.cnd-ia.com | Auto
+```
+
+### **🔄 Flujo Completo por Entorno**
+
+#### **Request Local: `localhost:8081/api/auth/yo/`**
+
+**Paso 1: Nginx**
 ```nginx
 # Puerto 8081
 proxy_set_header X-Tenant-Host "distrito.localhost";
 ```
 
-#### Paso 2: TenantMiddleware
+**Paso 2: TenantMiddleware**
 ```python
 # request.META["HTTP_X_TENANT_HOST"] = "distrito.localhost"
 host = "distrito.localhost"
@@ -405,26 +523,88 @@ cliente = ClienteDominio.objects.get(hostname="distrito.localhost").cliente
 request.cliente_actual = cliente
 ```
 
-#### Paso 3: View
+**Paso 3: View**
 ```python
 cliente_actual = request.cliente_actual  # Cliente(id=4)
 # Filtrar datos solo de Distrito Padel
 turnos = Turno.objects.filter(lugar__cliente=cliente_actual)
 ```
 
-### Logs Esperados
+#### **Request Dev: `distrito.dev.cnd-ia.com/api/auth/yo/`**
 
+**Paso 1: Cloudflare → EC2**
+```nginx
+# Nginx en EC2
+proxy_set_header X-Tenant-Host "distrito.dev.cnd-ia.com";
+```
+
+**Paso 2: TenantMiddleware**
+```python
+# request.META["HTTP_X_TENANT_HOST"] = "distrito.dev.cnd-ia.com"
+host = "distrito.dev.cnd-ia.com"
+cliente = ClienteDominio.objects.get(hostname="distrito.dev.cnd-ia.com").cliente
+# cliente = Cliente(id=4, nombre="Distrito Padel")
+request.cliente_actual = cliente
+```
+
+**Paso 3: View**
+```python
+cliente_actual = request.cliente_actual  # Cliente(id=4)
+# Filtrar datos solo de Distrito Padel
+turnos = Turno.objects.filter(lugar__cliente=cliente_actual)
+```
+
+#### **Request Prod: `distrito.cnd-ia.com/api/auth/yo/`**
+
+**Paso 1: Cloudflare → EC2**
+```nginx
+# Nginx en EC2
+proxy_set_header X-Tenant-Host "distrito.cnd-ia.com";
+```
+
+**Paso 2: TenantMiddleware**
+```python
+# request.META["HTTP_X_TENANT_HOST"] = "distrito.cnd-ia.com"
+host = "distrito.cnd-ia.com"
+cliente = ClienteDominio.objects.get(hostname="distrito.cnd-ia.com").cliente
+# cliente = Cliente(id=4, nombre="Distrito Padel")
+request.cliente_actual = cliente
+```
+
+**Paso 3: View**
+```python
+cliente_actual = request.cliente_actual  # Cliente(id=4)
+# Filtrar datos solo de Distrito Padel
+turnos = Turno.objects.filter(lugar__cliente=cliente_actual)
+```
+
+### **🔍 Logs de Debugging por Entorno**
+
+#### **Local:**
 ```
 [TENANT] request_host=distrito.localhost X-Tenant-Host=distrito.localhost HTTP_HOST=localhost
 [OAUTH STATE] using_tenant_cliente host=localhost cliente_id=4 cliente_nombre=Distrito Padel
+```
+
+#### **Dev:**
+```
+[TENANT] request_host=distrito.dev.cnd-ia.com X-Tenant-Host=distrito.dev.cnd-ia.com HTTP_HOST=distrito.dev.cnd-ia.com
+[OAUTH STATE] using_tenant_cliente host=distrito.dev.cnd-ia.com cliente_id=4 cliente_nombre=Distrito Padel
+```
+
+#### **Prod:**
+```
+[TENANT] request_host=distrito.cnd-ia.com X-Tenant-Host=distrito.cnd-ia.com HTTP_HOST=distrito.cnd-ia.com
+[OAUTH STATE] using_tenant_cliente host=distrito.cnd-ia.com cliente_id=4 cliente_nombre=Distrito Padel
 ```
 
 ---
 
 ## 7️⃣ Verificación y Testing
 
-### Comando de Verificación
+### **🌐 Verificación por Entorno**
 
+#### **Local:**
 ```bash
 # Request a puerto 8081 (Distrito Padel)
 curl -s "http://localhost:8081/api/auth/yo/" -H "Authorization: Bearer fake-token"
@@ -433,15 +613,76 @@ curl -s "http://localhost:8081/api/auth/yo/" -H "Authorization: Bearer fake-toke
 # [TENANT] request_host=distrito.localhost X-Tenant-Host=distrito.localhost
 ```
 
-### Verificación de Configuración
+#### **Dev:**
+```bash
+# Request a dev (Distrito Padel)
+curl -s "https://distrito.dev.cnd-ia.com/api/auth/yo/" -H "Authorization: Bearer fake-token"
 
+# Debería mostrar en logs:
+# [TENANT] request_host=distrito.dev.cnd-ia.com X-Tenant-Host=distrito.dev.cnd-ia.com
+```
+
+#### **Prod:**
+```bash
+# Request a prod (Distrito Padel)
+curl -s "https://distrito.cnd-ia.com/api/auth/yo/" -H "Authorization: Bearer fake-token"
+
+# Debería mostrar en logs:
+# [TENANT] request_host=distrito.cnd-ia.com X-Tenant-Host=distrito.cnd-ia.com
+```
+
+### **🔧 Verificación de Configuración**
+
+#### **Local:**
 ```bash
 # Verificar configuración de dominios
-docker compose -f docker-compose-local.yml exec backend python manage.py shell -c "
+docker compose -f docker-compose/docker-compose-local.yml exec backend python manage.py shell -c "
 from apps.clientes_core.models import ClienteDominio
 for d in ClienteDominio.objects.all():
     print(f'{d.hostname} → Cliente {d.cliente_id}')
 "
+```
+
+#### **Dev:**
+```bash
+# Verificar configuración de dominios en EC2 Dev
+ssh ec2-dev "cd /opt/condor && docker compose exec backend python manage.py shell -c \"
+from apps.clientes_core.models import ClienteDominio
+for d in ClienteDominio.objects.all():
+    print(f'{d.hostname} → Cliente {d.cliente_id}')
+\""
+```
+
+#### **Prod:**
+```bash
+# Verificar configuración de dominios en EC2 Prod
+ssh ec2-prod "cd /opt/condor && docker compose exec backend python manage.py shell -c \"
+from apps.clientes_core.models import ClienteDominio
+for d in ClienteDominio.objects.all():
+    print(f'{d.hostname} → Cliente {d.cliente_id}')
+\""
+```
+
+### **🚀 Deploy por Entorno**
+
+#### **Local:**
+```bash
+# Usar docker-compose-local.yml
+docker compose -f docker-compose/docker-compose-local.yml up -d
+```
+
+#### **Dev:**
+```bash
+# Deploy automático via GitHub Actions
+# Release: v1.0.0-backend → Deploy a EC2 Dev
+# Usar: docker-compose/docker-compose-backend-dev.yml
+```
+
+#### **Prod:**
+```bash
+# Deploy automático via GitHub Actions
+# Release: v1.0.0-backend → Deploy a EC2 Prod
+# Usar: docker-compose/docker-compose-backend-prod.yml
 ```
 
 ---
@@ -525,28 +766,28 @@ for d in ClienteDominio.objects.all():
 ### **📋 Docker Compose Modulares Creados:**
 
 **✅ Backend:**
-- `docker-compose-backend-dev.yml` → Backend + Cron + DB + Redis (dev)
-- `docker-compose-backend-prod.yml` → Backend + Cron + Redis (prod)
+- `docker-compose/docker-compose-backend-dev.yml` → Backend + Cron + DB + Redis (dev)
+- `docker-compose/docker-compose-backend-prod.yml` → Backend + Cron + Redis (prod)
 
 **✅ Frontend Padel:**
-- `docker-compose-frontend-padel-dev.yml` → Frontend Padel (dev)
-- `docker-compose-frontend-padel-prod.yml` → Frontend Padel (prod)
+- `docker-compose/docker-compose-frontend-padel-dev.yml` → Frontend Padel (dev)
+- `docker-compose/docker-compose-frontend-padel-prod.yml` → Frontend Padel (prod)
 
 **✅ Frontend Canchas:**
-- `docker-compose-frontend-canchas-dev.yml` → Frontend Canchas (dev)
-- `docker-compose-frontend-canchas-prod.yml` → Frontend Canchas (prod)
+- `docker-compose/docker-compose-frontend-canchas-dev.yml` → Frontend Canchas (dev)
+- `docker-compose/docker-compose-frontend-canchas-prod.yml` → Frontend Canchas (prod)
 
 **✅ Frontend Medicina:**
-- `docker-compose-frontend-medicina-dev.yml` → Frontend Medicina (dev)
-- `docker-compose-frontend-medicina-prod.yml` → Frontend Medicina (prod)
+- `docker-compose/docker-compose-frontend-medicina-dev.yml` → Frontend Medicina (dev)
+- `docker-compose/docker-compose-frontend-medicina-prod.yml` → Frontend Medicina (prod)
 
 **✅ Frontend SuperAdmin:**
-- `docker-compose-frontend-superadmin-dev.yml` → Frontend SuperAdmin (dev)
-- `docker-compose-frontend-superadmin-prod.yml` → Frontend SuperAdmin (prod)
+- `docker-compose/docker-compose-frontend-superadmin-dev.yml` → Frontend SuperAdmin (dev)
+- `docker-compose/docker-compose-frontend-superadmin-prod.yml` → Frontend SuperAdmin (prod)
 
 **✅ Proxy:**
-- `docker-compose-proxy-dev.yml` → Proxy (dev)
-- `docker-compose-proxy-prod.yml` → Proxy (prod)
+- `docker-compose/docker-compose-proxy-dev.yml` → Proxy (dev)
+- `docker-compose/docker-compose-proxy-prod.yml` → Proxy (prod)
 
 ### **🎯 Ventajas del Sistema Modular:**
 
@@ -599,7 +840,44 @@ Esperar servicios healthy → Migraciones → Limpieza
 
 **✅ Nuevos Docker Compose (12):**
 - 6 archivos dev + 6 archivos prod
+- Organizados en carpeta `docker-compose/`
 
 **✅ Sistema Actual Mantenido:**
 - Workflows existentes → **SE MANTIENEN**
 - Docker Compose existentes → **SE MANTIENEN**
+
+### **📁 Organización de Archivos:**
+
+**✅ Estructura de Carpetas:**
+```
+condor/
+├── docker-compose/                    # 📁 Carpeta dedicada para Docker Compose
+│   ├── docker-compose-backend-dev.yml
+│   ├── docker-compose-backend-prod.yml
+│   ├── docker-compose-frontend-padel-dev.yml
+│   ├── docker-compose-frontend-padel-prod.yml
+│   ├── docker-compose-frontend-canchas-dev.yml
+│   ├── docker-compose-frontend-canchas-prod.yml
+│   ├── docker-compose-frontend-medicina-dev.yml
+│   ├── docker-compose-frontend-medicina-prod.yml
+│   ├── docker-compose-frontend-superadmin-dev.yml
+│   ├── docker-compose-frontend-superadmin-prod.yml
+│   ├── docker-compose-proxy-dev.yml
+│   ├── docker-compose-proxy-prod.yml
+│   ├── docker-compose-dev.yml
+│   ├── docker-compose-prod.yml
+│   └── docker-compose-local.yml
+└── .github/workflows/                 # 📁 Workflows de GitHub Actions
+    ├── backend-deploy.yml
+    ├── frontend-padel-deploy.yml
+    ├── frontend-canchas-deploy.yml
+    ├── frontend-medicina-deploy.yml
+    ├── frontend-superadmin-deploy.yml
+    └── proxy-deploy.yml
+```
+
+**✅ Beneficios de la Organización:**
+- **Separación clara** entre configuración y código
+- **Fácil mantenimiento** y navegación
+- **Escalabilidad** para nuevos servicios
+- **Compatibilidad total** con workflows existentes
