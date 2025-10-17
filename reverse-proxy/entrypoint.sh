@@ -3,16 +3,16 @@ set -eu
 
 case "${PROXY_MODE:-local}" in
   local) 
-    cp /etc/nginx/nginx.local.conf /etc/nginx/nginx.conf 
+    cp /etc/nginx/nginx.local.conf /usr/local/openresty/nginx/conf/nginx.conf
     echo "[proxy] Usando configuración LOCAL"
     ;;
   ec2)   
     if [ "${ENVIRONMENT:-prod}" = "dev" ]; then
       echo "[proxy] Usando configuración DEV"
-      cp /etc/nginx/nginx.ec2.dev.conf /etc/nginx/nginx.conf
+      cp /etc/nginx/nginx.ec2.dev.conf /usr/local/openresty/nginx/conf/nginx.conf
     else
       echo "[proxy] Usando configuración PROD"
-      cp /etc/nginx/nginx.ec2.prod.conf /etc/nginx/nginx.conf
+      cp /etc/nginx/nginx.ec2.prod.conf /usr/local/openresty/nginx/conf/nginx.conf
     fi
     ;;
   *)     
