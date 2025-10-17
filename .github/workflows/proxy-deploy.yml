@@ -104,7 +104,7 @@ jobs:
             
             # Generar .env.proxy-dev
             echo "[+] Generar .env.proxy-dev"
-            cat > .env.proxy-dev << 'EOF'
+            cat > .env.proxy-dev << EOF
             OWNER=${{ github.repository_owner }}
             IMAGE_PREFIX=condor
             PROXY_TAG_DEV=${VERSION}
@@ -184,7 +184,7 @@ jobs:
             
             # Generar .env.proxy-prod
             echo "[+] Generar .env.proxy-prod"
-            cat > .env.proxy-prod << 'EOF'
+            cat > .env.proxy-prod << EOF
             OWNER=${{ github.repository_owner }}
             IMAGE_PREFIX=condor
             PROXY_TAG=${VERSION}

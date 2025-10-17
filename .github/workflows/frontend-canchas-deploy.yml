@@ -104,7 +104,7 @@ jobs:
             
             # Generar .env.frontend-canchas-dev
             echo "[+] Generar .env.frontend-canchas-dev"
-            cat > .env.frontend-canchas-dev << 'EOF'
+            cat > .env.frontend-canchas-dev << EOF
             PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}
             PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}
             PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}
@@ -185,7 +185,7 @@ jobs:
             
             # Generar .env.frontend-canchas-prod
             echo "[+] Generar .env.frontend-canchas-prod"
-            cat > .env.frontend-canchas-prod << 'EOF'
+            cat > .env.frontend-canchas-prod << EOF
             PUBLIC_API_BASE_URL=${{ vars.PUBLIC_API_BASE_URL }}
             PUBLIC_CLIENTE_ID=${{ vars.PUBLIC_CLIENTE_ID }}
             PUBLIC_NOMBRE_CLIENTE=${{ vars.PUBLIC_NOMBRE_CLIENTE }}
