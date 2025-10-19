@@ -93,7 +93,7 @@ const ReservarAbonoAdmin = () => {
   // ======= CARGAS =======
   useEffect(() => {
     if (!api) return;
-    api.get("padel/sedes/")
+    api.get("turnos/sedes/")
       .then(res => setSedes(res?.data?.results ?? res?.data ?? []))
       .catch(e => { console.error("[AbonoAdmin] sedes error:", e); setSedes([]); });
   }, [api]);
@@ -147,7 +147,7 @@ const ReservarAbonoAdmin = () => {
         }
         
         // Filtrar solo usuarios finales
-        const finales = todosLosUsuarios.filter(u => u?.tipo_usuario === "usuario_final");
+        const finales = todosLosUsuarios.filter(u => u?.cliente_actual?.rol === "usuario_final");
         setUsuarios(finales);
       } catch (e) {
         console.error("[AbonoAdmin] usuarios error:", e);
@@ -471,6 +471,7 @@ const ReservarAbonoAdmin = () => {
         links={[
           { label: "Dashboard", path: "/admin" },
           { label: "Sedes", path: "/admin/sedes" },
+          { label: "canchas", path: "/admin/profesores" },
           { label: "Profesores", path: "/admin/profesores" },
           { label: "Agenda", path: "/admin/agenda" },
           { label: "Usuarios", path: "/admin/usuarios" },

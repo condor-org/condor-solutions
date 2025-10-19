@@ -22,8 +22,8 @@ const Navbar = () => {
   const { bg, borderColor, color, iconColor, hoverColor, textColor, emailOpacity } = useNavbarTokens();
   const { count: unread } = useUnreadCount(accessToken, { pollMs: 60000 });
 
-  const isAdmin = user?.is_super_admin || user?.cliente_actual?.rol === 'admin_cliente' || user?.tipo_usuario === 'super_admin' || user?.tipo_usuario === 'admin_cliente';
-  const titulo = isAdmin ? 'AdminCanchas' : 'Canchas App';
+  const isAdmin = user?.is_super_admin || user?.cliente_actual?.rol === 'admin_cliente';
+  const titulo = isAdmin ? 'Admin Medico' : 'Medicina App';
 
   const goToNotifications = () => {
     navigate(isAdmin ? '/admin/notificaciones' : '/notificaciones');
@@ -107,7 +107,7 @@ const Navbar = () => {
           <NotificationBellInline count={unread} onClick={goToNotifications} />
 
           {/* Botón Turnos: sólo desktop/tablet */}
-          {user?.tipo_usuario === 'empleado_cliente' && (
+          {user?.cliente_actual?.rol === 'empleado_cliente' && (
             <Button
               size="sm"
               variant="secondary"

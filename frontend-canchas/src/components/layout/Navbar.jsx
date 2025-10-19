@@ -23,7 +23,7 @@ const Navbar = () => {
   const { count: unread } = useUnreadCount(accessToken, { pollMs: 60000 });
 
   const isAdmin = user?.is_super_admin || user?.cliente_actual?.rol === 'admin_cliente';
-  const titulo = isAdmin ? 'AdminPadel' : 'Padel App';
+  const titulo = isAdmin ? 'Admin Canchas Padel' : 'Padel App';
 
   const goToNotifications = () => {
     navigate(isAdmin ? '/admin/notificaciones' : '/notificaciones');

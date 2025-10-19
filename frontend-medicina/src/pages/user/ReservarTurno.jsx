@@ -177,7 +177,7 @@ const ReservarTurno = ({ onClose }) => {
   useEffect(() => {
     if (!accessToken) return;
     const api = axiosAuth(accessToken);
-    api.get("padel/sedes/")
+    api.get("turnos/sedes/")
       .then(res => setSedes(res.data.results || res.data || []))
       .catch(() => setSedes([]));
   }, [accessToken]);
