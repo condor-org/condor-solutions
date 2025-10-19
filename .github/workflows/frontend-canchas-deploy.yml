@@ -1,5 +1,7 @@
 name: Frontend Canchas Deploy
 
+run-name: Frontend Canchas Deploy - ${{ github.event.release.tag_name }}
+
 on:
   release:
     types: [published]

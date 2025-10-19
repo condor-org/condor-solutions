@@ -1,5 +1,7 @@
 name: Backend Deploy
 
+run-name: Backend Deploy - ${{ github.event.inputs.version || github.event.release.tag_name }}
+
 on:
   release:
     types: [published]
@@ -8,7 +10,6 @@ on:
       version:
         description: 'Version to deploy (e.g., v1.0.0-backend)'
         required: true
-        default: 'v1.0.0-backend'
       deploy_prod:
         description: 'Deploy to production (requires approval)'
         required: false
