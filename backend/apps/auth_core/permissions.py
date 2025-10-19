@@ -8,7 +8,7 @@ class EsSuperAdmin(permissions.BasePermission):
     Permite acceso solo a SuperAdmins.
     """
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.tipo_usuario == 'super_admin'
+        return request.user.is_authenticated and request.user.is_super_admin
 
 
 class EsAdminCliente(permissions.BasePermission):
@@ -16,7 +16,16 @@ class EsAdminCliente(permissions.BasePermission):
     Permite acceso a usuarios admin_cliente y super_admin.
     """
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.tipo_usuario in ['admin_cliente', 'super_admin']
+        user = request.user
+        if not user.is_authenticated:
+            return False
+            
+        if user.is_super_admin:
+            return True
+            
+        from .utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(request)
+        return rol_actual in ['admin_cliente', 'super_admin']
 
 
 class EsAdminDelMismoCliente(permissions.BasePermission):
@@ -71,6 +80,12 @@ class EsAdminClienteORechaza(permissions.BasePermission):
     """
     def has_permission(self, request, view):
         user = request.user
-        return user.is_authenticated and (
-            user.tipo_usuario in ['super_admin', 'admin_cliente']
-        )
+        if not user.is_authenticated:
+            return False
+            
+        if user.is_super_admin:
+            return True
+            
+        from .utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(request)
+        return rol_actual in ['super_admin', 'admin_cliente']
