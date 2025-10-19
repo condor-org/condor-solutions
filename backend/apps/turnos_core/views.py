@@ -113,9 +113,14 @@ class ToggleReservadoParaAbonoView(APIView):
                 return Response({"detail": "Turno no encontrado."}, status=404)
 
             # Tenancy: admin_cliente solo dentro de su cliente (sin outer join)
-            if request.user.tipo_usuario == "admin_cliente":
-                if not Lugar.objects.filter(id=turno.lugar_id, cliente_id=request.user.cliente_id).exists():
-                    return Response({"detail": "No autorizado para esta sede."}, status=403)
+            if not request.user.is_super_admin:
+                from apps.auth_core.utils import get_rol_actual_del_jwt
+                rol_actual = get_rol_actual_del_jwt(request)
+                
+                if rol_actual == "admin_cliente":
+                    cliente_actual = getattr(request, 'cliente_actual', None)
+                    if not cliente_actual or not Lugar.objects.filter(id=turno.lugar_id, cliente_id=cliente_actual.id).exists():
+                        return Response({"detail": "No autorizado para esta sede."}, status=403)
 
             if turno.estado != "disponible":
                 return Response({"detail": "El turno no está disponible."}, status=400)
@@ -330,9 +335,14 @@ class ReservarTurnoAdminView(APIView):
             return Response({"detail": "Usuario destino no encontrado"}, status=404)
 
         # tenancy
-        if request.user.tipo_usuario == "admin_cliente":
-            if (getattr(turno.lugar, "cliente_id", None) != request.user.cliente_id) or (usuario.cliente_id != request.user.cliente_id):
-                return Response({"detail": "No autorizado para operar fuera de tu cliente."}, status=403)
+        if not request.user.is_super_admin:
+            from apps.auth_core.utils import get_rol_actual_del_jwt
+            rol_actual = get_rol_actual_del_jwt(request)
+            
+            if rol_actual == "admin_cliente":
+                cliente_actual = getattr(request, 'cliente_actual', None)
+                if not cliente_actual or (getattr(turno.lugar, "cliente_id", None) != cliente_actual.id) or (usuario.cliente_id != cliente_actual.id):
+                    return Response({"detail": "No autorizado para operar fuera de tu cliente."}, status=403)
 
         # estado
         if turno.estado != "disponible":
@@ -399,9 +409,14 @@ class LiberarTurnoAdminView(APIView):
             return Response({"detail": "Turno no encontrado"}, status=404)
 
         # tenancy
-        if request.user.tipo_usuario == "admin_cliente":
-            if getattr(turno.lugar, "cliente_id", None) != request.user.cliente_id:
-                return Response({"detail": "No autorizado para esta sede"}, status=403)
+        if not request.user.is_super_admin:
+            from apps.auth_core.utils import get_rol_actual_del_jwt
+            rol_actual = get_rol_actual_del_jwt(request)
+            
+            if rol_actual == "admin_cliente":
+                cliente_actual = getattr(request, 'cliente_actual', None)
+                if not cliente_actual or getattr(turno.lugar, "cliente_id", None) != cliente_actual.id:
+                    return Response({"detail": "No autorizado para esta sede"}, status=403)
 
         if turno.estado != "reservado":
             # idempotente/benigno: ya libre
@@ -630,9 +645,16 @@ class SoloAdminEditar(BasePermission):
     def has_permission(self, request, view):
         if request.method in SAFE_METHODS:
             return request.user.is_authenticated
-        return request.user.is_authenticated and (
-            request.user.tipo_usuario in {"super_admin", "admin_cliente"}
-        )
+        
+        if not request.user.is_authenticated:
+            return False
+            
+        if request.user.is_super_admin:
+            return True
+            
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(request)
+        return rol_actual in {"super_admin", "admin_cliente"}
 
 
 # ------------------------------------------------------------------------------
@@ -776,13 +798,19 @@ class DisponibilidadViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
 
-        if user.tipo_usuario == "super_admin":
+        if user.is_super_admin:
             return Disponibilidad.objects.all()
 
-        if user.tipo_usuario == "admin_cliente":
-            return Disponibilidad.objects.filter(prestador__cliente=user.cliente)
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(self.request)
+        
+        if rol_actual == "admin_cliente":
+            cliente_actual = getattr(self.request, 'cliente_actual', None)
+            if cliente_actual:
+                return Disponibilidad.objects.filter(prestador__cliente=cliente_actual)
+            return Disponibilidad.objects.none()
 
-        if user.tipo_usuario == "empleado_cliente":
+        if rol_actual == "empleado_cliente":
             return Disponibilidad.objects.filter(prestador__user=user)
 
         return Disponibilidad.objects.none()
@@ -864,8 +892,14 @@ class CrearBonificacionManualView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        if request.user.tipo_usuario not in ["super_admin", "admin_cliente"]:
-            return Response({"detail": "No autorizado"}, status=403)
+        if request.user.is_super_admin:
+            pass  # Super admin siempre tiene acceso
+        else:
+            from apps.auth_core.utils import get_rol_actual_del_jwt
+            rol_actual = get_rol_actual_del_jwt(request)
+            
+            if rol_actual not in ["super_admin", "admin_cliente"]:
+                return Response({"detail": "No autorizado"}, status=403)
 
         serializer = CrearTurnoBonificadoSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
@@ -1118,8 +1152,14 @@ class CancelarPorSedeAdminView(APIView):
         sede = Lugar.objects.filter(id=sede_id).select_related("cliente").first()
         if not sede:
             return Response({"detail": "Sede no encontrada"}, status=404)
-        if request.user.tipo_usuario == "admin_cliente" and sede.cliente_id != request.user.cliente_id:
-            return Response({"detail": "No autorizado para esta sede"}, status=403)
+        if not request.user.is_super_admin:
+            from apps.auth_core.utils import get_rol_actual_del_jwt
+            rol_actual = get_rol_actual_del_jwt(request)
+            
+            if rol_actual == "admin_cliente":
+                cliente_actual = getattr(request, 'cliente_actual', None)
+                if not cliente_actual or sede.cliente_id != cliente_actual.id:
+                    return Response({"detail": "No autorizado para esta sede"}, status=403)
 
         resumen = cancelar_turnos_admin(
             accion_por=request.user,
@@ -1152,16 +1192,28 @@ class CancelarPorPrestadorAdminView(APIView):
             sede = Lugar.objects.filter(id=vd["sede_id"]).first()
             if not sede: return Response({"detail": "Sede no encontrada"}, status=404)
             cliente_id = sede.cliente_id
-            if request.user.tipo_usuario == "admin_cliente" and cliente_id != request.user.cliente_id:
-                return Response({"detail": "No autorizado para esta sede"}, status=403)
+            if not request.user.is_super_admin:
+                from apps.auth_core.utils import get_rol_actual_del_jwt
+                rol_actual = get_rol_actual_del_jwt(request)
+                
+                if rol_actual == "admin_cliente":
+                    cliente_actual = getattr(request, 'cliente_actual', None)
+                    if not cliente_actual or cliente_id != cliente_actual.id:
+                        return Response({"detail": "No autorizado para esta sede"}, status=403)
         else:
             # Validar tenancy por prestador si no hay sede_id
             from apps.turnos_core.models import Prestador
             prest = Prestador.objects.select_related("cliente").filter(id=prestador_id).first()
             if not prest: return Response({"detail": "Prestador no encontrado"}, status=404)
             cliente_id = prest.cliente_id
-            if request.user.tipo_usuario == "admin_cliente" and prest.cliente_id != request.user.cliente_id:
-                return Response({"detail": "No autorizado para este prestador"}, status=403)
+            if not request.user.is_super_admin:
+                from apps.auth_core.utils import get_rol_actual_del_jwt
+                rol_actual = get_rol_actual_del_jwt(request)
+                
+                if rol_actual == "admin_cliente":
+                    cliente_actual = getattr(request, 'cliente_actual', None)
+                    if not cliente_actual or prest.cliente_id != cliente_actual.id:
+                        return Response({"detail": "No autorizado para este prestador"}, status=403)
         logger.info("[CancelacionPorPrestador] user=%s prestador=%s sede=%s rango=%s..%s horas=%s..%s dry_run=%s", request.user.id, prestador_id, vd.get("sede_id"), vd["fecha_inicio"], vd["fecha_fin"], vd.get("hora_inicio"), vd.get("hora_fin"), vd.get("dry_run", True))
         resumen = cancelar_turnos_admin(
             accion_por=request.user,
@@ -1271,8 +1323,14 @@ def eliminar_bonificacion(request, bonificacion_id):
     Solo super_admin/admin_cliente pueden eliminar bonificaciones.
     """
     user = request.user
-    if user.tipo_usuario not in ["super_admin", "admin_cliente"]:
-        return Response({"error": "No autorizado"}, status=403)
+    if user.is_super_admin:
+        pass  # Super admin siempre tiene acceso
+    else:
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(request)
+        
+        if rol_actual not in ["super_admin", "admin_cliente"]:
+            return Response({"error": "No autorizado"}, status=403)
     
     try:
         from apps.turnos_core.services.bonificaciones import eliminar_bonificacion as eliminar_bonificacion_service
@@ -1300,16 +1358,32 @@ def bonificaciones_usuario(request, usuario_id):
     Solo super_admin/admin_cliente pueden ver bonificaciones de otros usuarios.
     """
     user = request.user
-    if user.tipo_usuario not in ["super_admin", "admin_cliente"]:
-        return Response({"error": "No autorizado"}, status=403)
+    
+    # Super admin siempre tiene acceso
+    if user.is_super_admin:
+        pass  # Acceso total
+    else:
+        # Para otros usuarios, verificar el rol actual del JWT
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(request)
+        
+        if rol_actual not in ["super_admin", "admin_cliente"]:
+            return Response({"error": "No autorizado"}, status=403)
     
     try:
         Usuario = get_user_model()
         usuario_target = Usuario.objects.get(id=usuario_id)
         
         # Verificar que el admin puede ver este usuario (mismo cliente)
-        if user.tipo_usuario == "admin_cliente" and usuario_target.cliente_id != user.cliente_id:
-            return Response({"error": "No autorizado para ver este usuario"}, status=403)
+        if not user.is_super_admin:
+            from apps.auth_core.utils import get_rol_actual_del_jwt
+            rol_actual = get_rol_actual_del_jwt(request)
+            
+            if rol_actual == "admin_cliente":
+                # Admin_cliente solo puede ver usuarios de su cliente
+                cliente_actual = getattr(request, 'cliente_actual', None)
+                if not cliente_actual or usuario_target.cliente_id != cliente_actual.id:
+                    return Response({"error": "No autorizado para ver este usuario"}, status=403)
         
         # Obtener bonificaciones del usuario
         qs = bonificaciones_vigentes(usuario_target).order_by("fecha_creacion")
@@ -1356,16 +1430,32 @@ def turnos_usuario(request, usuario_id):
     Solo super_admin/admin_cliente pueden ver turnos de otros usuarios.
     """
     user = request.user
-    if user.tipo_usuario not in ["super_admin", "admin_cliente"]:
-        return Response({"error": "No autorizado"}, status=403)
+    
+    # Super admin siempre tiene acceso
+    if user.is_super_admin:
+        pass  # Acceso total
+    else:
+        # Para otros usuarios, verificar el rol actual del JWT
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(request)
+        
+        if rol_actual not in ["super_admin", "admin_cliente"]:
+            return Response({"error": "No autorizado"}, status=403)
     
     try:
         Usuario = get_user_model()
         usuario_target = Usuario.objects.get(id=usuario_id)
         
         # Verificar que el admin puede ver este usuario (mismo cliente)
-        if user.tipo_usuario == "admin_cliente" and usuario_target.cliente_id != user.cliente_id:
-            return Response({"error": "No autorizado para ver este usuario"}, status=403)
+        if not user.is_super_admin:
+            from apps.auth_core.utils import get_rol_actual_del_jwt
+            rol_actual = get_rol_actual_del_jwt(request)
+            
+            if rol_actual == "admin_cliente":
+                # Admin_cliente solo puede ver usuarios de su cliente
+                cliente_actual = getattr(request, 'cliente_actual', None)
+                if not cliente_actual or usuario_target.cliente_id != cliente_actual.id:
+                    return Response({"error": "No autorizado para ver este usuario"}, status=403)
         
         # Obtener turnos del usuario
         qs = Turno.objects.filter(usuario=usuario_target).select_related("usuario", "lugar")

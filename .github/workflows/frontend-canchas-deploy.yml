@@ -6,9 +6,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to deploy (e.g., v1.0.0-frontend-canchas)'
+        description: 'Version to deploy'
         required: true
-        default: 'v1.0.0-frontend-canchas'
       deploy_prod:
         description: 'Deploy to production (requires approval)'
         required: false

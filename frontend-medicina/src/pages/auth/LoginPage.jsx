@@ -99,14 +99,9 @@ const LoginPage = () => {
         zIndex={1}
       >
         <VStack spacing={6} align="stretch" textAlign="center">
-          <Box>
-            <Heading size="lg" color="gray.800">
-              ¡Bienvenido a Canchas!
-            </Heading>
-            <Text color="green.600" fontSize="sm" fontWeight="medium" mt={1}>
-              🏟️ Distrito Canchas - Puerto 8081
-            </Text>
-          </Box>
+          <Heading size="lg" color="gray.800">
+            ¡Bienvenido!
+          </Heading>
           <Text color="gray.600" fontSize="sm">
             Accedé a tu cuenta para continuar.
           </Text>

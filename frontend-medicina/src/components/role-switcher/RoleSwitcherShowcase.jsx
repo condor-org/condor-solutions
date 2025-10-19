@@ -1,4 +1,4 @@
-// src/components/demo/RoleSwitcherDemo.jsx
+// src/components/role-switcher/RoleSwitcherShowcase.jsx
 import React from 'react';
 import {
   Box,
@@ -18,7 +18,7 @@ import RoleIndicator from '../layout/RoleIndicator';
  * Componente de demostración del sistema de roles
  * Muestra cómo funciona el selector de roles y el contenido basado en roles
  */
-const RoleSwitcherDemo = () => {
+const RoleSwitcherShowcase = () => {
   const { selectedRole, availableRoles, hasMultipleRoles, changeRole, getCurrentRoleInfo } = useRoleSwitcher();
   const roleInfo = getCurrentRoleInfo();
   
@@ -111,4 +111,4 @@ const RoleSwitcherDemo = () => {
   );
 };
 
-export default RoleSwitcherDemo;
+export default RoleSwitcherShowcase;

@@ -42,7 +42,6 @@ const RegistroPage = () => {
         nombre: (nombre || "").trim(),
         apellido: (apellido || "").trim(),
         telefono: (telefono || "").trim(),
-        tipo_usuario: "usuario_final",
       };
 
       await api.post("/auth/registro/", payload); // → /api/auth/registro/

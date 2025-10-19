@@ -206,7 +206,7 @@ const UsuariosPage = () => {
     setNombre(u.nombre || "");
     setApellido(u.apellido || "");
     setTelefono(u.telefono || "");
-    setTipoUsuario(u.tipo_usuario || "usuario_final");
+    setTipoUsuario(u.cliente_actual?.rol || "usuario_final");
     setRoles(u.user_roles || []);
     setEmail(u.email || "");
     setActivo(!!u.is_active);
@@ -283,9 +283,9 @@ const UsuariosPage = () => {
     });
   }, [usuarios, busqueda]);
 
-  const usuariosFinales = usuariosFiltrados.filter(u => u.tipo_usuario === "usuario_final" || u.cliente_actual?.rol === "usuario_final");
-  const empleados = usuariosFiltrados.filter(u => u.tipo_usuario === "empleado_cliente" || u.cliente_actual?.rol === "empleado_cliente");
-  const admins = usuariosFiltrados.filter(u => u.tipo_usuario === "admin_cliente" || u.cliente_actual?.rol === "admin_cliente");
+  const usuariosFinales = usuariosFiltrados.filter(u => u.cliente_actual?.rol === "usuario_final");
+  const empleados = usuariosFiltrados.filter(u => u.cliente_actual?.rol === "empleado_cliente");
+  const admins = usuariosFiltrados.filter(u => u.cliente_actual?.rol === "admin_cliente");
 
   const handleDelete = async (id, email) => {
     if (!window.confirm(`¿Eliminar el usuario "${email}"?`)) return;
@@ -377,6 +377,7 @@ const UsuariosPage = () => {
         links={[
           { label: "Dashboard", path: "/admin" },
           { label: "Sedes", path: "/admin/sedes" },
+          { label: "canchas", path: "/admin/profesores" },
           { label: "Profesores", path: "/admin/profesores" },
           { label: "Agenda", path: "/admin/agenda" },
           { label: "Usuarios", path: "/admin/usuarios" },
@@ -631,7 +632,7 @@ const UsuariosPage = () => {
                         />
                         <InfoCard 
                           label="Tipo de Usuario"
-                          value={detalleUsuario.tipo_usuario}
+                          value={detalleUsuario.cliente_actual?.rol}
                         />
                         <InfoCard 
                           label="Username"
@@ -657,7 +658,7 @@ const UsuariosPage = () => {
                         />
                         
                         {/* Formulario para asignar nueva bonificación */}
-                        {detalleUsuario.tipo_usuario === "usuario_final" && (
+                        {detalleUsuario.cliente_actual?.rol === "usuario_final" && (
                           <Box p={4} bg={card.bg} borderRadius="md" borderWidth="1px">
                             <Text fontWeight="bold" mb={3}>🎁 Asignar Nueva Bonificación</Text>
                             <VStack spacing={3} align="stretch">

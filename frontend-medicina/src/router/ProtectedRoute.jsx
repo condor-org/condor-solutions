@@ -2,7 +2,6 @@
 /**
  * Componente para rutas protegidas con autorización por roles.
  * Verifica que el usuario tenga el rol necesario para acceder a la ruta.
- * Soporta tanto estructura antigua (tipo_usuario) como nueva (cliente_actual.rol).
  */
 import React, { useContext } from "react";
 import { Navigate } from "react-router-dom";
@@ -22,7 +21,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   }
 
   // Obtener el rol actual del usuario (nueva estructura multi-tenant)
-  const currentRole = user.cliente_actual?.rol || user.tipo_usuario;
+  const currentRole = user.cliente_actual?.rol;
   
   if (allowedRoles && !allowedRoles.includes(currentRole)) {
     console.warn(

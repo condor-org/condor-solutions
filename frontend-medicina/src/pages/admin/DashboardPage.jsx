@@ -92,6 +92,7 @@ const DashboardPage = () => {
         links={[
           { label: "Dashboard", path: "/admin" },
           { label: "Sedes", path: "/admin/sedes" },
+          { label: "canchas", path: "/admin/profesores" },
           { label: "Profesores", path: "/admin/profesores" },
           { label: "Agenda", path: "/admin/agenda" },
           { label: "Usuarios", path: "/admin/usuarios" },

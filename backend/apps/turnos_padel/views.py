@@ -321,13 +321,18 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             except Lugar.DoesNotExist:
                 return Response({"detail": "Sede no encontrada."}, status=404)
 
-            if user.tipo_usuario == "admin_cliente":
-                if target_user.cliente_id != user.cliente_id or sede.cliente_id != user.cliente_id:
-                    logger.warning(
-                        "[abonos.create][cliente_mismatch] admin=%s target_user=%s sede=%s",
-                        user.id, target_user.id, sede.id
-                    )
-                    return Response({"detail": "No autorizado para asignar fuera de tu cliente."}, status=403)
+            if not user.is_super_admin:
+                from apps.auth_core.utils import get_rol_actual_del_jwt
+                rol_actual = get_rol_actual_del_jwt(request)
+                
+                if rol_actual == "admin_cliente":
+                    cliente_actual = getattr(request, 'cliente_actual', None)
+                    if not cliente_actual or target_user.cliente_id != cliente_actual.id or sede.cliente_id != cliente_actual.id:
+                        logger.warning(
+                            "[abonos.create][cliente_mismatch] admin=%s target_user=%s sede=%s",
+                            user.id, target_user.id, sede.id
+                        )
+                        return Response({"detail": "No autorizado para asignar fuera de tu cliente."}, status=403)
 
         # Flag administrativo para omitir comprobante (controlado por rol arriba).
         forzar_admin = self._as_bool(data.get("forzar_admin"))
@@ -485,11 +490,18 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Sede no encontrada"}, status=404)
 
         user = request.user
-        if user.tipo_usuario == "admin_cliente" and sede.cliente_id != getattr(user, "cliente_id", None):
-            return Response({"detail": "No autorizado para esta sede"}, status=403)
-        if user.tipo_usuario not in ("super_admin", "admin_cliente"):
-            if getattr(user, "cliente_id", None) != sede.cliente_id:
-                return Response({"detail": "No autorizado"}, status=403)
+        if not user.is_super_admin:
+            from apps.auth_core.utils import get_rol_actual_del_jwt
+            rol_actual = get_rol_actual_del_jwt(request)
+            
+            if rol_actual == "admin_cliente":
+                cliente_actual = getattr(request, 'cliente_actual', None)
+                if not cliente_actual or sede.cliente_id != cliente_actual.id:
+                    return Response({"detail": "No autorizado para esta sede"}, status=403)
+            elif rol_actual not in ("super_admin", "admin_cliente"):
+                cliente_actual = getattr(request, 'cliente_actual', None)
+                if not cliente_actual or cliente_actual.id != sede.cliente_id:
+                    return Response({"detail": "No autorizado"}, status=403)
 
         # 1) Catálogo de tipos de clase activos (ya no se filtra por código).
         tipos_qs = TipoClasePadel.objects.filter(
@@ -627,7 +639,10 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
 
         # ➜ Normaliza/valida usuario objetivo según rol (igual que create()).
         usuario_target = data.get("usuario") or data.get("usuario_id")
-        if user.tipo_usuario == "usuario_final":
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(request)
+        
+        if rol_actual == "usuario_final":
             if usuario_target and int(usuario_target) != user.id:
                 return Response({"detail": "No podés crear abonos para otro usuario."}, status=403)
             data["usuario"] = user.id
@@ -655,13 +670,18 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
             except Lugar.DoesNotExist:
                 return Response({"detail": "Sede no encontrada."}, status=404)
 
-            if user.tipo_usuario == "admin_cliente":
-                if target_user.cliente_id != user.cliente_id or sede.cliente_id != user.cliente_id:
-                    logger.warning(
-                        "[abonos.reservar][cliente_mismatch] admin=%s target_user=%s sede=%s",
-                        user.id, target_user.id, sede.id
-                    )
-                    return Response({"detail": "No autorizado para asignar fuera de tu cliente."}, status=403)
+            if not user.is_super_admin:
+                from apps.auth_core.utils import get_rol_actual_del_jwt
+                rol_actual = get_rol_actual_del_jwt(request)
+                
+                if rol_actual == "admin_cliente":
+                    cliente_actual = getattr(request, 'cliente_actual', None)
+                    if not cliente_actual or target_user.cliente_id != cliente_actual.id or sede.cliente_id != cliente_actual.id:
+                        logger.warning(
+                            "[abonos.reservar][cliente_mismatch] admin=%s target_user=%s sede=%s",
+                            user.id, target_user.id, sede.id
+                        )
+                        return Response({"detail": "No autorizado para asignar fuera de tu cliente."}, status=403)
 
         # Flag administrativo opcional.
         forzar_admin = self._as_bool(data.get("forzar_admin"))
@@ -763,7 +783,10 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         user = request.user
         qs = self.get_queryset()
 
-        if user.tipo_usuario == "usuario_final":
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(request)
+        
+        if rol_actual == "usuario_final":
             qs = qs.filter(usuario=user)
         else:
             uid = request.query_params.get("usuario_id")
@@ -827,7 +850,10 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         abono = self.get_object()
         user = request.user
 
-        if user.tipo_usuario == "usuario_final" and abono.usuario_id != user.id:
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(request)
+        
+        if rol_actual == "usuario_final" and abono.usuario_id != user.id:
             return Response({"detail": "No autorizado."}, status=403)
 
         abono.renovado = True
@@ -852,8 +878,14 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
         - anio?, mes? (si granularity=month; si no vienen, toma de 'fecha')
         """
         user = request.user
-        if user.tipo_usuario not in ("super_admin", "admin_cliente"):
-            return Response({"detail": "No autorizado."}, status=403)
+        if user.is_super_admin:
+            pass  # Super admin siempre tiene acceso
+        else:
+            from apps.auth_core.utils import get_rol_actual_del_jwt
+            rol_actual = get_rol_actual_del_jwt(request)
+            
+            if rol_actual not in ("super_admin", "admin_cliente"):
+                return Response({"detail": "No autorizado."}, status=403)
 
         gran = (request.query_params.get("granularity") or "day").lower()
         fecha_str = request.query_params.get("fecha")
@@ -965,9 +997,14 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
 
         # Tenancy para admin_cliente
         user = request.user
-        if user.tipo_usuario == "admin_cliente":
-            if getattr(abono.sede, "cliente_id", None) != getattr(user, "cliente_id", None):
-                return Response({"detail": "No autorizado para este abono."}, status=403)
+        if not user.is_super_admin:
+            from apps.auth_core.utils import get_rol_actual_del_jwt
+            rol_actual = get_rol_actual_del_jwt(request)
+            
+            if rol_actual == "admin_cliente":
+                cliente_actual = getattr(request, 'cliente_actual', None)
+                if not cliente_actual or getattr(abono.sede, "cliente_id", None) != cliente_actual.id:
+                    return Response({"detail": "No autorizado para este abono."}, status=403)
 
         # Flags
         def _as_bool_local(v):
@@ -1043,9 +1080,14 @@ class AbonoMesViewSet(viewsets.ModelViewSet):
 
         # Tenancy para admin_cliente
         user = request.user
-        if user.tipo_usuario == "admin_cliente":
-            if getattr(abono.sede, "cliente_id", None) != getattr(user, "cliente_id", None):
-                return Response({"detail": "No autorizado para este abono."}, status=403)
+        if not user.is_super_admin:
+            from apps.auth_core.utils import get_rol_actual_del_jwt
+            rol_actual = get_rol_actual_del_jwt(request)
+            
+            if rol_actual == "admin_cliente":
+                cliente_actual = getattr(request, 'cliente_actual', None)
+                if not cliente_actual or getattr(abono.sede, "cliente_id", None) != cliente_actual.id:
+                    return Response({"detail": "No autorizado para este abono."}, status=403)
 
         # 1) Prioridades
         pri_qs = abono.turnos_prioridad.select_for_update()
@@ -1109,8 +1151,14 @@ class TipoAbonoPadelViewSet(viewsets.ModelViewSet):
         sede_id = self.request.query_params.get("sede_id")
         qs = TipoAbonoPadel.objects.select_related("configuracion_sede__sede")
 
-        if hasattr(user, "cliente") and user.tipo_usuario != "super_admin":
-            qs = qs.filter(configuracion_sede__sede__cliente=user.cliente)
+        if not user.is_super_admin:
+            from apps.auth_core.utils import get_rol_actual_del_jwt
+            rol_actual = get_rol_actual_del_jwt(self.request)
+            
+            if rol_actual != "super_admin":
+                cliente_actual = getattr(self.request, 'cliente_actual', None)
+                if cliente_actual:
+                    qs = qs.filter(configuracion_sede__sede__cliente=cliente_actual)
 
         if sede_id:
             qs = qs.filter(configuracion_sede__sede_id=sede_id)
