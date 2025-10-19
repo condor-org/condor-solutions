@@ -25,8 +25,19 @@ class EsAdminDeSuCliente(permissions.BasePermission):
             return True
             
         if rol_actual == 'admin_cliente' and cliente_actual:
+            # Si el objeto tiene cliente directo
             cliente_obj = getattr(obj, 'cliente', None)
-            return cliente_obj and cliente_obj.id == cliente_actual.id
+            if cliente_obj:
+                return cliente_obj.id == cliente_actual.id
+            
+            # Para usuarios, verificar si tienen roles en el cliente actual
+            if hasattr(obj, 'clientes_roles'):
+                from apps.auth_core.models import UserClient
+                return UserClient.objects.filter(
+                    usuario=obj,
+                    cliente=cliente_actual,
+                    activo=True
+                ).exists()
         
         return False
 
@@ -62,8 +73,19 @@ class EsDelMismoCliente(permissions.BasePermission):
             return True
             
         if rol_actual == 'admin_cliente' and cliente_actual:
+            # Si el objeto tiene cliente directo
             cliente_obj = getattr(obj, 'cliente', None)
-            return cliente_obj and cliente_obj.id == cliente_actual.id
+            if cliente_obj:
+                return cliente_obj.id == cliente_actual.id
+            
+            # Para usuarios, verificar si tienen roles en el cliente actual
+            if hasattr(obj, 'clientes_roles'):
+                from apps.auth_core.models import UserClient
+                return UserClient.objects.filter(
+                    usuario=obj,
+                    cliente=cliente_actual,
+                    activo=True
+                ).exists()
             
         return False
 

@@ -68,6 +68,15 @@ class EsAdminDelMismoCliente(permissions.BasePermission):
         if hasattr(obj, 'cliente'):
             return getattr(obj.cliente, 'id', None) == cliente_actual.id
 
+        # Para usuarios, verificar si tienen roles en el cliente actual
+        if hasattr(obj, 'clientes_roles'):
+            from apps.auth_core.models import UserClient
+            return UserClient.objects.filter(
+                usuario=obj,
+                cliente=cliente_actual,
+                activo=True
+            ).exists()
+
         # Por defecto, denegar
         return False
 

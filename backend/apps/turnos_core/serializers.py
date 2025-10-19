@@ -673,8 +673,20 @@ class CrearTurnoBonificadoSerializer(serializers.Serializer):
 
         # Multi-tenant básico
         sede_cliente_id = getattr(sede, "cliente_id", None)
-        if hasattr(admin, "cliente_id") and admin.cliente_id != sede_cliente_id:
-            raise serializers.ValidationError("No autorizado a operar sobre esta sede.")
+        
+        # Verificar permisos del admin
+        if not admin.is_super_admin:
+            from apps.auth_core.utils import get_rol_actual_del_jwt
+            rol_actual = get_rol_actual_del_jwt(request)
+            
+            if rol_actual == "admin_cliente":
+                cliente_actual = getattr(request, 'cliente_actual', None)
+                if not cliente_actual or sede_cliente_id != cliente_actual.id:
+                    raise serializers.ValidationError("No autorizado a operar sobre esta sede.")
+            elif rol_actual not in ["super_admin", "admin_cliente"]:
+                raise serializers.ValidationError("No autorizado a crear bonificaciones.")
+        
+        # Verificar que el usuario pertenece al cliente de la sede
         if hasattr(usuario, "cliente_id") and usuario.cliente_id != sede_cliente_id:
             raise serializers.ValidationError("El usuario no pertenece al cliente de la sede.")
 

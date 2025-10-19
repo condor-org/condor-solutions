@@ -33,12 +33,17 @@ class ComprobanteUploadSerializer(serializers.Serializer):
         rol_actual = get_rol_actual_del_jwt(self.context['request'])
         cliente_actual = getattr(self.context['request'], 'cliente_actual', None)
         
-        if (
-            rol_actual == "usuario_final" and turno.usuario_id != user.id
-        ) or (
-            rol_actual == "admin_cliente" and cliente_actual and turno.usuario.cliente_id != cliente_actual.id
-        ):
+        if rol_actual == "usuario_final" and turno.usuario_id != user.id:
             raise serializers.ValidationError({"turno_id": "No tenés permiso sobre este turno"})
+        elif rol_actual == "admin_cliente" and cliente_actual:
+            # Verificar que el usuario del turno tiene roles en el cliente actual
+            from apps.auth_core.models import UserClient
+            if not UserClient.objects.filter(
+                usuario=turno.usuario,
+                cliente=cliente_actual,
+                activo=True
+            ).exists():
+                raise serializers.ValidationError({"turno_id": "No tenés permiso sobre este turno"})
 
         # 3) Archivo: tamaño/extensión (hard limit 3MB; extensiones controladas)
         max_size = 3 * 1024 * 1024  # 3MB
@@ -595,7 +600,19 @@ class ComprobanteAbonoUploadSerializer(serializers.Serializer):
             abono = AbonoMes.objects.select_related("sede__cliente").get(pk=attrs["abono_mes_id"])
         except AbonoMes.DoesNotExist:
             raise serializers.ValidationError({"abono_mes_id": "Abono no encontrado"})
-        if abono.sede.cliente_id != getattr(user, "cliente_id", None):
+        # Verificar permisos según el rol
+        from apps.auth_core.utils import get_rol_actual_del_jwt
+        rol_actual = get_rol_actual_del_jwt(self.context['request'])
+        cliente_actual = getattr(self.context['request'], 'cliente_actual', None)
+        
+        if rol_actual == "admin_cliente" and cliente_actual:
+            if abono.sede.cliente_id != cliente_actual.id:
+                raise serializers.ValidationError({"abono_mes_id": "No tenés permiso sobre este abono"})
+        elif rol_actual == "usuario_final":
+            # Usuario final solo puede usar sus propios abonos
+            if abono.usuario_id != user.id:
+                raise serializers.ValidationError({"abono_mes_id": "No tenés permiso sobre este abono"})
+        elif not user.is_super_admin:
             raise serializers.ValidationError({"abono_mes_id": "No tenés permiso sobre este abono"})
         return attrs
 

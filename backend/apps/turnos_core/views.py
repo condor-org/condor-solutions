@@ -1382,7 +1382,9 @@ def bonificaciones_usuario(request, usuario_id):
             if rol_actual == "admin_cliente":
                 # Admin_cliente solo puede ver usuarios de su cliente
                 cliente_actual = getattr(request, 'cliente_actual', None)
+                logger.info(f"[DEBUG] cliente_actual={cliente_actual}, usuario_target.cliente_id={usuario_target.cliente_id}")
                 if not cliente_actual or usuario_target.cliente_id != cliente_actual.id:
+                    logger.warning(f"[DENIED] cliente_actual={cliente_actual}, usuario_target.cliente_id={usuario_target.cliente_id}")
                     return Response({"error": "No autorizado para ver este usuario"}, status=403)
         
         # Obtener bonificaciones del usuario
@@ -1454,7 +1456,9 @@ def turnos_usuario(request, usuario_id):
             if rol_actual == "admin_cliente":
                 # Admin_cliente solo puede ver usuarios de su cliente
                 cliente_actual = getattr(request, 'cliente_actual', None)
+                logger.info(f"[DEBUG] cliente_actual={cliente_actual}, usuario_target.cliente_id={usuario_target.cliente_id}")
                 if not cliente_actual or usuario_target.cliente_id != cliente_actual.id:
+                    logger.warning(f"[DENIED] cliente_actual={cliente_actual}, usuario_target.cliente_id={usuario_target.cliente_id}")
                     return Response({"error": "No autorizado para ver este usuario"}, status=403)
         
         # Obtener turnos del usuario

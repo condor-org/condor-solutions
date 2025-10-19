@@ -312,14 +312,19 @@ class AbonoMesSerializer(serializers.ModelSerializer):
 
         # 1) Consistencia de cliente (scope multi-tenant)
         cliente_id = sede.cliente_id
-        if not (
-            getattr(usuario, "cliente_id", None) == cliente_id and
-            prestador.cliente_id == cliente_id
-        ):
+        
+        # Verificar que el usuario tiene roles en el cliente de la sede
+        from apps.auth_core.models import UserClient
+        usuario_tiene_rol = UserClient.objects.filter(
+            usuario=usuario,
+            cliente_id=cliente_id,
+            activo=True
+        ).exists()
+        
+        if not (usuario_tiene_rol and prestador.cliente_id == cliente_id):
             logger.warning(
-                "[abonos.validate][cliente_mismatch] usuario=%s(%s) sede=%s(%s) prestador=%s(%s)",
-                getattr(usuario, "id", None), getattr(usuario, "cliente_id", None),
-                sede.id, sede.cliente_id,
+                "[abonos.validate][cliente_mismatch] usuario=%s sede=%s(%s) prestador=%s(%s)",
+                usuario.id, sede.id, sede.cliente_id,
                 prestador.id, prestador.cliente_id
             )
             raise serializers.ValidationError("Todos los elementos del abono deben pertenecer al mismo cliente.")
