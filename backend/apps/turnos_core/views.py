@@ -1380,11 +1380,17 @@ def bonificaciones_usuario(request, usuario_id):
             rol_actual = get_rol_actual_del_jwt(request)
             
             if rol_actual == "admin_cliente":
-                # Admin_cliente solo puede ver usuarios de su cliente
+                # Admin_cliente: autorizar si el usuario objetivo pertenece al cliente actual vía UserClient activo
                 cliente_actual = getattr(request, 'cliente_actual', None)
-                logger.info(f"[DEBUG] cliente_actual={cliente_actual}, usuario_target.cliente_id={usuario_target.cliente_id}")
-                if not cliente_actual or usuario_target.cliente_id != cliente_actual.id:
-                    logger.warning(f"[DENIED] cliente_actual={cliente_actual}, usuario_target.cliente_id={usuario_target.cliente_id}")
+                if not cliente_actual:
+                    return Response({"error": "No autorizado para ver este usuario"}, status=403)
+                from apps.auth_core.models import UserClient
+                pertenece = UserClient.objects.filter(
+                    usuario=usuario_target,
+                    cliente=cliente_actual,
+                    activo=True,
+                ).exists()
+                if not pertenece:
                     return Response({"error": "No autorizado para ver este usuario"}, status=403)
         
         # Obtener bonificaciones del usuario
@@ -1454,11 +1460,17 @@ def turnos_usuario(request, usuario_id):
             rol_actual = get_rol_actual_del_jwt(request)
             
             if rol_actual == "admin_cliente":
-                # Admin_cliente solo puede ver usuarios de su cliente
+                # Admin_cliente: autorizar si el usuario objetivo pertenece al cliente actual vía UserClient activo
                 cliente_actual = getattr(request, 'cliente_actual', None)
-                logger.info(f"[DEBUG] cliente_actual={cliente_actual}, usuario_target.cliente_id={usuario_target.cliente_id}")
-                if not cliente_actual or usuario_target.cliente_id != cliente_actual.id:
-                    logger.warning(f"[DENIED] cliente_actual={cliente_actual}, usuario_target.cliente_id={usuario_target.cliente_id}")
+                if not cliente_actual:
+                    return Response({"error": "No autorizado para ver este usuario"}, status=403)
+                from apps.auth_core.models import UserClient
+                pertenece = UserClient.objects.filter(
+                    usuario=usuario_target,
+                    cliente=cliente_actual,
+                    activo=True,
+                ).exists()
+                if not pertenece:
                     return Response({"error": "No autorizado para ver este usuario"}, status=403)
         
         # Obtener turnos del usuario

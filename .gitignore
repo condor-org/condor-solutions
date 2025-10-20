@@ -74,3 +74,5 @@ backend/estado_actual_backend.zip
 test*
 
 google-creds.json
+
+.cursor/*

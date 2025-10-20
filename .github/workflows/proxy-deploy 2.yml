@@ -1,0 +1,223 @@
+name: Proxy Deploy
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy (e.g., v1.0.0-proxy)'
+        required: true
+        default: 'v1.0.0-proxy'
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: ${{ github.repository_owner }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'release' || endsWith(github.event.release.tag_name, '-proxy')
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Get Version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION}"
+          
+      - id: lower
+        run: echo "OWNER_LC=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ steps.lower.outputs.OWNER_LC }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & Push Proxy
+        uses: docker/build-push-action@v6
+        with:
+          context: ./reverse-proxy
+          file: ./reverse-proxy/Dockerfile
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: ${{ env.REGISTRY }}/${{ steps.lower.outputs.OWNER_LC }}/condor-proxy:${{ steps.version.outputs.version }}
+          push: true
+
+  deploy-dev:
+    runs-on: ubuntu-latest
+    environment: dev
+    needs: build
+    steps:
+      - name: Deploy Proxy to DEV
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ vars.EC2_HOST }}
+          username: ${{ vars.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          timeout: 30s
+          command_timeout: 10m
+          script: |
+            set -euo pipefail
+            cd /opt/condor
+            
+            echo "[+] Proxy Deploy DEV - Parámetros"
+            VERSION="${{ needs.build.outputs.version }}"
+            echo "    VERSION=$VERSION"
+            echo "    ENVIRONMENT=dev"
+            
+            # Variables del sistema actual
+            TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
+            REPO="condor-ai-solutions/condor"
+            OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+            
+            # Descargar docker-compose-proxy-dev.yml
+            echo "[+] Descargar docker-compose-proxy-dev.yml"
+            curl -fsSL \
+              -H "Authorization: token ${TOKEN}" \
+              -H "Accept: application/vnd.github.raw" \
+              "https://api.github.com/repos/${REPO}/contents/docker-compose/docker-compose-proxy-dev.yml?ref=${{ github.sha }}" \
+              -o docker-compose-proxy-dev.yml
+            
+            # Docker login GHCR
+            echo "[+] Docker login GHCR"
+            echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+            
+            # Generar .env.proxy-dev
+            echo "[+] Generar .env.proxy-dev"
+            cat > .env.proxy-dev << 'EOF'
+            OWNER=${{ github.repository_owner }}
+            IMAGE_PREFIX=condor
+            PROXY_TAG_DEV=${VERSION}
+            ENVIRONMENT=dev
+            PROXY_NETWORK=condor_net_dev
+            EOF
+            
+            # Asegurar networks
+            echo "[+] Asegurar networks externas"
+            docker network inspect condor_net_dev >/dev/null 2>&1 || docker network create condor_net_dev >/dev/null
+            
+            # Asegurar volumen de certificados
+            echo "[+] Asegurar volumen de certificados"
+            docker volume inspect condor_certbot_etc >/dev/null 2>&1 || docker volume create --name condor_certbot_etc >/dev/null
+            
+            # Pull y deploy proxy
+            echo "[+] Pull imágenes proxy DEV"
+            docker compose -p condor_proxy_dev --env-file .env.proxy-dev -f docker-compose-proxy-dev.yml pull
+            
+            echo "[+] Levantando proxy DEV"
+            docker compose -p condor_proxy_dev --env-file .env.proxy-dev -f docker-compose-proxy-dev.yml up -d --force-recreate
+            
+            # Esperar health checks
+            echo "[+] Esperando proxy healthy"
+            for i in $(seq 1 40); do
+              P=$(docker inspect -f '{{.State.Health.Status}}' proxy_condor_dev 2>/dev/null || echo "starting")
+              echo "  proxy_dev=$P"
+              if [ "$P" = "healthy" ]; then break; fi
+              sleep 3
+            done
+            
+            # Limpieza
+            echo "[+] Limpieza de imágenes no usadas"
+            docker image prune -f >/dev/null || true
+            
+            echo "[✓] Proxy Deploy DEV OK"
+
+  deploy-prod:
+    runs-on: ubuntu-latest
+    environment: prod
+    needs: deploy-dev
+    steps:
+      - name: Deploy Proxy to PROD
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ vars.EC2_HOST }}
+          username: ${{ vars.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          timeout: 30s
+          command_timeout: 10m
+          script: |
+            set -euo pipefail
+            cd /opt/condor
+            
+            echo "[+] Proxy Deploy PROD - Parámetros"
+            VERSION="${{ needs.build.outputs.version }}"
+            echo "    VERSION=$VERSION"
+            echo "    ENVIRONMENT=prod"
+            
+            # Variables del sistema actual
+            TOKEN="${{ secrets.GH_AUTOMATION_TOKEN }}"
+            REPO="condor-ai-solutions/condor"
+            OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+            
+            # Descargar docker-compose-proxy-prod.yml
+            echo "[+] Descargar docker-compose-proxy-prod.yml"
+            curl -fsSL \
+              -H "Authorization: token ${TOKEN}" \
+              -H "Accept: application/vnd.github.raw" \
+              "https://api.github.com/repos/${REPO}/contents/docker-compose/docker-compose-proxy-prod.yml?ref=${{ github.sha }}" \
+              -o docker-compose-proxy-prod.yml
+            
+            # Docker login GHCR
+            echo "[+] Docker login GHCR"
+            echo "${{ secrets.GH_AUTOMATION_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+            
+            # Generar .env.proxy-prod
+            echo "[+] Generar .env.proxy-prod"
+            cat > .env.proxy-prod << 'EOF'
+            OWNER=${{ github.repository_owner }}
+            IMAGE_PREFIX=condor
+            PROXY_TAG=${VERSION}
+            ENVIRONMENT=prod
+            PROXY_NETWORK=condor_net
+            EOF
+            
+            # Asegurar networks
+            echo "[+] Asegurar networks externas"
+            docker network inspect condor_net >/dev/null 2>&1 || docker network create condor_net >/dev/null
+            
+            # Asegurar volumen de certificados
+            echo "[+] Asegurar volumen de certificados"
+            docker volume inspect condor_certbot_etc >/dev/null 2>&1 || docker volume create --name condor_certbot_etc >/dev/null
+            
+            # Pull y deploy proxy
+            echo "[+] Pull imágenes proxy PROD"
+            docker compose -p condor_proxy_prod --env-file .env.proxy-prod -f docker-compose-proxy-prod.yml pull
+            
+            echo "[+] Levantando proxy PROD"
+            docker compose -p condor_proxy_prod --env-file .env.proxy-prod -f docker-compose-proxy-prod.yml up -d --force-recreate
+            
+            # Esperar health checks
+            echo "[+] Esperando proxy healthy"
+            for i in $(seq 1 40); do
+              P=$(docker inspect -f '{{.State.Health.Status}}' proxy_condor 2>/dev/null || echo "starting")
+              echo "  proxy=$P"
+              if [ "$P" = "healthy" ]; then break; fi
+              sleep 3
+            done
+            
+            # Limpieza
+            echo "[+] Limpieza de imágenes no usadas"
+            docker image prune -f >/dev/null || true
+            
+            echo "[✓] Proxy Deploy PROD OK"

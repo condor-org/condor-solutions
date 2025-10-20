@@ -25,19 +25,21 @@ class EsAdminDeSuCliente(permissions.BasePermission):
             return True
             
         if rol_actual == 'admin_cliente' and cliente_actual:
-            # Si el objeto tiene cliente directo
-            cliente_obj = getattr(obj, 'cliente', None)
-            if cliente_obj:
-                return cliente_obj.id == cliente_actual.id
-            
-            # Para usuarios, verificar si tienen roles en el cliente actual
-            if hasattr(obj, 'clientes_roles'):
-                from apps.auth_core.models import UserClient
-                return UserClient.objects.filter(
-                    usuario=obj,
-                    cliente=cliente_actual,
-                    activo=True
-                ).exists()
+            # Para Usuario: omitir fast-path por cliente legacy y validar SIEMPRE vía UserClient
+            es_usuario = getattr(obj.__class__, '__name__', '') == 'Usuario' or hasattr(obj, 'clientes_roles')
+            if not es_usuario:
+                # Para objetos que no son Usuario, permitir fast-path por cliente directo si coincide
+                cliente_obj = getattr(obj, 'cliente', None)
+                if cliente_obj and cliente_obj.id == cliente_actual.id:
+                    return True
+
+            # Validar pertenencia al cliente actual vía UserClient
+            from apps.auth_core.models import UserClient
+            return UserClient.objects.filter(
+                usuario=getattr(obj, 'usuario', obj),
+                cliente=cliente_actual,
+                activo=True
+            ).exists()
         
         return False
 

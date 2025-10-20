@@ -59,8 +59,10 @@ class UsuarioSerializer(LoggedModelSerializer):
         return v
 
     def validate(self, attrs):
-        req = self._request_user()
-        if not req:
+        # Obtener request real desde el contexto del serializer
+        ctx_request = self.context.get("request")
+        if not ctx_request:
+            # Sin request en contexto, no aplicar reglas de rol/cliente aquí
             return attrs
 
         # normalizar email → username
@@ -70,24 +72,23 @@ class UsuarioSerializer(LoggedModelSerializer):
 
         # tipo de usuario permitido
         new_tipo = attrs.get("tipo_usuario", getattr(self.instance, "tipo_usuario", "usuario_final"))
-        if new_tipo == "super_admin" and getattr(req, "tipo_usuario", "") != "super_admin":
+        if new_tipo == "super_admin" and getattr(ctx_request.user, "tipo_usuario", "") != "super_admin":
             raise serializers.ValidationError("No podés asignar super_admin.")
 
         # Validar que no se pueda asignar is_super_admin
         if attrs.get("is_super_admin", False):
             raise serializers.ValidationError({"is_super_admin": "No se puede asignar is_super_admin a través de este endpoint"})
 
-        # control de cliente:
+        # control de cliente según rol y tenant
         from apps.auth_core.utils import get_rol_actual_del_jwt
-        rol_actual = get_rol_actual_del_jwt(req)
-        cliente_actual = getattr(req, 'cliente_actual', None)
-        
+        rol_actual = get_rol_actual_del_jwt(ctx_request)
+        cliente_actual = getattr(ctx_request, 'cliente_actual', None)
+
         if rol_actual == "admin_cliente" and cliente_actual:
-            # admin_cliente solo puede operar sobre su cliente
+            # admin_cliente solo puede operar dentro de su cliente
             attrs["cliente"] = cliente_actual
-            # y no puede mover usuarios a otro cliente
         else:
-            # super_admin puede setear cliente; el modelo ya impide nulos salvo super_admin
+            # super_admin u otros: el modelo validará consistencia
             pass
 
         return attrs
