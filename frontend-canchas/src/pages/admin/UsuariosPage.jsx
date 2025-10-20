@@ -251,9 +251,9 @@ const UsuariosPage = () => {
         await api.post("auth/usuarios/", data);
         toast.success("Usuario creado");
       }
-      onClose();
+      await reloadUsuarios();
       resetForm();
-      reloadUsuarios();
+      onClose();
     } catch (err) {
       console.error("Detalle del error:", err.response?.data || err.message);
       const errorResponse = err.response?.data;
