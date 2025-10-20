@@ -84,12 +84,11 @@ class UsuarioSerializer(LoggedModelSerializer):
         rol_actual = get_rol_actual_del_jwt(ctx_request)
         cliente_actual = getattr(ctx_request, 'cliente_actual', None)
 
-        if rol_actual == "admin_cliente" and cliente_actual:
-            # admin_cliente solo puede operar dentro de su cliente
+        # Crear usuario vía API SIEMPRE requiere tenant resuelto: asignar cliente_actual
+        if cliente_actual is not None:
             attrs["cliente"] = cliente_actual
         else:
-            # super_admin u otros: el modelo validará consistencia
-            pass
+            raise serializers.ValidationError({"cliente": "cliente_actual no resuelto para este host"})
 
         return attrs
 
@@ -140,7 +139,11 @@ class UsuarioSerializer(LoggedModelSerializer):
             instance = User(**validated_data)
             if hasattr(instance, "set_unusable_password"):
                 instance.set_unusable_password()
-            instance.save()
+            try:
+                instance.save()
+            except ValueError as e:
+                # Transformar a error de validación (evita 500)
+                raise serializers.ValidationError({"cliente": str(e)})
             logger.info(f"[UsuarioSerializer] Nuevo usuario creado: {email}")
             
             # Asignar roles si se proporcionaron
