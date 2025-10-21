@@ -273,18 +273,12 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
 
       console.log("[AUTH] ✅ Código verificado exitosamente. Usuario autenticado.");
 
-      // Usar el user del response o obtener perfil completo
-      if (userPayload) {
-        console.log("[AUTH] 👤 Usando user del response:", userPayload);
-        setUser(userPayload);
-        localStorage.setItem("user", JSON.stringify(userPayload));
-      } else {
-        console.log("[AUTH] 👤 Obteniendo perfil completo...");
-        const perfilRes = await axios.get(`${API}/auth/yo/`);
-        console.log("[AUTH] 👤 Perfil obtenido:", perfilRes.data);
-        setUser(perfilRes.data);
-        localStorage.setItem("user", JSON.stringify(perfilRes.data));
-      }
+      // SIEMPRE obtener perfil completo para tener la estructura con cliente_actual
+      console.log("[AUTH] 👤 Obteniendo perfil completo...");
+      const perfilRes = await axios.get(`${API}/auth/yo/`);
+      console.log("[AUTH] 👤 Perfil obtenido:", perfilRes.data);
+      setUser(perfilRes.data);
+      localStorage.setItem("user", JSON.stringify(perfilRes.data));
 
       console.log("[AUTH] ⏰ Programando refresh automático...");
       scheduleProactiveRefresh();
