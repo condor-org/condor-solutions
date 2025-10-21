@@ -693,7 +693,13 @@ class OnboardView(APIView):
                 user.save(update_fields=["password"])
 
             logger.info(f"[ONBOARD] ok user_id={user.id} cliente_id={cliente_id} role={new_user_role}")
+            
+            # Agregar rol al cliente para el sistema multi-tenant
             cliente_actual = getattr(request, 'cliente_actual', None)
+            if cliente_actual:
+                user.agregar_rol_a_cliente(cliente_actual, new_user_role)
+                logger.info(f"[ONBOARD] UserClient creado para {email} en cliente {cliente_actual.nombre} con rol {new_user_role}")
+            
             return Response(_issue_tokens_for_user(user, "/", cliente_actual), status=201)
 
         except Exception:
