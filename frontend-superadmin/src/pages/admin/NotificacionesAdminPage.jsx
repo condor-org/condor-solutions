@@ -76,8 +76,9 @@ const NotificacionesAdminPage = () => {
   // Seguridad por rol (si entran por URL)
   useEffect(() => {
     if (!user) return;
-    const role = user?.tipo_usuario;
-    if (role !== "admin_cliente" && role !== "super_admin") {
+    const role = user?.cliente_actual?.rol;
+    const isSuperAdmin = user?.is_super_admin;
+    if (role !== "admin_cliente" && !isSuperAdmin) {
       navigate("/notificaciones");
     }
   }, [user, navigate]);

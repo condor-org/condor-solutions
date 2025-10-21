@@ -107,22 +107,11 @@ export async function startGoogleLogin({ host, returnTo = "/", invite } = {}) {
   const codeChallenge = await sha256Base64Url(codeVerifier);
 
   // Pedimos STATE + NONCE al backend (same-origin si PUBLIC_API_BASE_URL=/api)
-  const requestBody = { 
-    host: resolvedHost, 
-    return_to: returnTo, 
-    provider: PROVIDER, 
-    invite,
-    redirect_uri: `${window.location.origin}/oauth/google/callback`
-  };
-  
-  console.log(`[OAuth][${traceId}] sending request body:`, requestBody);
-  console.log(`[OAuth][${traceId}] redirect_uri value:`, requestBody.redirect_uri);
-  
   let stateResp;
   try {
     stateResp = await axiosAuth(null, null).post(
       `/auth/oauth/state/`,
-      requestBody,
+      { host: resolvedHost, return_to: returnTo, provider: PROVIDER, invite },
       { timeout: 10000 }
     );
   } catch (err) {

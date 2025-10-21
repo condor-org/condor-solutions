@@ -220,8 +220,8 @@ const AgendaAdmin = () => {
   useEffect(() => {
     if (!api) return;
     setLoadingSedes(true);
-    api.get("padel/sedes/")
-      .then(res => setSedes(res?.data?.results ?? res?.data ?? []))
+    fetchAllPaginatedResults("turnos/sedes/")
+      .then(res => setSedes(res))
       .catch(err => { console.error("[AgendaAdmin] sedes:", err); toast({ title: "No se pudieron cargar las sedes", status: "error" }); })
       .finally(() => setLoadingSedes(false));
   }, [api, toast]);
@@ -229,23 +229,22 @@ const AgendaAdmin = () => {
   useEffect(() => {
     if (!api || !sedeId) { setPrestadores([]); setTiposClase([]); return; }
     setLoadingPrestadores(true);
-    api.get(`turnos/prestadores/?lugar_id=${sedeId}`)
-      .then(res => setPrestadores(res?.data?.results ?? res?.data ?? []))
+    fetchAllPaginatedResults(`turnos/prestadores/?lugar_id=${sedeId}`)
+      .then(res => setPrestadores(res))
       .catch(err => { console.error("[AgendaAdmin] prestadores:", err); toast({ title: "No se pudieron cargar los profesores", status: "error" }); })
       .finally(() => setLoadingPrestadores(false));
 
     // tipos clase por sede (para mapear a tipo_clase_id al reservar)
-    api.get(`padel/tipos-clase/?sede_id=${sedeId}`)
-      .then(res => setTiposClase(res?.data?.results ?? res?.data ?? []))
+    fetchAllPaginatedResults(`padel/tipos-clase/?sede_id=${sedeId}`)
+      .then(res => setTiposClase(res))
       .catch(err => { console.error("[AgendaAdmin] tipos-clase:", err); setTiposClase([]); });
   }, [api, sedeId, toast]);
 
   // ------- usuarios finales (para asignar reservas sin pago) -------
   useEffect(() => {
     if (!api) return;
-    api.get("auth/usuarios/?ordering=email")
-      .then(res => {
-        const data = res?.data?.results ?? res?.data ?? [];
+    fetchAllPaginatedResults("auth/usuarios/?ordering=email")
+      .then(data => {
         setUsuarios((Array.isArray(data) ? data : []).filter(u => u?.tipo_usuario === "usuario_final"));
       })
       .catch(e => { console.error("[AgendaAdmin] usuarios error:", e); setUsuarios([]); });
@@ -297,6 +296,58 @@ const fetchSemana = async (fechaBase) => {
   }
 };
 
+// Función helper para obtener todos los resultados paginados
+const fetchAllPaginatedResults = async (endpoint, params = {}) => {
+  const allResults = [];
+  let nextUrl = null;
+  let page = 1;
+  
+  try {
+    // Primera llamada
+    const firstResponse = await api.get(endpoint, { params });
+    const firstData = firstResponse?.data;
+    
+    if (Array.isArray(firstData)) {
+      // Si es un array directo, no hay paginación
+      return firstData;
+    }
+    
+    // Si tiene estructura de paginación
+    if (firstData?.results) {
+      allResults.push(...firstData.results);
+      nextUrl = firstData.next;
+    } else {
+      // Fallback: usar los datos directamente
+      return Array.isArray(firstData) ? firstData : [];
+    }
+    
+    // Continuar con las páginas siguientes
+    while (nextUrl) {
+      page++;
+      const nextResponse = await api.get(nextUrl);
+      const nextData = nextResponse?.data;
+      
+      if (nextData?.results) {
+        allResults.push(...nextData.results);
+        nextUrl = nextData.next;
+      } else {
+        break;
+      }
+      
+      // Límite de seguridad para evitar bucles infinitos
+      if (page > 100) {
+        console.warn("[fetchAllPaginatedResults] Límite de páginas alcanzado (100)");
+        break;
+      }
+    }
+    
+    return allResults;
+  } catch (error) {
+    console.error("[fetchAllPaginatedResults] Error:", error);
+    return [];
+  }
+};
+
 const fetchAbonosMes = async (fechaBase) => {
   if (!api) { setAbonosMes([]); return; }
   setLoadingAbonos(true);
@@ -309,10 +360,8 @@ const fetchAbonosMes = async (fechaBase) => {
       if (sedeId) params.sede_id = Number(sedeId);
       if (prestadorId) params.prestador_id = Number(prestadorId);
 
-      const rSrv = await api.get("padel/abonos/", { params });
-      const srvItems = Array.isArray(rSrv?.data)
-        ? rSrv.data
-        : (rSrv?.data?.results ?? []);
+      // Usar la nueva función para obtener todos los resultados paginados
+      const srvItems = await fetchAllPaginatedResults("padel/abonos/", params);
 
       // Si el backend soporta estos params, ya estamos:
       if (srvItems.length || sedeId || prestadorId) {
@@ -325,8 +374,7 @@ const fetchAbonosMes = async (fechaBase) => {
     }
 
     // --- Fallback: traer todo y filtrar en FE ---
-    const r = await api.get("padel/abonos/");
-    const all = Array.isArray(r?.data) ? r.data : (r?.data?.results ?? []);
+    const all = await fetchAllPaginatedResults("padel/abonos/");
 
     // Resolver nombre de sede a partir del id seleccionado
     const sedeNombreSel = sedeId

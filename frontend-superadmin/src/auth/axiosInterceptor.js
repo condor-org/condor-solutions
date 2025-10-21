@@ -22,7 +22,7 @@ export const applyAuthInterceptor = (axiosInstance, logoutCallback, options = {}
     const base = config.baseURL?.replace(/\/+$/, "") || "";
     const url = `${base}${config.url || ""}`;
     // si no hay Authorization en el request pero existe en defaults, axios lo pone igual.
-    console.log("[AXIOS REQUEST]", config.method?.toUpperCase(), url, "Auth:", !!config.headers?.Authorization, "BaseURL:", config.baseURL, "OriginalURL:", config.url);
+    console.log("[AXIOS REQUEST]", config.method?.toUpperCase(), url, "Auth:", !!config.headers?.Authorization);
     return config;
   });
 

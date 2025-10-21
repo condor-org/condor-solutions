@@ -2,7 +2,6 @@
 /**
  * Componente para rutas públicas con redirección automática.
  * Redirige usuarios autenticados a su dashboard según su rol actual.
- * Soporta tanto estructura antigua (tipo_usuario) como nueva (cliente_actual.rol).
  */
 import React, { useContext } from "react";
 import { Navigate } from "react-router-dom";
@@ -15,11 +14,11 @@ const PublicRoute = ({ children }) => {
 
   if (loadingUser) return null;
 
-  if (user?.tipo_usuario || user?.cliente_actual?.rol) {
+  if (user?.cliente_actual?.rol) {
     let destino = "/login"; // fallback defensivo
 
-    // Usar la nueva estructura multi-tenant primero, luego fallback a la antigua
-    const currentRole = user.cliente_actual?.rol || user.tipo_usuario;
+    // Usar la nueva estructura multi-tenant
+    const currentRole = user.cliente_actual?.rol;
 
     switch (currentRole) {
       case "super_admin":

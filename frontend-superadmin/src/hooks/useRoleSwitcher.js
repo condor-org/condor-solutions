@@ -21,8 +21,6 @@ export const useRoleSwitcher = () => {
     console.log('🔍 [useRoleSwitcher] user:', user);
     console.log('🔍 [useRoleSwitcher] cliente_actual:', user?.cliente_actual);
     console.log('🔍 [useRoleSwitcher] roles:', user?.cliente_actual?.roles);
-    console.log('🔍 [useRoleSwitcher] tipo_usuario (antiguo):', user?.tipo_usuario);
-    console.log('🔍 [useRoleSwitcher] cliente_id (antiguo):', user?.cliente_id);
     
     if (user?.cliente_actual?.roles) {
       const roles = user.cliente_actual.roles;

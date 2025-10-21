@@ -199,3 +199,52 @@ class UserClient(models.Model):
 
     def __str__(self):
         return f"{self.usuario.email} -> {self.cliente.nombre} ({self.rol})"
+
+
+class CodigoVerificacion(models.Model):
+    """
+    Códigos de verificación por email para registro y reset de contraseña.
+    """
+    INTENT_CHOICES = [
+        ('registro', 'Registro de Usuario'),
+        ('reset_password', 'Reset de Contraseña'),
+        ('cambio_email', 'Cambio de Email'),
+    ]
+    
+    email = models.EmailField()
+    codigo = models.CharField(max_length=6)  # 6 dígitos
+    intent = models.CharField(max_length=20, choices=INTENT_CHOICES)
+    cliente = models.ForeignKey(
+        'clientes_core.Cliente', 
+        on_delete=models.CASCADE,
+        help_text="Cliente al que pertenece la verificación"
+    )
+    
+    # Datos temporales del usuario (solo para registro)
+    nombre = models.CharField(max_length=150, blank=True, null=True)
+    apellido = models.CharField(max_length=150, blank=True, null=True)
+    telefono = models.CharField(max_length=20, blank=True, null=True)
+    
+    creado = models.DateTimeField(auto_now_add=True)
+    usado = models.BooleanField(default=False)
+    expira = models.DateTimeField()
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['email', 'intent', 'usado']),
+            models.Index(fields=['expira']),
+        ]
+        unique_together = [['email', 'intent', 'cliente']]
+    
+    def __str__(self):
+        return f"{self.email} - {self.intent} - {self.codigo}"
+    
+    def is_valid(self):
+        """Verifica si el código es válido (no usado y no expirado)"""
+        from django.utils import timezone
+        return not self.usado and self.expira > timezone.now()
+    
+    def mark_as_used(self):
+        """Marca el código como usado"""
+        self.usado = True
+        self.save(update_fields=['usado'])

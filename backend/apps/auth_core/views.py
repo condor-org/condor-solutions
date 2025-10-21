@@ -840,3 +840,216 @@ class CambiarRolView(APIView):
                 {"error": "Error interno al cambiar rol"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+# ==========================
+# Email/Password Authentication
+# ==========================
+
+class SendVerificationCodeView(APIView):
+    permission_classes = []  # público
+    
+    def post(self, request):
+        """
+        Envía código de verificación por email.
+        """
+        from .services import send_verification_code_email, generate_verification_code, cleanup_expired_codes
+        from .models import CodigoVerificacion
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        data = request.data or {}
+        email = data.get('email', '').strip().lower()
+        intent = data.get('intent', 'registro')
+        
+        if not email:
+            return Response({"detail": "Email requerido"}, status=400)
+        
+        if intent not in ['registro', 'reset_password']:
+            return Response({"detail": "Intent inválido"}, status=400)
+        
+        # Obtener cliente actual
+        cliente_actual = getattr(request, 'cliente_actual', None)
+        if not cliente_actual:
+            return Response({"detail": "Cliente no detectado"}, status=400)
+        
+        # Validaciones específicas por intent
+        if intent == 'registro':
+            # Verificar que el email NO exista
+            if User.objects.filter(email=email).exists():
+                return Response({"detail": "Este email ya está registrado"}, status=400)
+        elif intent == 'reset_password':
+            # Verificar que el email SÍ exista
+            if not User.objects.filter(email=email).exists():
+                return Response({"detail": "Este email no está registrado"}, status=400)
+        
+        try:
+            # Limpiar códigos expirados
+            cleanup_expired_codes()
+            
+            # Generar código
+            codigo = generate_verification_code()
+            
+            # Crear o actualizar código de verificación
+            codigo_obj, created = CodigoVerificacion.objects.update_or_create(
+                email=email,
+                intent=intent,
+                cliente=cliente_actual,
+                defaults={
+                    'codigo': codigo,
+                    'expira': timezone.now() + timedelta(minutes=10),
+                    'usado': False,
+                    # Datos temporales para registro
+                    'nombre': data.get('nombre', ''),
+                    'apellido': data.get('apellido', ''),
+                    'telefono': data.get('telefono', ''),
+                }
+            )
+            
+            # Enviar email
+            send_verification_code_email(
+                email=email,
+                codigo=codigo,
+                intent=intent,
+                cliente_nombre=cliente_actual.nombre
+            )
+            
+            logger.info(f"[SEND CODE] Código enviado a {email} para {intent}")
+            return Response({
+                "success": True,
+                "message": "Código enviado a tu email"
+            })
+            
+        except Exception as e:
+            logger.error(f"[SEND CODE] Error: {e}", exc_info=True)
+            return Response({"detail": "Error interno"}, status=500)
+
+
+class VerifyCodeView(APIView):
+    permission_classes = []  # público
+    
+    def post(self, request):
+        """
+        Verifica código y completa el proceso (registro o reset).
+        """
+        from .services import cleanup_expired_codes
+        from .models import CodigoVerificacion
+        from django.contrib.auth import authenticate
+        
+        data = request.data or {}
+        email = data.get('email', '').strip().lower()
+        codigo = data.get('codigo', '').strip()
+        intent = data.get('intent', 'registro')
+        password = data.get('password', '')
+        
+        if not all([email, codigo, intent]):
+            return Response({"detail": "Email, código e intent requeridos"}, status=400)
+        
+        if intent == 'registro' and not password:
+            return Response({"detail": "Password requerido para registro"}, status=400)
+        
+        if intent == 'reset_password' and not password:
+            return Response({"detail": "Nueva password requerida para reset"}, status=400)
+        
+        try:
+            # Limpiar códigos expirados
+            cleanup_expired_codes()
+            
+            # Buscar código válido
+            codigo_obj = CodigoVerificacion.objects.filter(
+                email=email,
+                intent=intent,
+                codigo=codigo,
+                usado=False
+            ).first()
+            
+            if not codigo_obj or not codigo_obj.is_valid():
+                return Response({"detail": "Código inválido o expirado"}, status=400)
+            
+            # Obtener cliente
+            cliente_actual = getattr(request, 'cliente_actual', None)
+            if not cliente_actual:
+                return Response({"detail": "Cliente no detectado"}, status=400)
+            
+            if intent == 'registro':
+                # Crear usuario
+                user = User.objects.create_user(
+                    username=email,
+                    email=email,
+                    password=password,
+                    nombre=codigo_obj.nombre or '',
+                    apellido=codigo_obj.apellido or '',
+                    telefono=codigo_obj.telefono or '',
+                    tipo_usuario='usuario_final',
+                    cliente=cliente_actual,
+                    is_active=True
+                )
+                
+                # Agregar rol al cliente
+                user.agregar_rol_a_cliente(cliente_actual, 'usuario_final')
+                
+                logger.info(f"[VERIFY CODE] Usuario creado: {email}")
+                
+            elif intent == 'reset_password':
+                # Actualizar password
+                user = User.objects.get(email=email)
+                user.set_password(password)
+                user.save()
+                
+                logger.info(f"[VERIFY CODE] Password actualizada: {email}")
+            
+            # Marcar código como usado
+            codigo_obj.mark_as_used()
+            
+            if intent == 'registro':
+                # Para registro: emitir JWT y hacer login automático
+                return Response(_issue_tokens_for_user(user, "/", cliente_actual))
+            else:
+                # Para reset_password: solo confirmar éxito
+                return Response({"detail": "Contraseña actualizada exitosamente"})
+            
+        except User.DoesNotExist:
+            return Response({"detail": "Usuario no encontrado"}, status=400)
+        except Exception as e:
+            logger.error(f"[VERIFY CODE] Error: {e}", exc_info=True)
+            return Response({"detail": "Error interno"}, status=500)
+
+
+class LoginView(APIView):
+    permission_classes = []  # público
+    
+    def post(self, request):
+        """
+        Login con email y contraseña.
+        """
+        from django.contrib.auth import authenticate
+        
+        data = request.data or {}
+        email = data.get('email', '').strip().lower()
+        password = data.get('password', '')
+        
+        if not email or not password:
+            return Response({"detail": "Email y contraseña requeridos"}, status=400)
+        
+        try:
+            # Autenticar usuario
+            user = authenticate(request, username=email, password=password)
+            
+            if not user:
+                return Response({"detail": "Credenciales inválidas"}, status=401)
+            
+            if not user.is_active:
+                return Response({"detail": "Cuenta inactiva"}, status=401)
+            
+            # Verificar acceso al cliente
+            cliente_actual = getattr(request, 'cliente_actual', None)
+            if not user.is_super_admin and cliente_actual:
+                if not user.tiene_acceso_a_cliente(cliente_actual.id):
+                    return Response({"detail": "No tienes acceso a este cliente"}, status=403)
+            
+            # Emitir JWT
+            return Response(_issue_tokens_for_user(user, "/", cliente_actual))
+            
+        except Exception as e:
+            logger.error(f"[LOGIN] Error: {e}", exc_info=True)
+            return Response({"detail": "Error de autenticación"}, status=500)
