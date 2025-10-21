@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Instalar deps (cacheables)
 COPY ../package*.json ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 
 # Build (sin hornear envs)
 COPY ../ ./

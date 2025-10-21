@@ -20,7 +20,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
     return <Navigate to="/login" replace />;
   }
 
-  // Obtener el rol actual del usuario (nueva estructura multi-tenant)
+  // Obtener el rol actual del usuario (usar cliente_actual.rol - nueva estructura multi-tenant)
   const currentRole = user.cliente_actual?.rol;
   
   if (allowedRoles && !allowedRoles.includes(currentRole)) {

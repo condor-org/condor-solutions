@@ -1,9 +1,27 @@
 // src/pages/auth/LoginPage.jsx
 import React, { useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { Box, Heading, Text, VStack, Spinner } from "@chakra-ui/react";
+import { useNavigate, useLocation, Link } from "react-router-dom";
+import { 
+  Box, 
+  Heading, 
+  Text, 
+  VStack, 
+  HStack, 
+  Input, 
+  InputGroup, 
+  InputRightElement, 
+  IconButton,
+  Divider,
+  Alert,
+  AlertIcon,
+  FormControl,
+  FormLabel,
+  FormErrorMessage
+} from "@chakra-ui/react";
+import { ViewIcon, ViewOffIcon } from "@chakra-ui/icons";
 import Button from "../../components/ui/Button";
 import { startGoogleLogin } from "../../auth/oauthClient";
+import { useAuth } from "../../auth/AuthContext";
 
 const GoogleIcon = (props) => (
   <Box as="span" display="inline-block" mr={2} {...props}>
@@ -35,11 +53,23 @@ const GoogleIcon = (props) => (
 const LoginPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { login } = useAuth();
+  
+  const [loginMethod, setLoginMethod] = useState("google"); // "google" o "password"
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+  
+  // Estados para login con usuario/contraseña
+  const [formData, setFormData] = useState({
+    email: "",
+    password: ""
+  });
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleGoogle = async () => {
     try {
       setIsLoading(true);
+      setError("");
       const host = window.location.hostname; // subdominio → tenant
       const from = (location.state && location.state.from) || "/";
       const invite = new URLSearchParams(window.location.search).get("invite") || undefined; // ← invite si vino
@@ -47,8 +77,36 @@ const LoginPage = () => {
       await startGoogleLogin({ host, returnTo: from, invite });
     } catch (e) {
       console.error("[OAuth] startGoogleLogin failed", e);
+      setError("Error al iniciar sesión con Google");
       setIsLoading(false); // Solo resetear si hay error
     }
+  };
+
+  const handlePasswordLogin = async (e) => {
+    e.preventDefault();
+    if (!formData.email || !formData.password) {
+      setError("Por favor completa todos los campos");
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setError("");
+      await login(formData.email, formData.password);
+      const from = (location.state && location.state.from) || "/";
+      navigate(from);
+    } catch (err) {
+      setError(err.message || "Error al iniciar sesión");
+      setIsLoading(false);
+    }
+  };
+
+  const handleForgotPassword = () => {
+    navigate("/forgot-password");
+  };
+
+  const handleRegister = () => {
+    navigate("/register");
   };
 
   return (
@@ -99,30 +157,123 @@ const LoginPage = () => {
         zIndex={1}
       >
         <VStack spacing={6} align="stretch" textAlign="center">
-          <Box>
-            <Heading size="lg" color="gray.800">
-              ¡Bienvenido a Canchas!
-            </Heading>
-            <Text color="green.600" fontSize="sm" fontWeight="medium" mt={1}>
-              🏟️ Distrito Canchas - Puerto 8081
-            </Text>
-          </Box>
+          <Heading size="lg" color="gray.800">
+            ¡Bienvenido!
+          </Heading>
           <Text color="gray.600" fontSize="sm">
             Accedé a tu cuenta para continuar.
           </Text>
 
-          <Button
-            onClick={handleGoogle}
-            width="full"
-            size="lg"
-            isLoading={isLoading}
-            loadingText="Conectando..."
-            isDisabled={isLoading}
-            style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
-          >
-            {!isLoading && <GoogleIcon />}
-            <span>{isLoading ? "Conectando..." : "Ingresar con Google"}</span>
-          </Button>
+          {error && (
+            <Alert status="error" borderRadius="md">
+              <AlertIcon />
+              {error}
+            </Alert>
+          )}
+
+          {/* Selector de método de login */}
+          <HStack spacing={0} bg="gray.100" borderRadius="md" p={1}>
+            <Button
+              variant={loginMethod === "google" ? "solid" : "ghost"}
+              size="sm"
+              onClick={() => setLoginMethod("google")}
+              flex={1}
+              colorScheme={loginMethod === "google" ? "blue" : "gray"}
+            >
+              Google
+            </Button>
+            <Button
+              variant={loginMethod === "password" ? "solid" : "ghost"}
+              size="sm"
+              onClick={() => setLoginMethod("password")}
+              flex={1}
+              colorScheme={loginMethod === "password" ? "blue" : "gray"}
+            >
+              Email/Contraseña
+            </Button>
+          </HStack>
+
+          {loginMethod === "google" ? (
+            <Button
+              onClick={handleGoogle}
+              width="full"
+              size="lg"
+              isLoading={isLoading}
+              loadingText="Conectando..."
+              isDisabled={isLoading}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
+            >
+              {!isLoading && <GoogleIcon />}
+              <span>{isLoading ? "Conectando..." : "Ingresar con Google"}</span>
+            </Button>
+          ) : (
+            <form onSubmit={handlePasswordLogin}>
+              <VStack spacing={4} align="stretch">
+                <FormControl isRequired>
+                  <FormLabel fontSize="sm" color="gray.700">Email</FormLabel>
+                  <Input
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({...formData, email: e.target.value})}
+                    placeholder="tu@email.com"
+                    size="lg"
+                  />
+                </FormControl>
+
+                <FormControl isRequired>
+                  <FormLabel fontSize="sm" color="gray.700">Contraseña</FormLabel>
+                  <InputGroup size="lg">
+                    <Input
+                      type={showPassword ? "text" : "password"}
+                      value={formData.password}
+                      onChange={(e) => setFormData({...formData, password: e.target.value})}
+                      placeholder="Tu contraseña"
+                    />
+                    <InputRightElement>
+                      <IconButton
+                        aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                        icon={showPassword ? <ViewOffIcon /> : <ViewIcon />}
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowPassword(!showPassword)}
+                      />
+                    </InputRightElement>
+                  </InputGroup>
+                </FormControl>
+
+                <Button
+                  type="submit"
+                  width="full"
+                  size="lg"
+                  isLoading={isLoading}
+                  loadingText="Iniciando sesión..."
+                  isDisabled={isLoading}
+                >
+                  Iniciar Sesión
+                </Button>
+              </VStack>
+            </form>
+          )}
+
+          <Divider />
+
+          <VStack spacing={2}>
+            <Text fontSize="sm" color="gray.600">
+              ¿No tenés cuenta?{" "}
+              <Link to="/register" style={{ color: "#3182ce", fontWeight: "500" }}>
+                Registrate aquí
+              </Link>
+            </Text>
+            
+            {loginMethod === "password" && (
+              <Text fontSize="sm" color="gray.600">
+                ¿Olvidaste tu contraseña?{" "}
+                <Link to="/forgot-password" style={{ color: "#3182ce", fontWeight: "500" }}>
+                  Recuperala aquí
+                </Link>
+              </Text>
+            )}
+          </VStack>
 
           <Text fontSize="xs" color="gray.500">
             Al continuar, aceptás nuestros Términos y la Política de Privacidad.

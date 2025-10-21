@@ -141,10 +141,10 @@ const ReservarAbono = ({ onClose }) => {
   }, [api]);
 
   // 2) Cargar sedes disponibles
-  // GET /api/padel/sedes/ → Sedes con alias y CBU para pagos
+  // GET /api/turnos/sedes/ → Sedes con alias y CBU para pagos
   useEffect(() => {
     if (!api) return;
-    api.get("padel/sedes/")
+    api.get("turnos/sedes/")
       .then(res => {
         const data = res?.data?.results ?? res?.data ?? [];
         setSedes(Array.isArray(data) ? data : []);

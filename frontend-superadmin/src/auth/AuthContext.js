@@ -140,12 +140,12 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
     }
   }, [logout, scheduleProactiveRefresh]);
 
-  // ---- Login por email/clave (flujo existente) ------------------------------
+  // ---- Login por email/clave (nuevo endpoint) ------------------------------
   const login = async (email, password) => {
     console.log("[AUTH] Intentando login con email:", maskEmail(email));
     try {
-      const res = await axios.post(`${API}/token/`, { email, password });
-      const { access, refresh } = res.data;
+      const res = await axios.post(`${API}/auth/login/`, { email, password });
+      const { access, refresh, user: userPayload } = res.data;
       if (!access || !refresh) throw new Error("Respuesta de login sin tokens");
 
       const exp = safeDecodeExp(access);
@@ -159,9 +159,15 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
 
       console.log("[AUTH] Login exitoso. Tokens recibidos.");
 
-      const perfilRes = await axios.get(`${API}/auth/yo/`);
-      setUser(perfilRes.data);
-      localStorage.setItem("user", JSON.stringify(perfilRes.data));
+      // Usar el user del response o obtener perfil completo
+      if (userPayload) {
+        setUser(userPayload);
+        localStorage.setItem("user", JSON.stringify(userPayload));
+      } else {
+        const perfilRes = await axios.get(`${API}/auth/yo/`);
+        setUser(perfilRes.data);
+        localStorage.setItem("user", JSON.stringify(perfilRes.data));
+      }
 
       scheduleProactiveRefresh();
     } catch (err) {
@@ -170,8 +176,69 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
         err?.response?.status,
         err?.message
       );
-      toast.error("Credenciales inválidas");
-      throw err;
+      const errorMsg = err?.response?.data?.detail || "Credenciales inválidas";
+      toast.error(errorMsg);
+      throw new Error(errorMsg);
+    }
+  };
+
+  // ---- Envío de código de verificación --------------------------------------
+  const sendVerificationCode = async (data) => {
+    console.log("[AUTH] Enviando código de verificación para:", maskEmail(data.email));
+    try {
+      const response = await axios.post(`${API}/auth/send-verification-code/`, data);
+      console.log("[AUTH] Código de verificación enviado exitosamente", response.data);
+      return response.data;
+    } catch (err) {
+      console.error("[AUTH] Error enviando código:", err?.response?.status, err?.response?.data, err?.message);
+      const errorMsg = err?.response?.data?.detail || err?.response?.data?.error || "Error al enviar el código";
+      throw new Error(errorMsg);
+    }
+  };
+
+  // ---- Verificación de código -----------------------------------------------
+  const verifyCode = async (data) => {
+    console.log("[AUTH] Verificando código para:", maskEmail(data.email));
+    try {
+      const res = await axios.post(`${API}/auth/verify-code/`, data);
+      
+      // Si es reset de contraseña, solo devolver éxito
+      if (data.intent === 'reset_password') {
+        console.log("[AUTH] Contraseña actualizada exitosamente");
+        return res.data;
+      }
+      
+      // Si es registro, manejar tokens
+      const { access, refresh, user: userPayload } = res.data;
+      
+      if (!access || !refresh) throw new Error("Respuesta de verificación sin tokens");
+
+      const exp = safeDecodeExp(access);
+      localStorage.setItem("access", access);
+      localStorage.setItem("refresh", refresh);
+      localStorage.setItem("access_exp", exp);
+
+      setAccessToken(access);
+      setRefreshToken(refresh);
+      axios.defaults.headers.common["Authorization"] = `Bearer ${access}`;
+
+      console.log("[AUTH] Código verificado exitosamente. Usuario autenticado.");
+
+      // Usar el user del response o obtener perfil completo
+      if (userPayload) {
+        setUser(userPayload);
+        localStorage.setItem("user", JSON.stringify(userPayload));
+      } else {
+        const perfilRes = await axios.get(`${API}/auth/yo/`);
+        setUser(perfilRes.data);
+        localStorage.setItem("user", JSON.stringify(perfilRes.data));
+      }
+
+      scheduleProactiveRefresh();
+    } catch (err) {
+      console.error("[AUTH] Error verificando código:", err?.response?.status, err?.message);
+      const errorMsg = err?.response?.data?.detail || "Código inválido o expirado";
+      throw new Error(errorMsg);
     }
   };
 
@@ -270,6 +337,8 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
         refreshToken,
         loadingUser,
         setAuthFromOAuth, // <-- expuesto para OAuth callback y signup
+        sendVerificationCode, // <-- nuevo: envío de códigos
+        verifyCode, // <-- nuevo: verificación de códigos
       }}
     >
       {children}

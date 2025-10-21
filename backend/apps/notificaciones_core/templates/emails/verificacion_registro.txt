@@ -1,0 +1,14 @@
+Verifica tu email
+
+Hola,
+
+Para completar tu registro en {{ cliente_nombre }}, ingresa el siguiente código:
+
+{{ codigo }}
+
+Este código expira en {{ expira_en }}.
+
+Si no solicitaste este código, puedes ignorar este email.
+
+Saludos!
+{{ cliente_nombre }}

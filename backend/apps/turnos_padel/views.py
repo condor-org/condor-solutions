@@ -69,16 +69,19 @@ class SedePadelViewSet(viewsets.ModelViewSet):
         # ✅ Restringe por tipo de usuario y cliente; usa select_related/prefetch para evitar N+1.
         user = self.request.user
         cliente_actual = getattr(self.request, 'cliente_actual', None)
-        
-        # Super admin (usar nuevo campo)
+
+        # Super admin: si hay tenant resuelto, filtrar por ese cliente; si no, ver todo
         if user.is_super_admin:
+            base = Lugar.objects.all()
+            if cliente_actual is not None:
+                base = base.filter(cliente=cliente_actual)
             return (
-                Lugar.objects.all()
+                base
                 .select_related("configuracion_padel")
                 .prefetch_related("configuracion_padel__tipos_clase")
             )
         # Admin del cliente → sedes de su cliente
-        elif cliente_actual:
+        if cliente_actual is not None:
             return (
                 Lugar.objects.filter(cliente=cliente_actual)
                 .select_related("configuracion_padel")

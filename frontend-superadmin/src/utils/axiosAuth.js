@@ -13,7 +13,7 @@ export const axiosAuth = (token, onLogout) => {
   instance.interceptors.request.use((config) => {
     const base = config.baseURL?.replace(/\/+$/, "") || "";
     const url  = `${base}${config.url || ""}`;
-    console.log("[AXIOS REQUEST]", config.method?.toUpperCase(), url, "Auth:", !!config.headers?.Authorization, "BaseURL:", config.baseURL, "OriginalURL:", config.url);
+    console.log("[AXIOS REQUEST]", config.method?.toUpperCase(), url, "Auth:", !!config.headers?.Authorization);
     return config;
   });
 

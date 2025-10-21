@@ -5,7 +5,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     MiPerfilView, UsuarioViewSet,
     OAuthStateView, OAuthCallbackView, OnboardView, IssueInviteView,
-    CambiarRolView,
+    CambiarRolView, SendVerificationCodeView, VerifyCodeView, LoginView,
 )
 
 router = DefaultRouter()
@@ -19,5 +19,11 @@ urlpatterns = [
     path("oauth/onboard/", OnboardView.as_view(), name="onboard"),
     path("oauth/invite/issue/", IssueInviteView.as_view(), name="invite_issue"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),  # <- SIEMPRE
+    
+    # Email/Password Authentication
+    path("send-verification-code/", SendVerificationCodeView.as_view(), name="send_verification_code"),
+    path("verify-code/", VerifyCodeView.as_view(), name="verify_code"),
+    path("login/", LoginView.as_view(), name="login"),
+    
     path("", include(router.urls)),
 ]

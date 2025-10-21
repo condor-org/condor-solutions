@@ -7,7 +7,8 @@ import ProtectedRoute from "../router/ProtectedRoute";
 import PublicRoute from "../router/PublicRoute";
 
 import LoginPage from "../pages/auth/LoginPage";
-import RegistroPage from "../pages/auth/RegistroPage";
+import RegisterPage from "../pages/auth/RegisterPage";
+import ForgotPasswordPage from "../pages/auth/ForgotPasswordPage";
 
 import DashboardPage from "../pages/admin/DashboardPage";
 import SedesPage from "../pages/admin/SedesPage";
@@ -52,10 +53,18 @@ const AppRoutes = () => {
           }
         />
         <Route
-          path="/registro"
+          path="/register"
           element={
             <PublicRoute>
-              <RegistroPage />
+              <RegisterPage />
+            </PublicRoute>
+          }
+        />
+        <Route
+          path="/forgot-password"
+          element={
+            <PublicRoute>
+              <ForgotPasswordPage />
             </PublicRoute>
           }
         />

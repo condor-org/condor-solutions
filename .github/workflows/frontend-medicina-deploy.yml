@@ -1,19 +1,18 @@
 name: Frontend Medicina Deploy
 
-run-name: Frontend Medicina Deploy - ${{ github.event.inputs.version || github.event.release.tag_name }}
+run-name: Frontend Medicina Deploy - ${{ github.event.inputs.version || github.sha }}
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to deploy (e.g., v1.0.0-frontend-medicina)'
-        required: true
+        description: 'Version to deploy (e.g., v1.0.0-frontend-medicina). Leave empty to use current branch'
+        required: false
+        type: string
       deploy_prod:
         description: 'Deploy to production (requires approval)'
         required: false
-        default: 'false'
+        default: false
         type: boolean
 
 permissions:
@@ -27,20 +26,21 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    if: github.event_name != 'release' || endsWith(github.event.release.tag_name, '-frontend-medicina')
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version || github.sha }}
         
       - name: Get Version
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            VERSION="${{ github.event.release.tag_name }}"
-          else
+          if [ -n "${{ github.event.inputs.version }}" ]; then
             VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="dev-$(echo ${{ github.sha }} | cut -c1-7)"
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Building version: ${VERSION}"
@@ -57,16 +57,32 @@ jobs:
           username: ${{ steps.lower.outputs.OWNER_LC }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check if image already exists
+        id: check_image
+        run: |
+          if docker pull ${{ env.REGISTRY }}/${{ steps.lower.outputs.OWNER_LC }}/condor-frontend-medicina:${{ steps.version.outputs.version }} 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Image already exists, skipping build"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "🔄 Image does not exist, will build"
+          fi
+
       - name: Build & Push Frontend Medicina
+        if: steps.check_image.outputs.exists == 'false'
         uses: docker/build-push-action@v6
         with:
           context: ./frontend-medicina
           file: ./frontend-medicina/docker/Dockerfile
           platforms: linux/amd64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=frontend-medicina
+          cache-to: type=gha,mode=max,scope=frontend-medicina
           tags: ${{ env.REGISTRY }}/${{ steps.lower.outputs.OWNER_LC }}/condor-frontend-medicina:${{ steps.version.outputs.version }}
           push: true
+
+      - name: Image exists - skip build
+        if: steps.check_image.outputs.exists == 'true'
+        run: echo "✅ Skipping build - image already exists"
 
   deploy-dev:
     runs-on: ubuntu-latest
