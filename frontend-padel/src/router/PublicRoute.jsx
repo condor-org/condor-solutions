@@ -17,14 +17,14 @@ const PublicRoute = ({ children }) => {
 
   if (loadingUser) return null;
 
-  // Verificar si el usuario está autenticado (tiene id y tipo_usuario)
-  if (user?.id && user?.tipo_usuario) {
+  // Verificar si el usuario está autenticado (tiene id y cliente_actual)
+  if (user?.id && user?.cliente_actual?.rol) {
     let destino = "/login"; // fallback defensivo
 
-    // Usar la estructura actual del usuario
-    const currentRole = user.tipo_usuario;
+    // Usar la estructura actual del usuario (cliente_actual.rol)
+    const currentRole = user.cliente_actual.rol;
 
-    console.log("[PUBLIC ROUTE] Usuario autenticado con tipo_usuario:", currentRole);
+    console.log("[PUBLIC ROUTE] Usuario autenticado con cliente_actual.rol:", currentRole);
 
     switch (currentRole) {
       case "super_admin":
@@ -38,8 +38,8 @@ const PublicRoute = ({ children }) => {
         destino = "/profesores/turnos";
         break;
       default:
-        console.warn("[PUBLIC ROUTE] ⚠️ tipo_usuario desconocido:", currentRole);
-        // Fallback: si no reconoce el tipo, redirigir a jugador
+        console.warn("[PUBLIC ROUTE] ⚠️ cliente_actual.rol desconocido:", currentRole);
+        // Fallback: si no reconoce el rol, redirigir a jugador
         destino = "/jugador";
     }
 
