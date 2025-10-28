@@ -23,6 +23,8 @@ from apps.turnos_core.views import (
     eliminar_bonificacion,
     bonificaciones_usuario,
     turnos_usuario,
+    marcar_asistencia_turno,
+    cancelar_turnos_masivo,
 )
 
 
@@ -79,6 +81,12 @@ urlpatterns = [
     path("bonificaciones/<int:bonificacion_id>/", eliminar_bonificacion, name="eliminar-bonificacion"),
     path("bonificados/usuario/<int:usuario_id>/", bonificaciones_usuario, name="bonificaciones-usuario"),
     path("usuario/<int:usuario_id>/", turnos_usuario, name="turnos-usuario"),
+    
+    # Endpoint para marcar asistencia (ETHE)
+    path("<int:turno_id>/marcar-asistencia/", marcar_asistencia_turno, name="marcar-asistencia"),
+    
+    # Endpoint para cancelación masiva (ETHE)
+    path("cancelar-masivo/", cancelar_turnos_masivo, name="cancelar-masivo"),
     
     # Incluye todas las rutas de los ViewSets (sedes, prestadores, disponibilidades)
     path("", include(router.urls)),

@@ -163,6 +163,13 @@ class UserClient(models.Model):
         ("manager", "Manager"),
         ("coach", "Coach"),
         ("receptionist", "Recepcionista"),
+        # Roles específicos ETHE Médica
+        ("medico_m1", "Médico M1"),
+        ("medico_m2", "Médico M2"),
+        ("medico_m3", "Médico M3"),
+        ("paciente", "Paciente"),
+        ("admin_establecimiento", "Admin de Establecimiento"),
+        ("admin_ministro_salud", "Admin Ministro de Salud"),
         # Roles específicos por tipo de cliente
     ]
 

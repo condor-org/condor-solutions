@@ -1,225 +1,308 @@
-// src/router/AppRoutes.jsx
+import React from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
 
-import React, { useContext } from "react";
-import { Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { AuthContext } from "../auth/AuthContext";
-import ProtectedRoute from "../router/ProtectedRoute";
-import PublicRoute from "../router/PublicRoute";
+// Importar componentes de layout
+import { ETHELayout, ETHERedirect } from '../components/ethe';
 
-import LoginPage from "../pages/auth/LoginPage";
-import RegistroPage from "../pages/auth/RegistroPage";
+// Importar páginas ETHE
+import DashboardM1 from '../pages/medico-m1/DashboardM1';
+import IngresarPaciente from '../pages/medico-m1/IngresarPaciente';
+import PacientesM1 from '../pages/medico-m1/PacientesM1';
+import AgendaM2 from '../pages/medico-m2/AgendaM2';
+import DashboardM2 from '../pages/medico-m2/DashboardM2';
+import PacientesM2 from '../pages/medico-m2/PacientesM2';
+import AgendaM3 from '../pages/medico-m3/AgendaM3';
+import DashboardM3 from '../pages/medico-m3/DashboardM3';
+import PacientesM3 from '../pages/medico-m3/PacientesM3';
+import DashboardMinistro from '../pages/admin-ministro/DashboardMinistro';
+import EstablecimientosPage from '../pages/admin-ministro/EstablecimientosPage';
+import ListaPacientesPage from '../pages/admin-ministro/ListaPacientesPage';
+import DashboardEstablecimiento from '../pages/admin-establecimiento/DashboardEstablecimiento';
+import MedicosPage from '../pages/admin-establecimiento/MedicosPage';
+import DashboardPaciente from '../pages/paciente/DashboardPaciente';
+import MisTurnos from '../pages/paciente/MisTurnos';
+import MiHistorial from '../pages/paciente/MiHistorial';
+import SeguimientoPaciente from '../pages/comun/SeguimientoPaciente';
+import AdminMinistroRoute from '../components/ethe/AdminMinistroRoute';
 
-import DashboardPage from "../pages/admin/DashboardPage";
-import SedesPage from "../pages/admin/SedesPage";
-import ProfesoresPage from "../pages/admin/ProfesoresPage";
-import UsuariosPage from "../pages/admin/UsuariosPage";
-import PagosPreaprobadosPage from "../pages/admin/PagosPreaprobadosPage";
-import CancelacionesPage from "../pages/admin/CancelacionesPage";
-import JugadorDashboard from "../pages/user/JugadorDashboard";
-import PerfilPage from "../pages/user/PerfilPage";
-import ReservarTurno from "../pages/user/ReservarTurno";
-import TurnosReservados from "../pages/profesores/TurnosReservados";
+// Importar páginas de autenticación existentes
+import LoginPage from '../pages/auth/LoginPage';
+import ForgotPasswordPage from '../pages/auth/ForgotPasswordPage';
+import RegisterPage from '../pages/auth/RegisterPage';
 
-import NotFoundPage from "../pages/NotFoundPage";
-import MainLayout from "../components/layout/MainLayout";
-import { ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
-import NotificacionesPage from "../pages/user/NotificacionesPage";
-import NotificacionesAdminPage from '../pages/admin/NotificacionesAdminPage';
-import ReservarAbonoAdmin from "../pages/admin/ReservarAbonoAdmin";
-import OAuthCallback from "../pages/auth/OAuthCallback";
-import Signup from "../pages/auth/Signup";
-import AgendaAdmin from "../pages/admin/AgendaAdmin";
+// Componente para rutas protegidas
+const ProtectedRoute = ({ children }) => {
+  const { user, loadingUser } = useAuth();
+  
+  console.log('🔒 ProtectedRoute: Componente montado');
+  console.log('👤 ProtectedRoute: User:', user);
+  console.log('⏳ ProtectedRoute: Loading:', loadingUser);
+  
+  if (loadingUser) {
+    console.log('⏳ ProtectedRoute: Mostrando loading...');
+    return (
+      <ETHELayout loading={true}>
+        <div>Loading...</div>
+      </ETHELayout>
+    );
+  }
+  
+  if (!user) {
+    console.log('❌ ProtectedRoute: No hay usuario, redirigiendo a login');
+    return <Navigate to="/login" replace />;
+  }
+  
+  console.log('✅ ProtectedRoute: Usuario autenticado, renderizando contenido');
+  return <ETHELayout>{children}</ETHELayout>;
+};
+
+// Componente para rutas públicas
+const PublicRoute = ({ children }) => {
+  const { user, loadingUser } = useAuth();
+  
+  if (loadingUser) {
+    return <div>Loading...</div>;
+  }
+  
+  if (user) {
+    return <ETHERedirect />;
+  }
+  
+  return children;
+};
 
 const AppRoutes = () => {
-  const { user } = useContext(AuthContext);
-  const location = useLocation();
-
-  console.log("[APP ROUTES] user actual:", user);
-  console.log("[APP ROUTES] Ruta actual:", location.pathname);
-
   return (
-    <>
-      <Routes>
-        <Route path="/" element={<Navigate to="/login" replace />} />
-
-        <Route
-          path="/login"
-          element={
-            <PublicRoute>
-              <LoginPage />
-            </PublicRoute>
-          }
-        />
-        <Route
-          path="/registro"
-          element={
-            <PublicRoute>
-              <RegistroPage />
-            </PublicRoute>
-          }
-        />
-        <Route
-         path="/signup"
-         element={
-           <PublicRoute>
-             <Signup />
-           </PublicRoute>
-         }
-        />
-         {/* ⬇️ CALLBACK OAUTH **SIN WRAPPER** y en ambas variantes */}
-        <Route path="/oauth/google/callback" element={<OAuthCallback />} />
-        <Route path="/oauth/google/callback/" element={<OAuthCallback />} />
-
-        {/* Admin (SuperAdmin o AdminCliente) */}
-        <Route
-          path="/admin"
-          element={
-            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <DashboardPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-         <Route
-          path="/admin/cancelaciones"
-          element={
-            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <CancelacionesPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/abonos"
-          element={
-            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <ReservarAbonoAdmin />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/admin/sedes"
-          element={
-            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <SedesPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/profesores"
-          element={
-            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <ProfesoresPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/usuarios"
-          element={
-            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <UsuariosPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/agenda"
-          element={
-            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <AgendaAdmin />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/pagos-preaprobados"
-          element={
-            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <PagosPreaprobadosPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/notificaciones"
-          element={
-            <ProtectedRoute allowedRoles={["super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <NotificacionesAdminPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        {/* Jugador */}
-        <Route
-          path="/notificaciones"
-          element={
-            <ProtectedRoute allowedRoles={["usuario_final"]}>
-              <MainLayout>
-                <NotificacionesPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/jugador"
-          element={
-            <ProtectedRoute allowedRoles={["usuario_final"]}>
-              <MainLayout>
-                <JugadorDashboard />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/reservar"
-          element={
-            <ProtectedRoute allowedRoles={["usuario_final"]}>
-              <MainLayout>
-                <ReservarTurno />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/perfil"
-          element={
-            <ProtectedRoute allowedRoles={["usuario_final", "super_admin", "admin_cliente"]}>
-              <MainLayout>
-                <PerfilPage />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/profesores/turnos"
-          element={
-            <ProtectedRoute allowedRoles={["empleado_cliente"]}>
-              <MainLayout>
-                <TurnosReservados />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-
-        <Route path="*" element={<NotFoundPage />} />
-      </Routes>
-
-      <ToastContainer position="top-right" autoClose={3000} />
-    </>
+    <Routes>
+      {/* Rutas públicas */}
+      <Route 
+        path="/login" 
+        element={
+          <PublicRoute>
+            <LoginPage />
+          </PublicRoute>
+        } 
+      />
+      <Route 
+        path="/forgot-password" 
+        element={
+          <PublicRoute>
+            <ForgotPasswordPage />
+          </PublicRoute>
+        } 
+      />
+      <Route 
+        path="/register" 
+        element={
+          <PublicRoute>
+            <RegisterPage />
+          </PublicRoute>
+        } 
+      />
+      
+      {/* Redirección por defecto */}
+      <Route path="/" element={<ETHERedirect />} />
+      
+      {/* Rutas protegidas ETHE */}
+      <Route 
+        path="/medico-m1" 
+        element={
+          <ProtectedRoute>
+            <DashboardM1 />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/medico-m1/dashboard" 
+        element={
+          <ProtectedRoute>
+            <DashboardM1 />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/medico-m1/ingresar-paciente" 
+        element={
+          <ProtectedRoute>
+            <IngresarPaciente />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/medico-m1/pacientes" 
+        element={
+          <ProtectedRoute>
+            <PacientesM1 />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/medico-m2" 
+        element={
+          <ProtectedRoute>
+            <DashboardM2 />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/medico-m2/dashboard" 
+        element={
+          <ProtectedRoute>
+            <DashboardM2 />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/medico-m2/agenda" 
+        element={
+          <ProtectedRoute>
+            <AgendaM2 />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/medico-m2/pacientes" 
+        element={
+          <ProtectedRoute>
+            <PacientesM2 />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/medico-m3" 
+        element={
+          <ProtectedRoute>
+            <DashboardM3 />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/medico-m3/dashboard" 
+        element={
+          <ProtectedRoute>
+            <DashboardM3 />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/medico-m3/agenda" 
+        element={
+          <ProtectedRoute>
+            <AgendaM3 />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/medico-m3/pacientes" 
+        element={
+          <ProtectedRoute>
+            <PacientesM3 />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/admin-ministro" 
+        element={
+          <ProtectedRoute>
+            <DashboardMinistro />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/admin-ministro/dashboard" 
+        element={
+          <ProtectedRoute>
+            <DashboardMinistro />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/admin-ministro/establecimientos" 
+        element={
+          <ProtectedRoute>
+            <EstablecimientosPage />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/admin-ministro/seguimiento-pacientes" 
+        element={
+          <ProtectedRoute>
+            <ListaPacientesPage />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/admin-establecimiento" 
+        element={
+          <ProtectedRoute>
+            <DashboardEstablecimiento />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/admin-establecimiento/dashboard" 
+        element={
+          <ProtectedRoute>
+            <DashboardEstablecimiento />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/admin-establecimiento/medicos" 
+        element={
+          <ProtectedRoute>
+            <MedicosPage />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/paciente" 
+        element={
+          <ProtectedRoute>
+            <DashboardPaciente />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/paciente/dashboard" 
+        element={
+          <ProtectedRoute>
+            <DashboardPaciente />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/paciente/mis-turnos" 
+        element={
+          <ProtectedRoute>
+            <MisTurnos />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/paciente/mi-historial" 
+        element={
+          <ProtectedRoute>
+            <MiHistorial />
+          </ProtectedRoute>
+        } 
+      />
+      
+      {/* Ruta para seguimiento de paciente */}
+      <Route 
+        path="/seguimiento-paciente/:pacienteId" 
+        element={
+          <ProtectedRoute>
+            <SeguimientoPaciente />
+          </ProtectedRoute>
+        } 
+      />
+      
+      {/* Ruta catch-all para redirección */}
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 };
 

@@ -16,7 +16,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # -------------------------------------------------------------------
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-only-unsafe-key')
 DEBUG = os.getenv('DJANGO_DEBUG', 'False') == 'True'
-ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,lucas.localhost,distrito.localhost').split(',')
+ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '*').split(',')
 
 # -------------------------------------------------------------------
 # Apps
@@ -32,6 +32,7 @@ THIRD_PARTY_APPS = [
 PROJECT_APPS = [
     'apps.turnos_core', 'apps.pagos_core', 'apps.auth_core',
     'apps.clientes_core', 'apps.turnos_padel', 'apps.common', 'apps.notificaciones_core',
+    'apps.ethe_medica',
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + PROJECT_APPS
 

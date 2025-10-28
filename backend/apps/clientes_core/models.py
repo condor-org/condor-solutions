@@ -7,6 +7,9 @@ class Cliente(models.Model):
         ('padel', 'Club de Padel'),
         ('financiera', 'Financiera'),
         ('peluqueria', 'Peluquería'),
+        ('medicina', 'Medicina'),
+        ('ethe_medica', 'ETHE Médica'),
+        ('superadmin', 'Super Admin'),
         # Agregá más verticales según necesidad.
     ]
 
@@ -35,8 +38,9 @@ class Cliente(models.Model):
     TIPOS_FE = [
         ('padel', 'Frontend de Padel'),
         ('canchas', 'Frontend de Canchas'),
-        ('financiera', 'Frontend de Financiera'),
-        ('peluqueria', 'Frontend de Peluquería'),
+        ('medicina', 'Frontend de Medicina'),
+        ('ethe', 'Frontend ETHE'),
+        ('superadmin', 'Frontend de Super Admin'),
     ]
     
     tipo_fe = models.CharField(

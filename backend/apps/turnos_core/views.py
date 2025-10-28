@@ -1,6 +1,6 @@
 # Built-in
 import logging
-from zoneinfo import ZoneInfo  # Python 3.9+
+from zoneinfo import ZoneInfo
 import uuid
 # Django
 from django.contrib.auth import get_user_model
@@ -1509,3 +1509,170 @@ def turnos_usuario(request, usuario_id):
     except Exception as e:
         logger.error(f"[turnos_usuario] Error: {str(e)}")
         return Response({"error": "Error obteniendo turnos"}, status=500)
+
+
+# ------------------------------------------------------------------------------
+# PUT /turnos/{id}/marcar-asistencia/ → Marcar asistencia de un turno
+# - Permisos: Solo médicos M2, M3 del mismo cliente
+# - Función: marca si un paciente asistió o no a su turno
+# ------------------------------------------------------------------------------
+@api_view(["PUT"])
+@permission_classes([IsAuthenticated])
+def marcar_asistencia_turno(request, turno_id):
+    """
+    Marca la asistencia de un paciente a un turno.
+    Solo médicos M2 y M3 pueden marcar asistencia.
+    """
+    user = request.user
+    
+    try:
+        # Obtener el turno
+        turno = Turno.objects.get(id=turno_id)
+        
+        # Verificar que el turno pertenece al mismo cliente
+        if not user.is_super_admin:
+            from apps.auth_core.utils import get_rol_actual_del_jwt
+            rol_actual = get_rol_actual_del_jwt(request)
+            
+            # Solo médicos M2 y M3 pueden marcar asistencia
+            if rol_actual not in ["medico_m2", "medico_m3"]:
+                return Response({"error": "Solo médicos M2 y M3 pueden marcar asistencia"}, status=403)
+            
+            # Verificar que el médico pertenece al mismo cliente que el turno
+            if hasattr(user, 'medico_ethe'):
+                medico = user.medico_ethe
+                if medico.user.cliente != turno.lugar.cliente:
+                    return Response({"error": "No autorizado para este turno"}, status=403)
+        
+        # Validar datos de entrada
+        asistio = request.data.get('asistio')
+        observaciones = request.data.get('observaciones', '')
+        
+        if asistio is None:
+            return Response({"error": "El campo 'asistio' es obligatorio"}, status=400)
+        
+        if not isinstance(asistio, bool):
+            return Response({"error": "El campo 'asistio' debe ser true o false"}, status=400)
+        
+        # Actualizar el turno
+        turno.asistio = asistio
+        turno.fecha_asistencia = timezone.now()
+        turno.observaciones_asistencia = observaciones
+        turno.save()
+        
+        # Preparar respuesta
+        response_data = {
+            "id": turno.id,
+            "asistio": turno.asistio,
+            "fecha_asistencia": turno.fecha_asistencia,
+            "observaciones_asistencia": turno.observaciones_asistencia,
+            "paciente": {
+                "id": turno.usuario.id,
+                "nombre": turno.usuario.nombre,
+                "apellido": turno.usuario.apellido
+            } if turno.usuario else None
+        }
+        
+        logger.info(f"[marcar_asistencia] Turno {turno_id} marcado como {'asistió' if asistio else 'no asistió'}")
+        return Response(response_data)
+        
+    except Turno.DoesNotExist:
+        return Response({"error": "Turno no encontrado"}, status=404)
+    except Exception as e:
+        logger.error(f"[marcar_asistencia] Error: {str(e)}")
+        return Response({"error": "Error marcando asistencia"}, status=500)
+
+
+# ------------------------------------------------------------------------------
+# POST /turnos/cancelar-masivo/ → Cancelar turnos masivamente
+# - Permisos: Solo admin_establecimiento del mismo cliente
+# - Función: cancela todos los turnos de un médico en una fecha específica
+# ------------------------------------------------------------------------------
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def cancelar_turnos_masivo(request):
+    """
+    Cancela todos los turnos de un médico en una fecha específica.
+    Solo admin_establecimiento puede cancelar turnos masivamente.
+    """
+    user = request.user
+    
+    try:
+        # Verificar permisos
+        if not user.is_super_admin:
+            from apps.auth_core.utils import get_rol_actual_del_jwt
+            rol_actual = get_rol_actual_del_jwt(request)
+            
+            if rol_actual != "admin_establecimiento":
+                return Response({"error": "Solo admin de establecimiento puede cancelar turnos masivamente"}, status=403)
+        
+        # Validar datos de entrada
+        medico_id = request.data.get('medico_id')
+        fecha = request.data.get('fecha')
+        motivo = request.data.get('motivo', '')
+        
+        if not medico_id:
+            return Response({"error": "El campo 'medico_id' es obligatorio"}, status=400)
+        
+        if not fecha:
+            return Response({"error": "El campo 'fecha' es obligatorio"}, status=400)
+        
+        # Validar formato de fecha
+        try:
+            from datetime import datetime
+            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+        except ValueError:
+            return Response({"error": "Formato de fecha inválido. Use YYYY-MM-DD"}, status=400)
+        
+        # Obtener el médico
+        try:
+            from apps.ethe_medica.models import Medico
+            medico = Medico.objects.get(id=medico_id)
+        except Medico.DoesNotExist:
+            return Response({"error": "Médico no encontrado"}, status=404)
+        
+        # Verificar que el médico pertenece al mismo cliente
+        if not user.is_super_admin and medico.user.cliente != user.cliente:
+            return Response({"error": "No autorizado para cancelar turnos de este médico"}, status=403)
+        
+        # Obtener turnos a cancelar
+        turnos_a_cancelar = Turno.objects.filter(
+            recurso=medico.prestador,
+            fecha=fecha_obj,
+            estado="reservado"
+        )
+        
+        turnos_count = turnos_a_cancelar.count()
+        
+        if turnos_count == 0:
+            return Response({
+                "turnos_cancelados": 0,
+                "mensaje": "No hay turnos reservados para cancelar en esa fecha"
+            })
+        
+        # Cancelar turnos
+        turnos_a_cancelar.update(
+            estado="cancelado",
+            observaciones_asistencia=f"Cancelado masivamente: {motivo}"
+        )
+        
+        # Notificar a pacientes afectados (opcional - implementar según necesidad)
+        # TODO: Implementar notificaciones a pacientes
+        
+        logger.info(f"[cancelar_masivo] Cancelados {turnos_count} turnos del médico {medico_id} en {fecha}")
+        
+        return Response({
+            "turnos_cancelados": turnos_count,
+            "mensaje": f"Se cancelaron {turnos_count} turnos exitosamente",
+            "medico": {
+                "id": medico.id,
+                "nombre": medico.user.nombre,
+                "apellido": medico.user.apellido
+            },
+            "fecha": fecha,
+            "motivo": motivo
+        })
+        
+    except Exception as e:
+        logger.error(f"[cancelar_masivo] Error: {str(e)}")
+        return Response({"error": "Error cancelando turnos"}, status=500)

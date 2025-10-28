@@ -881,9 +881,9 @@ class SendVerificationCodeView(APIView):
         
         # Validaciones específicas por intent
         if intent == 'registro':
-            # Verificar que el email NO exista
-            if User.objects.filter(email=email).exists():
-                return Response({"detail": "Este email ya está registrado"}, status=400)
+            # Verificar que el email NO exista EN ESTE CLIENTE
+            if User.objects.filter(email=email, clientes_roles__cliente=cliente_actual, clientes_roles__activo=True).exists():
+                return Response({"detail": "Este email ya está registrado en este cliente"}, status=400)
         elif intent == 'reset_password':
             # Verificar que el email SÍ exista
             if not User.objects.filter(email=email).exists():
@@ -978,23 +978,35 @@ class VerifyCodeView(APIView):
                 return Response({"detail": "Cliente no detectado"}, status=400)
             
             if intent == 'registro':
-                # Crear usuario
-                user = User.objects.create_user(
-                    username=email,
+                # Verificar si el usuario ya existe
+                user, created = User.objects.get_or_create(
                     email=email,
-                    password=password,
-                    nombre=codigo_obj.nombre or '',
-                    apellido=codigo_obj.apellido or '',
-                    telefono=codigo_obj.telefono or '',
-                    tipo_usuario='usuario_final',
-                    cliente=cliente_actual,
-                    is_active=True
+                    defaults={
+                        'username': email,
+                        'password': password,
+                        'nombre': codigo_obj.nombre or '',
+                        'apellido': codigo_obj.apellido or '',
+                        'telefono': codigo_obj.telefono or '',
+                        'tipo_usuario': 'usuario_final',
+                        'cliente': cliente_actual,
+                        'is_active': True
+                    }
                 )
                 
-                # Agregar rol al cliente
-                user.agregar_rol_a_cliente(cliente_actual, 'usuario_final')
+                if created:
+                    # Usuario nuevo: establecer password
+                    user.set_password(password)
+                    user.save()
+                    logger.info(f"[VERIFY CODE] Usuario creado: {email}")
+                else:
+                    # Usuario existente: actualizar password si es necesario
+                    if password:
+                        user.set_password(password)
+                        user.save()
+                    logger.info(f"[VERIFY CODE] Usuario existente, agregando rol: {email}")
                 
-                logger.info(f"[VERIFY CODE] Usuario creado: {email}")
+                # Agregar rol al cliente (crea UserClient si no existe)
+                user.agregar_rol_a_cliente(cliente_actual, 'usuario_final')
                 
             elif intent == 'reset_password':
                 # Actualizar password

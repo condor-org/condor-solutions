@@ -61,6 +61,22 @@ class Turno(models.Model):
         related_name="turnos_prioridad_directos"
     )
 
+    # Campos de asistencia para ETHE
+    asistio = models.BooleanField(
+        null=True, 
+        blank=True,
+        help_text="null=no marcado, True=asistió, False=no asistió"
+    )
+    fecha_asistencia = models.DateTimeField(
+        null=True, 
+        blank=True,
+        help_text="Fecha y hora cuando se marcó la asistencia"
+    )
+    observaciones_asistencia = models.TextField(
+        blank=True,
+        help_text="Observaciones sobre la asistencia del paciente"
+    )
+
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
 
@@ -78,9 +94,32 @@ class Lugar(models.Model):
     direccion = models.TextField(blank=True, null=True)
     referente = models.CharField(max_length=100, blank=True, null=True)
     telefono = models.CharField(max_length=20, blank=True, null=True)
+    
+    # Categorías de centro ETHE
+    categorias_centro_ethe = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Categorías de centro ETHE: ['C1', 'C2', 'C3']"
+    )
 
     def __str__(self):
         return self.nombre
+    
+    def es_centro_c1(self):
+        """Verifica si el centro puede atender categoría C1"""
+        return "C1" in (self.categorias_centro_ethe or [])
+    
+    def es_centro_c2(self):
+        """Verifica si el centro puede atender categoría C2"""
+        return "C2" in (self.categorias_centro_ethe or [])
+    
+    def es_centro_c3(self):
+        """Verifica si el centro puede atender categoría C3"""
+        return "C3" in (self.categorias_centro_ethe or [])
+    
+    def puede_atender_categoria(self, categoria):
+        """Verifica si el centro puede atender una categoría específica"""
+        return categoria in (self.categorias_centro_ethe or [])
 
 class Prestador(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)

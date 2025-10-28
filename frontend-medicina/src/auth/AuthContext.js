@@ -15,13 +15,10 @@ import { toast } from "react-toastify";
 import { applyAuthInterceptor } from "./axiosInterceptor";
 
 /**
- * REACT_APP_API_BASE_URL puede ser:
- *  - "" (same-origin detrás del proxy)
- *  - "http://localhost:8080" (si apuntás directo)
+ * Usar configuración runtime en lugar de build time
  */
-const RAW_BASE = process.env.REACT_APP_API_BASE_URL || "";
-const API_BASE = RAW_BASE.replace(/\/+$/, "");
-const API = `${API_BASE}/api`;
+import { API_BASE_URL } from '../config/runtime';
+const API = API_BASE_URL;
 
 export const AuthContext = createContext();
 
@@ -140,14 +137,30 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
     }
   }, [logout, scheduleProactiveRefresh]);
 
-  // ---- Login por email/clave (flujo existente) ------------------------------
+  // ---- Login por email/clave (nuevo endpoint) ------------------------------
   const login = async (email, password) => {
-    console.log("[AUTH] Intentando login con email:", maskEmail(email));
+    console.log("[AUTH] 🔐 Intentando login con email:", maskEmail(email));
+    console.log("[AUTH] 🔐 Datos de login:", { email: maskEmail(email), password: "***" });
+    
     try {
-      const res = await axios.post(`${API}/token/`, { email, password });
-      const { access, refresh } = res.data;
-      if (!access || !refresh) throw new Error("Respuesta de login sin tokens");
+      console.log("[AUTH] 📡 Enviando request a:", `${API}/auth/login/`);
+      console.log("[AUTH] 📡 Payload enviado:", { email, password: "***" });
+      
+      const res = await axios.post(`${API}/auth/login/`, { email, password });
+      
+      console.log("[AUTH] ✅ Response recibido:", res.status, res.statusText);
+      console.log("[AUTH] 📦 Response data:", res.data);
+      
+      const { access, refresh, user: userPayload } = res.data;
+      
+      if (!access || !refresh) {
+        console.error("[AUTH] ❌ Respuesta de login sin tokens");
+        console.error("[AUTH] ❌ Access token:", !!access);
+        console.error("[AUTH] ❌ Refresh token:", !!refresh);
+        throw new Error("Respuesta de login sin tokens");
+      }
 
+      console.log("[AUTH] 🔑 Tokens recibidos - Procesando...");
       const exp = safeDecodeExp(access);
       localStorage.setItem("access", access);
       localStorage.setItem("refresh", refresh);
@@ -157,21 +170,127 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
       setRefreshToken(refresh);
       axios.defaults.headers.common["Authorization"] = `Bearer ${access}`;
 
-      console.log("[AUTH] Login exitoso. Tokens recibidos.");
+      console.log("[AUTH] ✅ Login exitoso. Tokens recibidos.");
 
+      // SIEMPRE obtener perfil completo para tener la estructura con cliente_actual
+      console.log("[AUTH] 👤 Obteniendo perfil completo...");
       const perfilRes = await axios.get(`${API}/auth/yo/`);
+      console.log("[AUTH] 👤 Perfil obtenido:", perfilRes.data);
       setUser(perfilRes.data);
       localStorage.setItem("user", JSON.stringify(perfilRes.data));
 
+      console.log("[AUTH] ⏰ Programando refresh automático...");
       scheduleProactiveRefresh();
+      console.log("[AUTH] ✅ Login completado exitosamente");
     } catch (err) {
-      console.error(
-        "[AUTH] Error en login:",
-        err?.response?.status,
-        err?.message
-      );
-      toast.error("Credenciales inválidas");
-      throw err;
+      console.error("[AUTH] ❌ Error en login:");
+      console.error("[AUTH] ❌ Status:", err?.response?.status);
+      console.error("[AUTH] ❌ Message:", err?.message);
+      console.error("[AUTH] ❌ Response data:", err?.response?.data);
+      console.error("[AUTH] ❌ Stack:", err?.stack);
+      
+      const errorMsg = err?.response?.data?.detail || err?.response?.data?.error || err?.response?.data?.message || "Credenciales inválidas";
+      console.error("[AUTH] ❌ Error message final:", errorMsg);
+      toast.error(errorMsg);
+      throw new Error(errorMsg);
+    }
+  };
+
+  // ---- Envío de código de verificación --------------------------------------
+  const sendVerificationCode = async (data) => {
+    console.log("[AUTH] Enviando código de verificación para:", maskEmail(data.email));
+    try {
+      const response = await axios.post(`${API}/auth/send-verification-code/`, data);
+      console.log("[AUTH] Código de verificación enviado exitosamente", response.data);
+      return response.data;
+    } catch (err) {
+      console.error("[AUTH] Error enviando código:", err?.response?.status, err?.response?.data, err?.message);
+      const errorMsg = err?.response?.data?.detail || err?.response?.data?.error || err?.response?.data?.message || "Error al enviar el código";
+      throw new Error(errorMsg);
+    }
+  };
+
+  // ---- Verificación de código -----------------------------------------------
+  const verifyCode = async (data) => {
+    console.log("[AUTH] 🔍 Verificando código para:", maskEmail(data.email));
+    console.log("[AUTH] 🔍 Datos recibidos:", { 
+      email: maskEmail(data.email), 
+      codigo: data.codigo, 
+      intent: data.intent 
+    });
+    console.log("[AUTH] 🔍 API_BASE:", API);
+    console.log("[AUTH] 🔍 axios config:", axios.defaults);
+    
+    try {
+      console.log("[AUTH] 📡 Enviando request a:", `${API}/auth/verify-code/`);
+      console.log("[AUTH] 📡 Payload enviado:", { 
+        email: data.email, 
+        codigo: data.codigo, 
+        intent: data.intent,
+        password: data.password ? "***" : "undefined"
+      });
+      console.log("[AUTH] 📡 Headers enviados:", axios.defaults.headers);
+      
+      console.log("[AUTH] ⏳ INICIANDO REQUEST A BACKEND...");
+      const res = await axios.post(`${API}/auth/verify-code/`, data);
+      console.log("[AUTH] ⏳ REQUEST A BACKEND COMPLETADO");
+      
+      console.log("[AUTH] ✅ Response recibido:", res.status, res.statusText);
+      console.log("[AUTH] 📦 Response data:", res.data);
+      console.log("[AUTH] 📦 Response headers:", res.headers);
+      
+      // Si es reset de contraseña, solo devolver éxito
+      if (data.intent === 'reset_password') {
+        console.log("[AUTH] 🔐 Reset de contraseña - Contraseña actualizada exitosamente");
+        console.log("[AUTH] 🔐 Retornando:", res.data);
+        console.log("[AUTH] 🔐 Tipo de retorno:", typeof res.data);
+        return res.data;
+      }
+      
+      // Si es registro, manejar tokens
+      console.log("[AUTH] 📝 Procesando registro - Extrayendo tokens...");
+      const { access, refresh, user: userPayload } = res.data;
+      
+      if (!access || !refresh) {
+        console.error("[AUTH] ❌ Respuesta de verificación sin tokens");
+        console.error("[AUTH] ❌ Access token:", !!access);
+        console.error("[AUTH] ❌ Refresh token:", !!refresh);
+        throw new Error("Respuesta de verificación sin tokens");
+      }
+
+      console.log("[AUTH] 🔑 Tokens recibidos - Procesando...");
+      const exp = safeDecodeExp(access);
+      localStorage.setItem("access", access);
+      localStorage.setItem("refresh", refresh);
+      localStorage.setItem("access_exp", exp);
+
+      setAccessToken(access);
+      setRefreshToken(refresh);
+      axios.defaults.headers.common["Authorization"] = `Bearer ${access}`;
+
+      console.log("[AUTH] ✅ Código verificado exitosamente. Usuario autenticado.");
+
+      // SIEMPRE obtener perfil completo para tener la estructura con cliente_actual
+      console.log("[AUTH] 👤 Obteniendo perfil completo...");
+      const perfilRes = await axios.get(`${API}/auth/yo/`);
+      console.log("[AUTH] 👤 Perfil obtenido:", perfilRes.data);
+      setUser(perfilRes.data);
+      localStorage.setItem("user", JSON.stringify(perfilRes.data));
+
+      console.log("[AUTH] ⏰ Programando refresh automático...");
+      scheduleProactiveRefresh();
+      console.log("[AUTH] ✅ verifyCode completado exitosamente");
+      return res.data;
+    } catch (err) {
+      console.error("[AUTH] ❌ Error verificando código:");
+      console.error("[AUTH] ❌ Status:", err?.response?.status);
+      console.error("[AUTH] ❌ Message:", err?.message);
+      console.error("[AUTH] ❌ Response data:", err?.response?.data);
+      console.error("[AUTH] ❌ Stack:", err?.stack);
+      
+      const errorMsg = err?.response?.data?.detail || err?.response?.data?.error || err?.response?.data?.message || "Código inválido o expirado";
+      console.error("[AUTH] ❌ Error message final:", errorMsg);
+      throw new Error(errorMsg);
     }
   };
 
@@ -219,22 +338,33 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
   // ---- Inicialización al montar ---------------------------------------------
   useEffect(() => {
     const initializeAuth = async () => {
+      console.log("[AUTH] 🔄 Inicializando AuthContext...");
+      console.log("[AUTH] 🔑 AccessToken:", !!accessToken);
+      console.log("[AUTH] 👤 User:", !!user);
+      console.log("[AUTH] ⏳ LoadingUser:", loadingUser);
+      
       try {
         if (accessToken) {
+          console.log("[AUTH] 🔑 Hay accessToken, verificando expiración...");
           const now = Math.floor(Date.now() / 1000);
           const exp = parseInt(localStorage.getItem("access_exp") || "0", 10);
+          console.log("[AUTH] ⏰ Exp:", exp, "Now:", now, "Expired:", exp < now);
 
           if (exp < now) {
+            console.log("[AUTH] 🔄 Token expirado, intentando refresh...");
             await attemptRefreshToken();
           } else {
+            console.log("[AUTH] ✅ Token válido, configurando headers...");
             axios.defaults.headers.common["Authorization"] = `Bearer ${accessToken}`;
             scheduleProactiveRefresh();
           }
 
           // Si hay tokens pero no hay user persistido, intentamos traerlo.
           if (!user) {
+            console.log("[AUTH] 👤 No hay user, obteniendo perfil...");
             try {
               const perfilRes = await axios.get(`${API}/auth/yo/`);
+              console.log("[AUTH] 👤 Perfil obtenido:", perfilRes.data);
               setUser(perfilRes.data);
               localStorage.setItem("user", JSON.stringify(perfilRes.data));
             } catch (e) {
@@ -243,9 +373,14 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
                 e?.message
               );
             }
+          } else {
+            console.log("[AUTH] 👤 User ya existe:", user);
           }
+        } else {
+          console.log("[AUTH] ❌ No hay accessToken");
         }
       } finally {
+        console.log("[AUTH] ✅ Terminando carga inicial, setLoadingUser(false)");
         setLoadingUser(false); // Terminó la carga inicial SIEMPRE
       }
     };
@@ -270,6 +405,8 @@ const AuthProviderBase = ({ children, onLogoutNavigate }) => {
         refreshToken,
         loadingUser,
         setAuthFromOAuth, // <-- expuesto para OAuth callback y signup
+        sendVerificationCode, // <-- nuevo: envío de códigos
+        verifyCode, // <-- nuevo: verificación de códigos
       }}
     >
       {children}
