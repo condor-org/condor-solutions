@@ -324,8 +324,15 @@ def confirmar_y_reservar_abono(abono: AbonoMes, comprobante_abono=None) -> Dict:
     abono.turnos_reservados.set(disponibles_act)
     abono.turnos_prioridad.set(disponibles_prox)
 
-    last_day = monthrange(abono.anio, abono.mes)[1]
-    abono.fecha_limite_renovacion = date(abono.anio, abono.mes, last_day)
+    # fecha_limite_renovacion = fecha del último turno reservado del abono
+    # El usuario tiene hasta esa fecha inclusive para renovar
+    if disponibles_act:
+        ultima_fecha_reservada = max(t.fecha for t in disponibles_act)
+        abono.fecha_limite_renovacion = ultima_fecha_reservada
+    else:
+        # Fallback: último día del mes si no hay turnos reservados (no debería pasar)
+        last_day = monthrange(abono.anio, abono.mes)[1]
+        abono.fecha_limite_renovacion = date(abono.anio, abono.mes, last_day)
     abono.save(update_fields=["fecha_limite_renovacion"])
 
     resumen = {
@@ -413,9 +420,15 @@ def procesar_renovacion_de_abono(abono_anterior: AbonoMes):
     abono_nuevo.turnos_reservados.set(turnos_prio)
     abono_anterior.turnos_prioridad.clear()
 
-    # Fecha límite de renovación del nuevo (último día de su mes)
-    last_day = monthrange(anio_nuevo, mes_nuevo)[1]
-    abono_nuevo.fecha_limite_renovacion = date(anio_nuevo, mes_nuevo, last_day)
+    # fecha_limite_renovacion = fecha del último turno reservado del abono
+    # El usuario tiene hasta esa fecha inclusive para renovar
+    if turnos_prio:
+        ultima_fecha_reservada = max(t.fecha for t in turnos_prio)
+        abono_nuevo.fecha_limite_renovacion = ultima_fecha_reservada
+    else:
+        # Fallback: último día del mes si no hay turnos reservados (no debería pasar)
+        last_day = monthrange(anio_nuevo, mes_nuevo)[1]
+        abono_nuevo.fecha_limite_renovacion = date(anio_nuevo, mes_nuevo, last_day)
     abono_nuevo.save(update_fields=["fecha_limite_renovacion"])
 
     # Reservar PRIORIDAD del mes siguiente del nuevo abono

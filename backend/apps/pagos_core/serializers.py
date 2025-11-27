@@ -127,11 +127,9 @@ class ComprobantePagoSerializer(LoggedModelSerializer):
         try:
             # Si tiene turno, usar la información del turno
             if obj.turno and obj.turno.usuario:
-                return (
-                    obj.turno.usuario.get_full_name()
-                    or obj.turno.usuario.username
-                    or obj.turno.usuario.email
-                )
+                usuario = obj.turno.usuario
+                nombre_completo = f"{usuario.nombre or ''} {usuario.apellido or ''}".strip()
+                return nombre_completo or usuario.username or usuario.email or ""
             # Si no tiene turno (rechazado), buscar en PagoIntento
             else:
                 from django.contrib.contenttypes.models import ContentType
@@ -142,11 +140,9 @@ class ComprobantePagoSerializer(LoggedModelSerializer):
                     object_id=obj.id
                 ).first()
                 if pago_intento:
-                    return (
-                        pago_intento.usuario.get_full_name()
-                        or pago_intento.usuario.username
-                        or pago_intento.usuario.email
-                    )
+                    usuario = pago_intento.usuario
+                    nombre_completo = f"{usuario.nombre or ''} {usuario.apellido or ''}".strip()
+                    return nombre_completo or usuario.username or usuario.email or ""
             return ""
         except Exception as e:
             print(f"[DEBUG] usuario_nombre ERROR comprobante {obj.id}: {e}")
@@ -445,7 +441,7 @@ class ComprobanteAbonoSerializer(LoggedModelSerializer):
     abono_mes_hora = serializers.TimeField(source="abono_mes.hora", read_only=True)
     abono_mes_hora_text = serializers.SerializerMethodField()
     abono_mes_prestador_nombre = serializers.SerializerMethodField()
-    usuario_nombre = serializers.CharField(source="abono_mes.usuario.nombre", read_only=True)
+    usuario_nombre = serializers.SerializerMethodField()
     usuario_email = serializers.CharField(source="abono_mes.usuario.email", read_only=True)
     cliente_nombre = serializers.CharField(source="cliente.nombre", read_only=True)
     tipo = serializers.SerializerMethodField()
@@ -579,6 +575,18 @@ class ComprobanteAbonoSerializer(LoggedModelSerializer):
         if prestador.user:
             return f"{prestador.user.nombre} {prestador.user.apellido}".strip()
         return None
+
+    def get_usuario_nombre(self, obj):
+        """Devuelve el nombre completo del usuario (nombre + apellido)"""
+        try:
+            if not obj.abono_mes or not obj.abono_mes.usuario:
+                return ""
+            usuario = obj.abono_mes.usuario
+            nombre_completo = f"{usuario.nombre or ''} {usuario.apellido or ''}".strip()
+            return nombre_completo or usuario.username or usuario.email or ""
+        except Exception as e:
+            print(f"[DEBUG] usuario_nombre ERROR comprobante abono {obj.id}: {e}")
+            return ""
 
 
 class ComprobanteAbonoUploadSerializer(serializers.Serializer):
