@@ -26,13 +26,13 @@ if (contactForm) {
         // Crear el mailto link
         const subject = encodeURIComponent(`Contacto desde sitio web - ${name}`);
         const body = encodeURIComponent(`Nombre: ${name}\nEmail: ${email}\n\nMensaje:\n${message}`);
-        const mailtoLink = `mailto:contacto@condor-solutions.com?subject=${subject}&body=${body}`;
+        const mailtoLink = `mailto:condor.ai.solutions@gmail.com?subject=${subject}&body=${body}`;
         
         // Abrir el cliente de email
         window.location.href = mailtoLink;
         
         // Mostrar mensaje de confirmación
-        alert('Redirigiendo a tu cliente de email. Si no se abre automáticamente, envía un email a contacto@condor-solutions.com');
+        alert('Redirigiendo a tu cliente de email. Si no se abre automáticamente, envía un email a condor.ai.solutions@gmail.com');
         
         // Limpiar el formulario
         contactForm.reset();
