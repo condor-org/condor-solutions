@@ -7,7 +7,7 @@ Sitio web oficial de Condor-Solutions, desarrollado para cumplir con los requisi
 - **Nombre Legal:** Condor-Solutions
 - **Dirección:** Argentina
 - **Teléfono:** +54 9 11 6051-3033
-- **Sitio Web:** https://condor-solutions.github.io/condor/
+- **Sitio Web:** https://condor-solutions.github.io/condor-solutions/
 
 ## Despliegue en GitHub Pages
 
@@ -20,7 +20,7 @@ Este sitio se despliega directamente en GitHub Pages **sin necesidad de workflow
    - **Branch:** `main` (o la rama que uses)
    - **Folder:** `/ (root)`
 3. Click en **Save**
-4. El sitio estará disponible en unos minutos en: `https://condor-solutions.github.io/condor/`
+4. El sitio estará disponible en unos minutos en: `https://condor-solutions.github.io/condor-solutions/`
 
 **Nota:** No necesitas workflows ni configuración adicional. GitHub Pages sirve automáticamente los archivos HTML/CSS/JS.
 
@@ -56,5 +56,5 @@ Este sitio incluye toda la información requerida por Meta para la verificación
 ## Contacto
 
 Para más información, contactanos:
-- Email: contacto@condor-solutions.com
+- Email: condor.ai.solutions@gmail.com
 - Teléfono: +54 9 11 6051-3033
