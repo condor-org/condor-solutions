@@ -1,60 +1,60 @@
-# Condor-Solutions - Sitio Web Oficial
+# condor-solutions — Sitio web institucional
 
-Sitio web oficial de Condor-Solutions, desarrollado para cumplir con los requisitos de verificación de negocio de Meta.
+**Qué es:** la landing pública y estática de Condor-Solutions.
 
-## Información del Negocio
+**Para qué existe:** es el **sitio web oficial del negocio** exigido por Meta para la
+**verificación de Business Account** (habilitar WhatsApp Business API). Expone de forma
+visible y accesible los datos legales del negocio (nombre, dirección, teléfono, web HTTPS)
+junto con una presentación de servicios y un formulario de contacto.
 
-- **Nombre Legal:** Condor-Solutions
-- **Dirección:** Argentina
-- **Teléfono:** +54 9 11 6051-3033
-- **Sitio Web:** https://condor-solutions.github.io/condor-solutions/
+> ⚠️ **No es parte del stack desplegado en la VM Oracle.** Este repo vive junto al resto del
+> ecosistema CONDOR (`condor-infra`, `condor-app-configs`, `ethe`, `padel`) solo por orden.
+> A diferencia de ellos, **no usa Traefik, ni Doppler, ni `cnd-ia.com`**: es un sitio estático
+> servido por **GitHub Pages**. Independiente y sin backend.
 
-## Despliegue en GitHub Pages
+- **URL:** https://condor-solutions.github.io/condor-solutions/
+- **Stack:** HTML5 + CSS3 + JavaScript vanilla. Sin build, sin dependencias, sin Node.
 
-Este sitio se despliega directamente en GitHub Pages **sin necesidad de workflows**. GitHub Pages sirve automáticamente los archivos estáticos.
-
-### Configuración Simple
-
-1. Ve a **Settings** → **Pages** en tu repositorio de GitHub
-2. En **Source**, selecciona:
-   - **Branch:** `main` (o la rama que uses)
-   - **Folder:** `/ (root)`
-3. Click en **Save**
-4. El sitio estará disponible en unos minutos en: `https://condor-solutions.github.io/condor-solutions/`
-
-**Nota:** No necesitas workflows ni configuración adicional. GitHub Pages sirve automáticamente los archivos HTML/CSS/JS.
-
-### Estructura del Proyecto
+## Estructura
 
 ```
-condor/
-├── index.html          # Página principal
-├── styles.css          # Estilos
-├── script.js           # JavaScript
-├── .nojekyll           # Archivo para GitHub Pages (desactiva Jekyll)
-├── .gitignore          # Archivos a ignorar
-└── README.md           # Este archivo
+index.html    # Página única (hero, info legal, servicios, sobre nosotros, contacto)
+styles.css    # Estilos
+script.js     # Interacciones del lado del cliente (nav, formulario)
+.nojekyll     # Desactiva el procesamiento Jekyll de GitHub Pages
 ```
 
-## Requisitos de Meta Business Verification
+`DOCUMENTOS_ARGENTINA_META.md` — guía de los documentos necesarios para la verificación de
+negocio de Meta en Argentina.
 
-Este sitio incluye toda la información requerida por Meta para la verificación de negocio:
+## Datos del negocio (los que ve Meta)
 
-- ✅ Nombre legal del negocio
-- ✅ Dirección del negocio
-- ✅ Teléfono del negocio
-- ✅ Sitio web HTTPS activo
-- ✅ Información visible y accesible
+| Campo | Valor |
+|---|---|
+| Razón social | Luque Ignacio Javier |
+| CUIT | 20-36357044-6 |
+| Nombre comercial | Condor Solutions |
+| Dirección | Mendoza 1925, Piso 9, CABA (1428), Argentina |
+| Teléfono | +54 9 11 6051-3033 |
+| Email | contacto@cnd-ia.com |
+| Sitio web | https://cnd-ia.com |
 
-## Tecnologías Utilizadas
+Mantener estos datos **idénticos** a los cargados en Meta Business Manager: cualquier
+discrepancia hace fallar la verificación.
 
-- HTML5
-- CSS3 (Vanilla)
-- JavaScript (Vanilla)
-- GitHub Pages para hosting
+## Desarrollo local
 
-## Contacto
+No requiere build. Abrir `index.html` en el navegador, o servirlo con cualquier servidor
+estático (`python3 -m http.server`).
 
-Para más información, contactanos:
-- Email: condor.ai.solutions@gmail.com
-- Teléfono: +54 9 11 6051-3033
+## Despliegue (GitHub Pages)
+
+No hay workflows: GitHub Pages sirve los archivos estáticos directamente.
+
+1. **Settings → Pages**
+2. **Source:** Branch `master`, carpeta `/ (root)`
+3. **Save** — el sitio queda online en pocos minutos.
+
+Cada push a la rama configurada actualiza el sitio automáticamente.
+</content>
+</invoke>
